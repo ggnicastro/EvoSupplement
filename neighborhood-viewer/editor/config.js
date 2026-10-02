@@ -2,7 +2,7 @@
  * Gene Neighborhood Viewer configuration — EDITOR page.
  *
  * manualLoad: true means the viewer waits for files selected in index.html.
- * Only the neighborhood TSV is required. Rename and color YAML dictionaries
+ * Only the neighborhood input is required. Rename and color YAML dictionaries
  * are optional and can be created or revised in the Domain curation panel.
  *
  * Publication figure pages leave manualLoad false and load hosted files from
@@ -14,6 +14,9 @@ window.NEIGHBORHOOD_VIEWER_CONFIG = {
   figureTitle: '',
 
   manualLoad: true,
+  // 'auto' recognizes the canonical TSV or the compact architecture format.
+  inputFormat: 'auto',
+
   dataUrl: '',
   colorUrl: '',
   renameUrl: '',

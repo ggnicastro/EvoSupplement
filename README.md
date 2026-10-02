@@ -23,7 +23,7 @@ The Studio root does not render a paper manifest. When the Project Builder creat
 |---|---|
 | [EvoSupplement Project Builder](builder/README.md) | Creates paper metadata, ordered sections, regular files, HTML packages, interactive figures, the publication manifest, documentation, citation metadata, and a GitHub Pages-ready ZIP. |
 | [Protein Structure and MSA Editor](protein-viewer/README.md) | Loads PDB or mmCIF structures, associates chains with MSA references, captures residue selections or imports user-created Mol* selection components, creates compatible annotation YAML, and previews the publication scene. |
-| [Gene Neighborhood Editor](neighborhood-viewer/README.md) | Loads neighborhood TSV data, curates domain display names and colors, ranks domain frequencies, and exports rename and color YAML files. |
+| [Gene Neighborhood Editor](neighborhood-viewer/README.md) | Loads standard TSV or compact architecture neighborhoods, curates domain display names and colors, ranks domain frequencies, and exports YAML dictionaries plus a normalized TSV. |
 | [Phylogeny Editor](phylogeny-viewer/README.md) | Authors publication-ready Newick figures with selected support markers, saved roots, colored clade groups, three layouts, optional TSV labels, and a generated phylogeny YAML without changing the source tree. |
 | [Network Editor](network-viewer/README.md) | Aggregates undirected relationships, filters by summed edge count, compares Louvain and Leiden communities, rearranges nodes, and generates node and color YAML files. |
 | [Taxonomy Sankey Editor](taxonomy-sankey-viewer/README.md) | Reconciles protein TaxIDs, freezes resolved lineages, controls taxonomic ranks and compression, curates labels and colors, and exports an offline publication Sankey. |

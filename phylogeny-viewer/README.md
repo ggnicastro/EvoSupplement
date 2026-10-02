@@ -236,7 +236,7 @@ Readers cannot permanently edit clade groups, marked supports, labels, or the pu
 
 ## Builder integration
 
-Builder 1.5.0 expects:
+Builder 1.5.1 expects:
 
 - a Newick tree — required;
 - `phylogeny.yaml` produced by the editor — required;

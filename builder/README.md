@@ -24,13 +24,13 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - external links;
 - coming-soon placeholders;
 - Protein Structure and MSA Viewer figures;
-- Gene Neighborhood Viewer figures;
+- Gene Neighborhood Viewer figures from canonical TSV or compact architecture inputs;
 - Phylogeny Viewer figures;
 - Network Viewer figures;
 - Taxonomy Flow Viewer figures generated from a frozen resolved-taxonomy TSV and curation YAML;
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.5.0 includes the Taxonomy Flow Viewer, the author-configured Phylogeny Viewer 2.1.0, and the Protein Domain Architecture Viewer 1.0.0 as selectable item types.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.5.1 includes the Taxonomy Flow Viewer, the author-configured Phylogeny Viewer 2.1.0, and the Protein Domain Architecture Viewer 1.0.0 as selectable item types.
 
 ## Editors and publication figures
 

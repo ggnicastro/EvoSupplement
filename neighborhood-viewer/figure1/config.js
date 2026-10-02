@@ -1,13 +1,16 @@
 /**
  * Gene Neighborhood Viewer configuration.
  *
- * All paths are relative to index.html. The viewer reads the original TSV
+ * All paths are relative to index.html. The viewer reads the original neighborhood input
  * directly and applies the rename/color dictionaries in the browser.
  */
 window.NEIGHBORHOOD_VIEWER_CONFIG = {
   title: 'Gene Neighborhood Viewer',
   paperTitle: '',
   figureTitle: 'Genomic neighborhoods',
+
+  // 'auto' recognizes the canonical TSV or the compact architecture format.
+  inputFormat: 'auto',
 
   dataUrl: './data/te.tsv',
   colorUrl: './data/color_dic.yaml',

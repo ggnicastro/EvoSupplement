@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_VERSION = '3.3.0';
+  const VIEWER_VERSION = '3.4.0';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const XLINK_NS = 'http://www.w3.org/1999/xlink';
   const FIELD_ALIASES = Object.freeze({
@@ -124,7 +124,8 @@
       // colorUrl/renameUrl on startup and instead waits for
       // NeighborhoodViewer.loadFromSources() to be called (e.g. from a file
       // picker). Published figure pages leave this false (the default).
-      manualLoad: raw.manualLoad === true
+      manualLoad: raw.manualLoad === true,
+      inputFormat: normalizeInputFormat(raw.inputFormat)
     };
   }
 
@@ -274,6 +275,450 @@
     return '';
   }
 
+  function normalizeInputFormat(value) {
+    const format = clean(value).toLocaleLowerCase();
+    return ['standard', 'compact'].includes(format) ? format : 'auto';
+  }
+
+  function detectNeighborhoodInputFormat(text) {
+    const lines = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
+    const firstLine = lines.find(line => line.trim());
+    if (!firstLine) throw new Error('The neighborhood input is empty.');
+    const values = parseTsvLine(firstLine);
+    const lowerHeaders = new Set(values.map(value => clean(value).toLocaleLowerCase()));
+    const standardRequired = ['block_id', 'pid', 'nucleotide', 'start', 'end', 'strand', 'query', 'dom', 'domp'];
+    if (standardRequired.every(name => lowerHeaders.has(name))) return 'standard';
+    if (
+      values.length >= 4
+      && /(?:->|<-|\|\|)/.test(values[1] || '')
+      && /__/.test(values[3] || '')
+    ) return 'compact';
+    return 'unknown';
+  }
+
+  function setOrientation(orientations, index, value, warnings, context) {
+    if (index < 0 || index >= orientations.length || !value) return;
+    if (orientations[index] && orientations[index] !== value) {
+      warnings.push(`${context}: conflicting orientation markers around gene ${index + 1}; using ${orientations[index]}.`);
+      return;
+    }
+    orientations[index] = value;
+  }
+
+  function splitCompactArchitecture(text, context, warnings) {
+    const tokens = String(text || '').split(/(\|\||->|<-)/);
+    const genes = [];
+    const separators = [];
+    let pending = [];
+    let leading = [];
+
+    for (const token of tokens) {
+      if (!token) continue;
+      if (token === '||' || token === '->' || token === '<-') {
+        pending.push(token);
+        continue;
+      }
+      const geneText = clean(token);
+      if (!geneText) continue;
+      if (!genes.length) leading = pending.slice();
+      else separators.push(pending.slice());
+      pending = [];
+      const domainTokens = geneText.split('+').map(clean).filter(Boolean);
+      const query = domainTokens.some(name => name.includes('*'));
+      const domains = domainTokens.map(name => clean(name.replace(/\*/g, '')) || '?');
+      genes.push({
+        text: geneText,
+        query,
+        domains: domains.length ? domains : ['?'],
+        strand: '+'
+      });
+    }
+
+    const trailing = pending.slice();
+    if (!genes.length) throw new Error(`${context}: the architecture field contains no genes.`);
+    while (separators.length < genes.length - 1) separators.push([]);
+
+    const orientations = new Array(genes.length).fill(null);
+    if (leading.includes('<-')) setOrientation(orientations, 0, '-', warnings, context);
+    else if (leading.includes('->')) setOrientation(orientations, 0, '+', warnings, context);
+
+    const relations = [];
+    separators.forEach((ops, index) => {
+      const flipIndex = ops.indexOf('||');
+      const opposite = flipIndex >= 0;
+      relations[index] = opposite ? 'opposite' : 'same';
+      if (!opposite) {
+        if (ops.includes('->')) {
+          setOrientation(orientations, index, '+', warnings, context);
+          setOrientation(orientations, index + 1, '+', warnings, context);
+        } else if (ops.includes('<-')) {
+          setOrientation(orientations, index, '-', warnings, context);
+          setOrientation(orientations, index + 1, '-', warnings, context);
+        }
+        return;
+      }
+      const before = ops.slice(0, flipIndex);
+      const after = ops.slice(flipIndex + 1);
+      if (before.includes('->')) setOrientation(orientations, index, '+', warnings, context);
+      else if (before.includes('<-')) setOrientation(orientations, index, '-', warnings, context);
+      if (after.includes('<-')) setOrientation(orientations, index + 1, '-', warnings, context);
+      else if (after.includes('->')) setOrientation(orientations, index + 1, '+', warnings, context);
+    });
+
+    if (trailing.includes('->')) setOrientation(orientations, genes.length - 1, '+', warnings, context);
+    else if (trailing.includes('<-')) setOrientation(orientations, genes.length - 1, '-', warnings, context);
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let index = 0; index < relations.length; index += 1) {
+        const left = orientations[index];
+        const right = orientations[index + 1];
+        const opposite = relations[index] === 'opposite';
+        if (left && !right) {
+          orientations[index + 1] = opposite ? (left === '+' ? '-' : '+') : left;
+          changed = true;
+        } else if (!left && right) {
+          orientations[index] = opposite ? (right === '+' ? '-' : '+') : right;
+          changed = true;
+        }
+      }
+    }
+    if (!orientations.some(Boolean)) orientations[0] = '+';
+    for (let index = 0; index < genes.length; index += 1) {
+      if (!orientations[index]) {
+        if (index > 0 && orientations[index - 1]) {
+          const opposite = relations[index - 1] === 'opposite';
+          orientations[index] = opposite
+            ? (orientations[index - 1] === '+' ? '-' : '+')
+            : orientations[index - 1];
+        } else {
+          orientations[index] = '+';
+        }
+      }
+      genes[index].strand = orientations[index];
+    }
+
+    return { genes, leading, separators, trailing };
+  }
+
+  function parseCompactDetailGene(text, context, geneIndex, warnings) {
+    const raw = clean(text);
+    const separator = raw.indexOf('__');
+    const rawPid = separator >= 0 ? clean(raw.slice(0, separator)) : raw;
+    const annotationText = separator >= 0 ? clean(raw.slice(separator + 2)) : '';
+    const pid = rawPid && rawPid !== '.' && rawPid !== '?' ? rawPid : '';
+    const domains = [];
+
+    if (annotationText && annotationText !== '?') {
+      annotationText.split(',').map(clean).filter(Boolean).forEach((token, domainIndex) => {
+        const ampersand = token.indexOf('&');
+        const coordinateText = ampersand >= 0 ? clean(token.slice(0, ampersand)) : '';
+        const rawNameWithMarker = ampersand >= 0 ? clean(token.slice(ampersand + 1)) : clean(token);
+        const rawName = clean(rawNameWithMarker.replace(/\*/g, '')) || '?';
+        const match = coordinateText.match(/^(\d+)\.\.(\d+)$/);
+        const start = match ? Number(match[1]) : NaN;
+        const end = match ? Number(match[2]) : NaN;
+        if (coordinateText && !match) {
+          warnings.push(`${context}: gene ${geneIndex + 1}, domain ${domainIndex + 1} has an unrecognized coordinate “${coordinateText}”.`);
+        }
+        domains.push({
+          rawName,
+          start: Number.isFinite(start) ? Math.min(start, end) : NaN,
+          end: Number.isFinite(end) ? Math.max(start, end) : NaN
+        });
+      });
+    }
+
+    if (!domains.length) domains.push({ rawName: '?', start: NaN, end: NaN });
+    const maxEnd = domains.reduce((maximum, domain) => Number.isFinite(domain.end) ? Math.max(maximum, domain.end) : maximum, 0);
+    return { pid, domains, maxEnd, sourceText: raw };
+  }
+
+  function compactDomainSimilarity(architectureDomains, detailDomains) {
+    const left = architectureDomains.map(name => clean(name).toLocaleLowerCase());
+    const right = detailDomains.map(domain => clean(domain.rawName).toLocaleLowerCase());
+    if (left.length === right.length && left.every((name, index) => name === right[index])) return 100 + left.length;
+    const leftKnown = left.filter(name => name && name !== '?');
+    const rightKnown = right.filter(name => name && name !== '?');
+    if (!leftKnown.length || !rightKnown.length) return 1;
+    const rightCounts = new Map();
+    rightKnown.forEach(name => rightCounts.set(name, (rightCounts.get(name) || 0) + 1));
+    let overlap = 0;
+    leftKnown.forEach(name => {
+      const count = rightCounts.get(name) || 0;
+      if (count > 0) {
+        overlap += 1;
+        rightCounts.set(name, count - 1);
+      }
+    });
+    return (overlap / Math.max(leftKnown.length, rightKnown.length)) * 20;
+  }
+
+  function chooseCompactDetailOrder(architectureGenes, detailGenes, queryPid, context, warnings) {
+    const candidates = [
+      { name: 'direct', genes: detailGenes.slice() },
+      { name: 'reverse', genes: detailGenes.slice().reverse() }
+    ];
+    const queryIndex = architectureGenes.findIndex(gene => gene.query);
+    for (const candidate of candidates) {
+      candidate.score = architectureGenes.reduce((sum, gene, index) => {
+        const detail = candidate.genes[index];
+        if (!detail) return sum - 25;
+        let score = compactDomainSimilarity(gene.domains, detail.domains);
+        if (gene.query && detail.pid === queryPid) score += 1000;
+        else if (gene.query && detail.pid) score -= 500;
+        return sum + score;
+      }, 0);
+      candidate.queryIndex = candidate.genes.findIndex(gene => gene.pid === queryPid);
+      if (candidate.queryIndex === queryIndex) candidate.score += 250;
+    }
+    candidates.sort((a, b) => b.score - a.score || (a.name === 'direct' ? -1 : 1));
+    const chosen = candidates[0];
+    if (chosen.queryIndex !== queryIndex) {
+      warnings.push(`${context}: the detailed query PID could not be aligned to the starred architecture gene; architecture order was retained.`);
+    }
+    return chosen;
+  }
+
+  function matchCompactDomain(architectureName, detailDomains, used) {
+    const target = clean(architectureName).toLocaleLowerCase();
+    let index = detailDomains.findIndex((domain, candidateIndex) => !used.has(candidateIndex)
+      && clean(domain.rawName).toLocaleLowerCase() === target);
+    if (index < 0) index = detailDomains.findIndex((domain, candidateIndex) => !used.has(candidateIndex));
+    if (index < 0) return null;
+    used.add(index);
+    return detailDomains[index];
+  }
+
+  function finalizeCompactEntry(entry, config) {
+    entry.queryGenes = entry.genes.filter(gene => gene.query);
+    const anchors = entry.queryGenes.length ? entry.queryGenes : [entry.genes[Math.floor(entry.genes.length / 2)]];
+    entry.anchorCenter = anchors.reduce((sum, gene) => sum + (gene.start + gene.end) / 2, 0) / Math.max(1, anchors.length);
+    const strandScore = anchors.reduce((sum, gene) => sum + (gene.strand === '-' ? -1 : 1), 0);
+    entry.anchorStrand = strandScore < 0 ? '-' : anchors[0].strand;
+    entry.queryPids = entry.queryGenes.map(gene => gene.pid);
+    entry.regionStart = Math.min(...entry.genes.map(gene => gene.start));
+    entry.regionEnd = Math.max(...entry.genes.map(gene => gene.end));
+
+    const domainRaw = entry.genes.flatMap(gene => gene.domains.map(domain => domain.rawName));
+    const domainDisplay = entry.genes.flatMap(gene => gene.domains.map(domain => domain.name));
+    const lowerJoin = values => values.filter(Boolean).join(' ').toLocaleLowerCase();
+    entry.searchFields = {
+      domain: lowerJoin([...domainRaw, ...domainDisplay, ...entry.genes.map(gene => gene.arch), ...entry.genes.map(gene => gene.profiledb)]),
+      pfam: lowerJoin(entry.genes.map(gene => gene.pfam)),
+      organism: lowerJoin([entry.organism, ...entry.genes.map(gene => gene.organism)]),
+      taxonomy: lowerJoin([entry.classification, entry.lineage, entry.taxid, ...entry.genes.map(gene => gene.classification), ...entry.genes.map(gene => gene.lineage)]),
+      pid: lowerJoin([...entry.genes.map(gene => gene.pid), ...entry.genes.map(gene => gene.internalId), ...entry.genes.map(gene => gene.replaced), ...entry.genes.map(gene => gene.locus)]),
+      nucleotide: lowerJoin([entry.nucleotide]),
+      product: lowerJoin(entry.genes.map(gene => gene.product)),
+      assembly: lowerJoin([entry.assembly, ...entry.genes.map(gene => gene.assembly)]),
+      block: lowerJoin([entry.id])
+    };
+    entry.searchFields.all = lowerJoin(Object.values(entry.searchFields));
+    return entry;
+  }
+
+  function parseCompactNeighborhoodInput(text, renameObject, colorObject, config) {
+    const renameLookup = makeCaseInsensitiveLookup(renameObject);
+    const colorLookup = makeCaseInsensitiveLookup(colorObject);
+    const markerLookup = makeCaseInsensitiveLookup(config.markerDomains);
+    const lines = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
+    const entries = [];
+    const warnings = [];
+    let totalGenes = 0;
+    let totalDomains = 0;
+    let totalMarkers = 0;
+    let validRows = 0;
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const rawLine = lines[lineIndex];
+      if (!rawLine || !rawLine.trim()) continue;
+      const values = parseTsvLine(rawLine);
+      if (values.length < 4) throw new Error(`Compact line ${lineIndex + 1}: expected four tab-separated fields.`);
+      const queryPid = clean(values[0]);
+      const architectureText = clean(values[1]);
+      const organism = clean(values[2]);
+      const detailText = values.slice(3).join('\t').trim();
+      if (!queryPid || !architectureText || !detailText) {
+        throw new Error(`Compact line ${lineIndex + 1}: query PID, architecture, and detailed gene list are required.`);
+      }
+      if (lineIndex === 0 && queryPid.toLocaleLowerCase() === 'pid' && architectureText.toLocaleLowerCase().includes('architecture')) continue;
+      const context = `Compact line ${lineIndex + 1} (${queryPid})`;
+      const architecture = splitCompactArchitecture(architectureText, context, warnings);
+      const detailGenes = detailText.split(';').map(clean).filter(Boolean)
+        .map((geneText, geneIndex) => parseCompactDetailGene(geneText, context, geneIndex, warnings));
+      if (detailGenes.length !== architecture.genes.length) {
+        warnings.push(`${context}: architecture has ${architecture.genes.length} genes but the detailed field has ${detailGenes.length}; unmatched genes will use placeholders.`);
+      }
+      const chosenOrder = chooseCompactDetailOrder(architecture.genes, detailGenes, queryPid, context, warnings);
+      const orderedDetails = chosenOrder.genes;
+      let cursor = 1;
+      const genes = [];
+
+      architecture.genes.forEach((geneSpec, geneIndex) => {
+        const detail = orderedDetails[geneIndex] || { pid: '', domains: [{ rawName: '?', start: NaN, end: NaN }], maxEnd: 0 };
+        const query = Boolean(geneSpec.query);
+        const pid = detail.pid || `unknown_${queryPid}_${geneIndex + 1}`;
+        const estimatedAa = Math.max(detail.maxEnd || 0, geneSpec.domains.length * 45, 60);
+        const span = Math.max(120, Math.round(estimatedAa * 3));
+        const start = cursor;
+        const end = cursor + span - 1;
+        cursor = end + 61;
+        const usedDetailDomains = new Set();
+        const domains = geneSpec.domains.map((rawDomainName, domainIndex) => {
+          const rawName = clean(rawDomainName) || '?';
+          const displayName = domainDisplayName(rawName, renameLookup);
+          const marker = domainMarker(displayName, rawName, markerLookup);
+          const matched = matchCompactDomain(rawName, detail.domains, usedDetailDomains);
+          return {
+            rawName,
+            name: displayName,
+            order: domainIndex,
+            blockOrder: geneIndex,
+            color: marker?.color || domainColor(displayName, rawName, colorLookup, config.unknownDomainColor),
+            marker,
+            proteinStart: matched?.start,
+            proteinEnd: matched?.end
+          };
+        });
+        const gene = {
+          pid,
+          start,
+          end,
+          strand: geneSpec.strand,
+          query,
+          plen: detail.maxEnd || NaN,
+          locus: '',
+          geneName: '',
+          type: '',
+          seqType: '',
+          assembly: '',
+          product: '',
+          taxid: '',
+          organism,
+          lineage: '',
+          classification: '',
+          featureOrder: geneIndex,
+          internalId: '',
+          replaced: '',
+          c80e3: '',
+          arch: geneSpec.domains.join('+'),
+          profiledb: '',
+          pfam: '',
+          domains
+        };
+        genes.push(gene);
+      });
+
+      const queryGene = genes.find(gene => gene.query);
+      if (!queryGene) throw new Error(`${context}: no starred query domain was found in the architecture.`);
+      if (queryGene.pid !== queryPid) {
+        const matchingIndex = genes.findIndex(gene => gene.pid === queryPid);
+        if (matchingIndex >= 0) {
+          warnings.push(`${context}: detailed gene order disagreed with the starred query position; the starred architecture position remains authoritative.`);
+        } else {
+          warnings.push(`${context}: query PID ${queryPid} was not found in the detailed field; the starred gene was retained with its matched PID.`);
+        }
+      }
+
+      const entry = finalizeCompactEntry({
+        id: `compact:${String(validRows + 1).padStart(5, '0')}:${queryPid}`,
+        nucleotide: '',
+        assembly: '',
+        taxid: '',
+        organism,
+        lineage: '',
+        classification: '',
+        sourceOrder: validRows,
+        sourceArchitecture: architectureText,
+        compactDetailOrder: chosenOrder.name,
+        inputFormat: 'compact',
+        genes
+      }, config);
+      entries.push(entry);
+      validRows += 1;
+      totalGenes += genes.length;
+      for (const gene of genes) {
+        for (const domain of gene.domains) {
+          if (domain.marker) totalMarkers += 1;
+          else totalDomains += 1;
+        }
+      }
+    }
+
+    if (!entries.length) throw new Error('No valid compact neighborhoods were found.');
+    return {
+      entries,
+      stats: { neighborhoods: entries.length, genes: totalGenes, domains: totalDomains, markers: totalMarkers, rows: validRows },
+      warnings
+    };
+  }
+
+  function tsvCell(value) {
+    const text = value == null ? '' : String(value);
+    return /[\t\r\n"]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function serializeNormalizedNeighborhoodTsv(entries) {
+    const headers = [
+      'block_id', 'pid', 'nucleotide', 'start', 'end', 'strand', 'query', 'plen',
+      'dom', 'domp', 'domain_start', 'domain_end', 'blockp', 'feature_order', 'organism', 'taxid', 'lineage',
+      'classification', 'assembly', 'product', 'locus', 'arch', 'profiledb', 'pfam'
+    ];
+    const lines = [headers.join('\t')];
+    for (const entry of entries) {
+      entry.genes.forEach((gene, geneIndex) => {
+        const domains = gene.domains.length ? gene.domains : [{ rawName: '?', order: 0, blockOrder: geneIndex }];
+        domains.forEach((domain, domainIndex) => {
+          const row = {
+            block_id: entry.id,
+            pid: gene.pid,
+            nucleotide: entry.nucleotide,
+            start: gene.start,
+            end: gene.end,
+            strand: gene.strand,
+            query: gene.query ? 1 : 0,
+            plen: Number.isFinite(gene.plen) ? gene.plen : '',
+            dom: domain.rawName,
+            domp: Number.isFinite(domain.order) ? domain.order : domainIndex,
+            domain_start: Number.isFinite(domain.proteinStart) ? domain.proteinStart : '',
+            domain_end: Number.isFinite(domain.proteinEnd) ? domain.proteinEnd : '',
+            blockp: Number.isFinite(domain.blockOrder) ? domain.blockOrder : geneIndex,
+            feature_order: Number.isFinite(gene.featureOrder) ? gene.featureOrder : geneIndex,
+            organism: gene.organism || entry.organism,
+            taxid: gene.taxid || entry.taxid,
+            lineage: gene.lineage || entry.lineage,
+            classification: gene.classification || entry.classification,
+            assembly: gene.assembly || entry.assembly,
+            product: gene.product,
+            locus: gene.locus,
+            arch: gene.arch,
+            profiledb: gene.profiledb,
+            pfam: gene.pfam
+          };
+          lines.push(headers.map(header => tsvCell(row[header])).join('\t'));
+        });
+      });
+    }
+    return `${lines.join('\n')}\n`;
+  }
+
+  function parseNeighborhoodInput(text, renameObject, colorObject, config, requestedFormat = 'auto') {
+    const requested = normalizeInputFormat(requestedFormat || config.inputFormat);
+    const detected = requested === 'auto' ? detectNeighborhoodInputFormat(text) : requested;
+    if (detected === 'unknown') {
+      throw new Error('Could not recognize the neighborhood input. Choose Standard TSV or Compact architecture explicitly.');
+    }
+    const parsed = detected === 'compact'
+      ? parseCompactNeighborhoodInput(text, renameObject, colorObject, config)
+      : parseNeighborhoodTsv(text, renameObject, colorObject, config);
+    parsed.inputFormat = detected;
+    parsed.warnings = Array.isArray(parsed.warnings) ? parsed.warnings : [];
+    parsed.normalizedTsv = serializeNormalizedNeighborhoodTsv(parsed.entries);
+    return parsed;
+  }
+
   function parseNeighborhoodTsv(text, renameObject, colorObject, config) {
     const renameLookup = makeCaseInsensitiveLookup(renameObject);
     const colorLookup = makeCaseInsensitiveLookup(colorObject);
@@ -377,7 +822,9 @@
         order: finiteNumber(valueAt(values, 'domp'), gene.domains.length),
         blockOrder: finiteNumber(valueAt(values, 'blockp'), Number.POSITIVE_INFINITY),
         color: marker?.color || domainColor(displayName, rawName, colorLookup, config.unknownDomainColor),
-        marker
+        marker,
+        proteinStart: clean(valueAt(values, 'domain_start')) ? finiteNumber(valueAt(values, 'domain_start')) : NaN,
+        proteinEnd: clean(valueAt(values, 'domain_end')) ? finiteNumber(valueAt(values, 'domain_end')) : NaN
       });
     }
 
@@ -918,6 +1365,12 @@
     return url.toString();
   }
 
+  function ncbiProteinUrl(pid) {
+    const accession = clean(pid);
+    if (!accession || accession.startsWith('unknown_')) return '';
+    return `https://www.ncbi.nlm.nih.gov/protein/${encodeURIComponent(accession)}`;
+  }
+
   function createTooltip(host) {
     const element = document.createElement('div');
     element.className = 'nbh-tooltip';
@@ -959,12 +1412,21 @@
       addField(list, 'Organism', gene.organism || entry.organism);
       addField(list, 'Taxonomy', gene.classification || entry.classification || gene.lineage || entry.lineage);
       addField(list, 'Product', gene.product);
-      addField(list, 'Region', `${entry.nucleotide}:${formatInt(gene.start)}–${formatInt(gene.end)} (${gene.strand})`);
+      if (entry.nucleotide) {
+        addField(list, 'Region', `${entry.nucleotide}:${formatInt(gene.start)}–${formatInt(gene.end)} (${gene.strand})`);
+      } else {
+        addField(list, 'Orientation', gene.strand === '-' ? 'Reverse' : 'Forward');
+      }
+      if (domain && Number.isFinite(domain.proteinStart) && Number.isFinite(domain.proteinEnd)) {
+        addField(list, 'Domain span', `${formatInt(domain.proteinStart)}–${formatInt(domain.proteinEnd)} aa`);
+      }
       element.appendChild(list);
 
       const foot = document.createElement('div');
       foot.className = 'nbh-tooltip-foot';
-      foot.textContent = 'Click the arrow to open this region at NCBI ↗';
+      foot.textContent = entry.nucleotide
+        ? 'Click the arrow to open this region at NCBI ↗'
+        : (ncbiProteinUrl(gene.pid) ? 'Click the arrow to open this protein at NCBI ↗' : 'Schematic gene; no external accession is available.');
       element.appendChild(foot);
     }
 
@@ -1070,12 +1532,16 @@
       clipPath.appendChild(createSvgElement('polygon', { points }));
       defs.appendChild(clipPath);
 
-      const href = ncbiUrl(entry.nucleotide, gene.start, gene.end, gene.strand);
+      const href = entry.nucleotide
+        ? ncbiUrl(entry.nucleotide, gene.start, gene.end, gene.strand)
+        : ncbiProteinUrl(gene.pid);
       const link = createSvgElement('a', {
         class: 'nbh-gene-link',
         target: '_blank',
         rel: 'noopener noreferrer',
-        'aria-label': `${gene.pid}; open ${entry.nucleotide}:${gene.start}-${gene.end} at NCBI`
+        'aria-label': href
+          ? `${gene.pid}; open at NCBI`
+          : `${gene.pid}; schematic gene`
       });
       if (href) {
         link.setAttribute('href', href);
@@ -1210,12 +1676,18 @@
       primary.appendChild(count);
     }
 
-    const region = document.createElement('a');
-    region.textContent = `${entry.nucleotide}:${formatInt(entry.regionStart)}–${formatInt(entry.regionEnd)} ↗`;
-    region.href = ncbiUrl(entry.nucleotide, entry.regionStart, entry.regionEnd);
-    region.target = '_blank';
-    region.rel = 'noopener noreferrer';
-    region.title = 'Open the neighborhood at NCBI';
+    const region = document.createElement(entry.nucleotide ? 'a' : 'span');
+    region.className = 'nbh-region-label';
+    if (entry.nucleotide) {
+      region.textContent = `${entry.nucleotide}:${formatInt(entry.regionStart)}–${formatInt(entry.regionEnd)} ↗`;
+      region.href = ncbiUrl(entry.nucleotide, entry.regionStart, entry.regionEnd);
+      region.target = '_blank';
+      region.rel = 'noopener noreferrer';
+      region.title = 'Open the neighborhood at NCBI';
+    } else {
+      region.textContent = `${numberText(entry.genes.length)} genes · schematic`;
+      region.title = 'Schematic neighborhood reconstructed from compact architecture input';
+    }
 
     const organism = document.createElement('em');
     organism.textContent = entry.organism || 'Organism not provided';
@@ -1349,6 +1821,9 @@
       filteredEntries: [],
       stats: { neighborhoods: 0, genes: 0, domains: 0, markers: 0, rows: 0 },
       rawTsvText: '',
+      inputFormat: '',
+      normalizedTsv: '',
+      parseWarnings: [],
       renameMap: Object.create(null),
       colorMap: Object.create(null),
       domainEditMode: false,
@@ -1610,7 +2085,7 @@
     }
 
     // --- Data loading (shared by auto-load and the editor file picker) -------
-    // sources may be { tsv, color, rename } where each value is either a URL
+    // sources may be { tsv, color, rename, format } where each value is either a URL
     // string or a File object (see readSource() above). The TSV is required;
     // rename and color dictionaries are optional in editor workflows.
     function applyParsedData(parsed, options = {}) {
@@ -1631,7 +2106,9 @@
         reason: options.reason || 'load',
         stats: { ...state.stats },
         domainStats: getDomainStats({ scope: 'all' }),
-        dictionaries: getDictionaries()
+        dictionaries: getDictionaries(),
+        inputFormat: state.inputFormat,
+        warnings: state.parseWarnings.slice()
       });
     }
 
@@ -1640,14 +2117,17 @@
       if (elements.statusText) elements.statusText.textContent = 'Loading…';
       try {
         const [tsvText, colorText, renameText] = await Promise.all([
-          readSource(sources.tsv, 'TSV', config.maxDataBytes),
+          readSource(sources.tsv, 'neighborhood input', config.maxDataBytes),
           readOptionalSource(sources.color, 'color dictionary', config.maxDataBytes),
           readOptionalSource(sources.rename, 'rename dictionary', config.maxDataBytes)
         ]);
         const colors = parseFlatYaml(colorText, 'color_dic.yaml');
         const renames = parseFlatYaml(renameText, 'domain_rename.yaml');
-        const parsed = parseNeighborhoodTsv(tsvText, renames, colors, config);
+        const parsed = parseNeighborhoodInput(tsvText, renames, colors, config, sources.format || config.inputFormat);
         state.rawTsvText = tsvText;
+        state.inputFormat = parsed.inputFormat;
+        state.normalizedTsv = parsed.normalizedTsv;
+        state.parseWarnings = parsed.warnings.slice();
         state.colorMap = copyFlatObject(colors);
         state.renameMap = copyFlatObject(renames);
         state.highlightedDomain = '';
@@ -1665,10 +2145,12 @@
     }
 
     function updateDictionaries(next = {}) {
-      if (!state.rawTsvText) throw new Error('Load a neighborhood TSV before editing domain dictionaries.');
+      if (!state.rawTsvText) throw new Error('Load a neighborhood input before editing domain dictionaries.');
       const renames = next.renames == null ? state.renameMap : copyFlatObject(next.renames);
       const colors = next.colors == null ? state.colorMap : copyFlatObject(next.colors);
-      const parsed = parseNeighborhoodTsv(state.rawTsvText, renames, colors, config);
+      const parsed = parseNeighborhoodInput(state.rawTsvText, renames, colors, config, state.inputFormat || config.inputFormat);
+      state.normalizedTsv = parsed.normalizedTsv;
+      state.parseWarnings = parsed.warnings.slice();
       state.renameMap = renames;
       state.colorMap = colors;
       applyParsedData(parsed, { resetFilters: false, resetScroll: false, reason: 'dictionary-update' });
@@ -1689,8 +2171,13 @@
       getSummary: () => ({
         stats: { ...state.stats },
         visibleNeighborhoods: state.filteredEntries.length,
-        totalNeighborhoods: state.allEntries.length
+        totalNeighborhoods: state.allEntries.length,
+        inputFormat: state.inputFormat,
+        warnings: state.parseWarnings.slice()
       }),
+      getInputFormat: () => state.inputFormat,
+      getWarnings: () => state.parseWarnings.slice(),
+      getNormalizedTsv: () => state.normalizedTsv,
       setDomainEditMode: value => { state.domainEditMode = Boolean(value); },
       setHighlightedDomain,
       onDomainSelect: handler => addHandler(state.domainSelectHandlers, handler),
@@ -1702,10 +2189,24 @@
     if (!config.manualLoad) {
       await loadFromSources({ tsv: config.dataUrl, color: config.colorUrl, rename: config.renameUrl });
     } else if (elements.statusText) {
-      elements.statusText.textContent = 'Choose a TSV, then optionally add rename and color YAML files.';
+      elements.statusText.textContent = 'Choose a neighborhood input, then optionally add rename and color YAML files.';
     }
   }
 
   // Not frozen because init() attaches the editor-facing API at runtime.
-  window.NeighborhoodViewer = { version: VIEWER_VERSION, init };
+  window.NeighborhoodViewer = {
+    version: VIEWER_VERSION,
+    init,
+    detectInputFormat: detectNeighborhoodInputFormat,
+    parseInput(text, options = {}) {
+      const config = normalizeConfig(options.config || {});
+      return parseNeighborhoodInput(
+        text,
+        options.renames || Object.create(null),
+        options.colors || Object.create(null),
+        config,
+        options.format || config.inputFormat
+      );
+    }
+  };
 })();

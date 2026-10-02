@@ -6,8 +6,8 @@
   <meta name="description" content="Author workspace for loading, curating, and exporting Gene Neighborhood Viewer inputs.">
   <meta name="theme-color" content="#172033">
   <title>Gene Neighborhood Editor</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=3.3.0">
-  <link rel="stylesheet" href="./editor.css?v=1.0.0">
+  <link rel="stylesheet" href="../shared/styles.css?v=3.4.0">
+  <link rel="stylesheet" href="./editor.css?v=1.1.0">
 </head>
 <body>
   <header class="app-header">
@@ -32,11 +32,19 @@
   <main class="page-shell">
     <section class="nbh-load-bar" aria-label="Load neighborhood editor inputs">
       <div class="nbh-file-field">
-        <span>Neighborhood TSV</span>
-        <button class="nbh-file-button" id="chooseTsvButton" type="button">Choose TSV</button>
+        <span>Neighborhood input</span>
+        <button class="nbh-file-button" id="chooseTsvButton" type="button">Choose input</button>
         <span class="nbh-file-name" id="tsvFileName">No file selected</span>
         <button class="nbh-file-clear" id="clearTsvButton" type="button" title="Clear TSV">Clear</button>
       </div>
+      <label class="nbh-file-field nbh-format-field">
+        <span>Input format</span>
+        <select class="nbh-format-select" id="neighborhoodInputFormat">
+          <option value="auto" selected>Auto-detect</option>
+          <option value="standard">Standard neighborhood TSV</option>
+          <option value="compact">Compact architecture</option>
+        </select>
+      </label>
       <div class="nbh-file-field">
         <span>Rename YAML <span class="nbh-optional">optional</span></span>
         <button class="nbh-file-button" id="chooseRenameButton" type="button">Choose YAML</button>
@@ -50,7 +58,7 @@
         <button class="nbh-file-clear" id="clearColorButton" type="button" title="Clear color YAML">Clear</button>
       </div>
       <button class="nbh-load-button" id="loadFilesButton" type="button" disabled>Load files</button>
-      <span class="nbh-editor-hint">Only the neighborhood TSV is required. Existing rename and color YAML files can be loaded, edited, and exported as new files. Everything stays in this browser tab.</span>
+      <span class="nbh-editor-hint">Only the neighborhood input is required. Standard TSV and compact architecture files are both supported. Existing rename and color YAML files can be loaded, edited, and exported as new files. Everything stays in this browser tab.</span>
     </section>
 
     <details class="nbh-curation-card" id="domainCurationCard" hidden open>
@@ -59,7 +67,7 @@
         <span class="nbh-curation-summary" id="domainCurationSummary">Waiting for data</span>
       </summary>
       <div class="nbh-curation-content">
-        <p class="nbh-curation-intro">Rank domains by frequency, suggest a reproducible color palette for the most frequent domains, rename individual domains, and export publication-ready flat YAML dictionaries. The original TSV domain identifier always remains the canonical key.</p>
+        <p class="nbh-curation-intro">Rank domains by frequency, suggest a reproducible color palette for the most frequent domains, rename individual domains, export publication-ready flat YAML dictionaries, and download a canonical normalized TSV from either input format. The original TSV domain identifier always remains the canonical key.</p>
 
         <div class="nbh-curation-controls">
           <label class="nbh-editor-field">
@@ -158,7 +166,8 @@
           <label class="nbh-check-line"><input id="dummyExportSpacer" type="checkbox" checked disabled hidden><span>Exports contain only selected colors and names changed from their original identifiers.</span></label>
           <button class="nbh-editor-button" id="downloadRenameYaml" type="button" disabled>Download rename YAML</button>
           <button class="nbh-editor-button" id="downloadColorYaml" type="button" disabled>Download color YAML</button>
-          <button class="nbh-editor-button is-primary" id="downloadBothYaml" type="button" disabled>Download both as ZIP</button>
+          <button class="nbh-editor-button" id="downloadNormalizedTsv" type="button" disabled>Download normalized TSV</button>
+          <button class="nbh-editor-button is-primary" id="downloadBothYaml" type="button" disabled>Download package ZIP</button>
           <p class="nbh-curation-message" id="domainCurationMessage" aria-live="polite"></p>
         </div>
       </div>
@@ -234,19 +243,19 @@
   </main>
 
   <footer class="page-footer">
-    <span>This editor never overwrites selected files; use the export buttons to save new YAML dictionaries.</span>
+    <span>This editor never overwrites selected files; use the export buttons to save YAML dictionaries or a normalized TSV.</span>
     <span aria-hidden="true">•</span>
     <span>Publication figure pages do not include curation controls.</span>
   </footer>
 
-  <input id="tsvFileInput" type="file" accept=".tsv,.txt,text/tab-separated-values" hidden>
+  <input id="tsvFileInput" type="file" hidden>
   <input id="renameFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
   <input id="colorFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
 
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./config.js?v=7"></script>
-  <script src="../shared/neighborhood-viewer.js?v=3.3.0"></script>
-  <script src="./domain-curation.js?v=1.0.0"></script>
+  <script src="./config.js?v=8"></script>
+  <script src="../shared/neighborhood-viewer.js?v=3.4.0"></script>
+  <script src="./domain-curation.js?v=1.1.0"></script>
   <script>
     (async () => {
       await window.NeighborhoodViewer.init({
@@ -270,7 +279,7 @@
         colorPicker: 'selectedDomainColorPicker', colorText: 'selectedDomainColorText', resetColor: 'resetDomainColor',
         countOccurrences: 'selectedDomainOccurrences', countGenes: 'selectedDomainGenes', countNeighborhoods: 'selectedDomainNeighborhoods',
         markerNote: 'selectedDomainMarkerNote', renameDownload: 'downloadRenameYaml', colorDownload: 'downloadColorYaml',
-        bothDownload: 'downloadBothYaml', message: 'domainCurationMessage'
+        bothDownload: 'downloadBothYaml', normalizedDownload: 'downloadNormalizedTsv', inputFormat: 'neighborhoodInputFormat', message: 'domainCurationMessage'
       });
     })();
   </script>

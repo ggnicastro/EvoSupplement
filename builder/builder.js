@@ -1,11 +1,11 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.5.0';
+  const BUILDER_VERSION = '1.5.1';
   const PROJECT_SCHEMA_VERSION = 1;
   const MODULE_VERSIONS = {
     protein: '2.13.0',
-    neighborhood: '3.3.0',
+    neighborhood: '3.4.0',
     phylogeny: '2.1.0',
     network: '1.2.0',
     taxonomy: '1.3.1',
@@ -165,7 +165,7 @@
       case 'protein':
         return { defaultLayout: 'canvas' };
       case 'neighborhood':
-        return { defaultScaleMode: 'fixed', defaultAlignQuery: false, defaultFlipNegativeQueries: true, defaultShowLabels: true, defaultZoom: 1 };
+        return { inputFormat: 'auto', defaultScaleMode: 'fixed', defaultAlignQuery: false, defaultFlipNegativeQueries: true, defaultShowLabels: true, defaultZoom: 1 };
       case 'phylogeny':
         return {
           idColumn: 'id',
@@ -718,9 +718,15 @@
         return `
           <h4>Gene Neighborhood Viewer inputs</h4>
           <div class="specific-grid">
-            <div class="field"><span>Neighborhood TSV <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'neighborhoods', 'Choose TSV', '.tsv,.txt,text/tab-separated-values')}</div>
+            <div class="field"><span>Neighborhood input <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'neighborhoods', 'Choose input', '')}<small class="field-help">Accepts the standard row-per-domain TSV or the compact architecture format.</small></div>
             <div class="field"><span>Domain rename YAML <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'rename', 'Choose rename YAML', '.yaml,.yml,text/yaml')}</div>
             <div class="field"><span>Domain color YAML <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'colors', 'Choose color YAML', '.yaml,.yml,text/yaml')}</div>
+            <label class="field">
+              <span>Input format</span>
+              <select ${attrs} data-config-field="inputFormat">
+                ${selectOptions([['auto','Auto-detect'], ['standard','Standard neighborhood TSV'], ['compact','Compact architecture']], item.config.inputFormat || 'auto')}
+              </select>
+            </label>
             <label class="field">
               <span>Initial sizing</span>
               <select ${attrs} data-config-field="defaultScaleMode">
@@ -797,10 +803,11 @@
   function renderFilePicker(item, role, buttonLabel, accept) {
     const file = getUpload(item.id, role);
     const inputId = `file-${item.id}-${role}`;
+    const acceptAttribute = accept ? ` accept="${escapeAttribute(accept)}"` : '';
     return `
       <div class="file-picker ${file ? '' : 'file-missing'}">
         <label class="file-button" for="${inputId}">${escapeHtml(file ? 'Replace' : buttonLabel)}</label>
-        <input id="${inputId}" type="file" accept="${escapeAttribute(accept)}" data-item-id="${item.id}" data-file-role="${role}">
+        <input id="${inputId}" type="file"${acceptAttribute} data-item-id="${item.id}" data-file-role="${role}">
         <div class="file-meta">
           <span class="file-name">${escapeHtml(file?.name || 'No file selected')}</span>
           <span class="file-size">${file ? formatBytes(file.size) : 'Stored only in this browser session'}</span>
@@ -970,8 +977,28 @@
             const table = getUpload(item.id, 'neighborhoods');
             if (table) {
               const text = await readTextLimited(table, 2 * 1024 * 1024);
-              const first = firstNonEmptyLine(text);
-              if (!first.includes('\t')) warning('The neighborhood table does not appear to be tab-delimited.', location);
+              const requestedFormat = ['standard', 'compact'].includes(item.config.inputFormat) ? item.config.inputFormat : 'auto';
+              const detectedFormat = detectNeighborhoodInputFormat(text);
+              if (detectedFormat === 'unknown') {
+                error('The neighborhood input is neither the standard TSV nor the compact architecture format.', location);
+              } else if (requestedFormat !== 'auto' && requestedFormat !== detectedFormat) {
+                warning(`The selected input format is ${requestedFormat}, but the file looks like ${detectedFormat}.`, location);
+              }
+              const effectiveFormat = requestedFormat === 'auto' ? detectedFormat : requestedFormat;
+              if (effectiveFormat === 'standard') {
+                const headers = firstNonEmptyLine(text).split('\t').map(value => value.trim().toLowerCase());
+                const required = ['block_id', 'pid', 'nucleotide', 'start', 'end', 'strand', 'query', 'dom', 'domp'];
+                const missing = required.filter(name => !headers.includes(name));
+                if (missing.length) error(`The standard neighborhood TSV is missing: ${missing.join(', ')}.`, location);
+              } else if (effectiveFormat === 'compact') {
+                const sample = text.split(/\r?\n/).filter(line => line.trim()).slice(0, 25);
+                const invalid = sample.find(line => {
+                  const values = line.split('\t');
+                  return values.length < 4 || !/(?:->|<-|\|\|)/.test(values[1] || '') || !/__/.test(values.slice(3).join('\t'));
+                });
+                if (invalid) error('A compact neighborhood line must contain four tab-separated fields, orientation syntax, and PID__domain details.', location);
+                if (sample.some(line => !/\*/.test((line.split('\t')[1] || '')))) warning('At least one compact line lacks a starred query domain.', location);
+              }
             }
           }
 
@@ -1095,9 +1122,20 @@
   function roleLabel(role) {
     return ({
       file: 'uploaded', html: 'HTML', structure: 'structure', annotations: 'annotation', msa: 'alignment',
-      neighborhoods: 'neighborhood TSV', rename: 'rename YAML', colors: 'color YAML', tree: 'tree', phylogenyYaml: 'phylogeny YAML',
+      neighborhoods: 'neighborhood input', rename: 'rename YAML', colors: 'color YAML', tree: 'tree', phylogenyYaml: 'phylogeny YAML',
       edges: 'edge TSV', nodes: 'node YAML', taxonomyResolved: 'resolved taxonomy TSV', taxonomyYaml: 'taxonomy curation YAML', taxonomyColors: 'taxonomy color YAML', taxonomyInput: 'original taxonomy TSV', architectureData: 'domain TSV', architectureYaml: 'architecture YAML'
     })[role] || role;
+  }
+
+  function detectNeighborhoodInputFormat(text) {
+    const first = firstNonEmptyLine(text);
+    if (!first) return 'unknown';
+    const values = first.split('\t');
+    const headers = new Set(values.map(value => value.trim().toLowerCase()));
+    const required = ['block_id', 'pid', 'nucleotide', 'start', 'end', 'strand', 'query', 'dom', 'domp'];
+    if (required.every(name => headers.has(name))) return 'standard';
+    if (values.length >= 4 && /(?:->|<-|\|\|)/.test(values[1] || '') && /__/.test(values.slice(3).join('\t'))) return 'compact';
+    return 'unknown';
   }
 
   function firstNonEmptyLine(text) {
@@ -1477,6 +1515,7 @@
         title,
         paperTitle,
         figureTitle: title,
+        inputFormat: item.config.inputFormat || 'auto',
         dataUrl: './data/neighborhoods.tsv',
         colorUrl: './data/color_dic.yaml',
         renameUrl: './data/domain_rename.yaml',

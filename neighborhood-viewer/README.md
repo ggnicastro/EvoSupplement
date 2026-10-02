@@ -4,7 +4,7 @@ The Gene Neighborhood Viewer is the EvoSupplement module for presenting genomic 
 
 It is intended for comparative protein evolution studies in which conserved gene order, domain architecture, operon-like association, taxonomic distribution, or neighboring functional systems contribute to a biological or evolutionary interpretation.
 
-The viewer reads a TSV dataset directly in the browser, groups records into genomic neighborhoods, draws one oriented arrow per gene, and displays one or more domains inside each gene.
+The viewer reads either the canonical row-per-domain TSV or a compact architecture file directly in the browser, reconstructs genomic neighborhoods, draws one oriented arrow per gene, and displays one or more domains inside each gene.
 
 ## Main capabilities
 
@@ -17,9 +17,9 @@ The viewer reads a TSV dataset directly in the browser, groups records into geno
 - Supports fixed-width schematic domain layouts and genomic-coordinate-based layouts.
 - Can align neighborhoods around their query genes.
 - Can orient negative-strand queries in a common direction.
-- Links genes and complete neighborhoods to NCBI Nucleotide coordinates.
+- Links canonical genomic neighborhoods to NCBI Nucleotide and compact-format genes with known PIDs to NCBI Protein.
 - Uses virtualized rendering so thousands of neighborhoods do not require thousands of SVG elements at the same time.
-- Provides an editor page for local file loading and publication pages for automatic hosted-data loading.
+- Provides an editor page for local file loading, automatic format detection, normalized TSV export, and publication pages for automatic hosted-data loading.
 
 ## Module organization
 
@@ -44,7 +44,7 @@ The shared JavaScript and CSS belong to the reusable module. Scientific content 
 
 The editor is intended for:
 
-- loading a TSV dataset from the local computer;
+- loading a canonical TSV or compact architecture dataset from the local computer;
 - testing rename and color dictionaries;
 - checking filters and layout controls;
 - validating a new dataset before publication;
@@ -68,11 +68,11 @@ For a publication page, all configured data paths must refer to files stored wit
 
 1. Duplicate a working publication folder and rename it with the next figure number or a descriptive identifier.
 2. Keep the folder inside `neighborhood-viewer/` so its shared-file references remain valid.
-3. Replace the example TSV with the final neighborhood dataset.
+3. Replace the example data file with a canonical neighborhood TSV or a compact architecture file.
 4. Replace or revise the domain rename dictionary.
 5. Replace or revise the domain color dictionary.
 6. Update the figure's `config.js` with the final title, input paths, marker rules, and layout defaults.
-7. Verify that the TSV contains all required columns and valid coordinates.
+7. Verify the selected input format and review parser warnings; for compact data, export a normalized TSV after checking the reconstruction.
 8. Test filtering, query orientation, query alignment, labels, colors, and NCBI links.
 9. Test performance using the full publication dataset rather than a small subset only.
 10. Add the figure folder to the root `manifest.js` so it appears on the EvoSupplement portal.
@@ -91,7 +91,8 @@ Each figure reads its settings from `config.js`.
 | `paperTitle` | Optional paper citation or title shown above the publication viewer. |
 | `figureTitle` | Figure number and description shown above the publication viewer. |
 | `manualLoad` | Enables editor-style local file loading instead of automatic hosted-data loading. Publication pages normally leave this disabled. |
-| `dataUrl` | Relative path to the TSV neighborhood dataset. |
+| `inputFormat` | `auto`, `standard`, or `compact`. Auto-detection is the recommended default. |
+| `dataUrl` | Relative path to the canonical TSV or compact architecture dataset. |
 | `renameUrl` | Relative path to the domain rename YAML dictionary. |
 | `colorUrl` | Relative path to the domain color YAML dictionary. |
 
@@ -166,6 +167,7 @@ The viewer stops with an error when any required column is missing.
 | Column | Use in the viewer |
 |---|---|
 | `blockp` | Secondary ordering value for domain records. |
+| `domain_start`, `domain_end` | Optional residue coordinates retained in domain tooltips and normalized compact-format exports. |
 | `feature_order` | Stable ordering support for genes. |
 | `assembly` | Display and filtering by assembly accession. |
 | `organism` | Organism label and filtering. |
@@ -181,6 +183,24 @@ The viewer stops with an error when any required column is missing.
 | `pfam` | PFAM annotation used by the PFAM filter. |
 
 Additional TSV columns are tolerated and remain available in the source data even when the current interface does not display them.
+
+## Compact architecture input
+
+The alternative compact format has no header and uses four tab-separated fields per neighborhood:
+
+1. query protein PID;
+2. the left-to-right gene architecture and orientation string;
+3. organism name;
+4. a semicolon-separated detailed list of genes, protein accessions, domain coordinates, and domain names.
+
+The architecture field is authoritative for visual order. `+` joins domains in one protein, `->` and `<-` describe gene direction, `||` flips the orientation of the next gene, `*` marks the query domain, and `?` preserves an unknown gene or annotation. The PID in the first field must correspond to the gene carrying the starred domain.
+
+The detailed field uses entries such as `PID__start..end&domain,start..end&domain`. Its order may be the same as or the reverse of the architecture field. The parser evaluates both orientations, anchors the query PID, and matches gene domain signatures before reconstructing the neighborhood.
+
+Compact files are schematic. They contain protein-domain coordinates but not genomic coordinates or intergenic distances. The viewer therefore synthesizes stable display coordinates, keeps true domain spans in tooltips, and links known PIDs to NCBI Protein instead of Nucleotide. Use fixed-width mode for the intended presentation.
+
+The editor can export `neighborhoods.normalized.tsv`, a canonical standard-format representation of the reconstructed neighborhoods. Review the visualization and any parser warnings before using that normalized file in a publication project.
+
 
 ## Neighborhood coordinates
 
@@ -347,7 +367,7 @@ Test at least:
 
 ## Domain curation in `editor/`
 
-The Gene Neighborhood Editor can start from a TSV alone. The rename and color YAML dictionaries are optional inputs. After the TSV is loaded, the **Domain curation** panel provides an author-facing workflow that is intentionally absent from publication `figureN/` pages.
+The Gene Neighborhood Editor can start from either supported neighborhood input alone. The rename and color YAML dictionaries are optional inputs. After the input is loaded, the **Domain curation** panel provides an author-facing workflow that is intentionally absent from publication `figureN/` pages.
 
 The editor computes three frequency measures for every canonical domain identifier:
 

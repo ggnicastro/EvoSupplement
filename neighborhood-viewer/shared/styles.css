@@ -321,6 +321,7 @@ a { color: inherit; }
 
 .nbh-row-label strong,
 .nbh-row-label a,
+.nbh-row-label .nbh-region-label,
 .nbh-row-label em {
   display: block;
   min-width: 0;
@@ -330,7 +331,8 @@ a { color: inherit; }
 }
 
 .nbh-row-label strong { color: #172033; font-size: 13px; }
-.nbh-row-label a { color: #315b9b; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; text-decoration: none; }
+.nbh-row-label a,
+.nbh-row-label .nbh-region-label { color: #315b9b; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; text-decoration: none; }
 .nbh-row-label a:hover { color: #1d4ed8; text-decoration: underline; }
 .nbh-row-label em { color: #596579; font-family: Georgia, "Times New Roman", serif; font-size: 12px; }
 

@@ -186,3 +186,15 @@
   .nbh-curation-footer .nbh-editor-button { flex: 1 1 45%; }
 }
 .nbh-domain-editor [hidden] { display: none !important; }
+.nbh-format-select {
+  min-height: 34px;
+  max-width: 220px;
+  padding: 6px 28px 6px 9px;
+  border: 1px solid #c7cfdb;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  font-size: 12px;
+}
+.nbh-format-select:focus { outline: 2px solid rgb(37 99 235 / 20%); border-color: #6694dc; }
