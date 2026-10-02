@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive protein domain architecture figure.">
+  <meta name="theme-color" content="#101720">
+  <title>Protein Domain Architecture Viewer</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=1.0.0">
+</head>
+<body>
+  <header class="app-header"><a class="brand" href="../../" aria-label="Supplementary material portal"><span class="brand-mark" aria-hidden="true">DA</span><span class="brand-copy"><strong id="appTitle">Protein Domain Architecture Viewer</strong></span></a><span class="privacy-badge">Static &amp; browser-based</span></header>
+  <section class="paper-header" id="paperHeader" hidden><p class="paper-title" id="paperTitleEl" hidden></p><h1 class="figure-title" id="figureTitleEl" hidden></h1></section>
+  <main class="page-shell">
+    <section class="toolbar" aria-label="Architecture controls">
+      <div class="toolbar-row"><label class="search-field" for="architectureSearch"><span class="field-label">Find proteins or domains</span><span class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg><input id="architectureSearch" type="search" autocomplete="off" placeholder="PID, domain, taxonomy, metadata…"><button class="clear-search" id="architectureSearchClear" type="button" aria-label="Clear search">×</button></span></label><span class="status-text" id="architectureStatus">Loading…</span></div>
+      <div class="toolbar-row">
+        <label class="control-field" for="architectureMode"><span>Drawing mode</span><select id="architectureMode"><option value="true">True length</option><option value="normalized">Normalized proteins</option><option value="compact">Compact architecture</option></select></label>
+        <label class="control-field" for="architectureAlign"><span>Align rows by</span><select id="architectureAlign"><option value="n">N terminus</option><option value="c">C terminus</option><option value="anchor">Selected domain</option></select></label>
+        <span id="architectureAnchorControls" class="action-group" hidden><label class="control-field"><span>Anchor domain</span><select id="architectureAnchorDomain"></select></label><label class="control-field"><span>Anchor point</span><select id="architectureAnchorPoint"><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></label></span>
+        <label class="control-field"><span>Sort by</span><select id="architectureSortPrimary"></select></label><label class="control-field"><span>Direction</span><select id="architectureSortPrimaryDirection"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+        <label class="control-field"><span>Group rows by</span><select id="architectureGroupBy"></select></label>
+        <label class="check-field"><input id="architectureCollapseIdentical" type="checkbox"><span>Collapse identical architectures</span></label>
+      </div>
+      <div class="toolbar-row">
+        <label class="control-field"><span>Row height</span><span class="range-wrap"><input id="architectureRowHeight" type="range" min="28" max="90" step="1" value="44"><output class="range-output" id="architectureRowHeightValue">44 px</output></span></label>
+        <label class="control-field"><span>Zoom</span><span class="range-wrap"><input id="architectureZoom" type="range" min="0.15" max="6" step="0.05" value="1"><output class="range-output" id="architectureZoomValue">100%</output></span></label>
+        <div class="action-field"><span>View</span><span class="action-group"><button class="icon-button" id="architectureZoomOut" type="button">−</button><button class="action-button" id="architectureFit" type="button">Fit width</button><button class="icon-button" id="architectureZoomIn" type="button">+</button></span></div>
+        <span id="architectureCompactControls" class="action-group" hidden><label class="control-field"><span>Empty intervals</span><select id="architectureCompactGapMode"><option value="cap">Cap gap width</option><option value="remove">Remove gaps</option></select></label><label class="control-field"><span>Maximum gap</span><span class="range-wrap"><input id="architectureCompactGap" type="range" min="0" max="60" step="1" value="12"><output class="range-output">px</output></span></label></span>
+        <label class="check-field"><input id="architectureShowGapMarkers" type="checkbox" checked><span>Gap marks</span></label><label class="check-field"><input id="architectureShowDomainLabels" type="checkbox" checked><span>Domain labels</span></label><label class="check-field"><input id="architectureShowProteinLengths" type="checkbox" checked><span>Protein lengths</span></label><label class="check-field"><input id="architectureShowRuler" type="checkbox" checked><span>Ruler</span></label>
+      </div>
+      <details class="advanced-panel"><summary>Labels, secondary sorting, and hover fields</summary><div class="advanced-grid"><label class="control-field"><span>Protein label template</span><input id="architectureLabelTemplate" type="text"></label><label class="control-field"><span>Subtitle template</span><input id="architectureSubtitleTemplate" type="text"></label><label class="control-field"><span>Secondary sort</span><select id="architectureSortSecondary"></select></label><label class="control-field"><span>Secondary direction</span><select id="architectureSortSecondaryDirection"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><div class="control-field"><span>Protein hover fields</span><div class="checkbox-list" id="architectureProteinHoverFields"></div></div><div class="control-field"><span>Domain hover fields</span><div class="checkbox-list" id="architectureDomainHoverFields"></div></div><div class="action-field"><span>Metadata display</span><button class="action-button" id="architectureApplyMetadata" type="button">Apply</button></div></div></details>
+    </section>
+    <section class="viewer-panel" aria-label="Protein domain architectures"><header class="viewer-head"><span class="source-summary" id="architectureSourceSummary">Loading publication data…</span><span class="source-actions"><a class="mini-button" id="architectureDownloadData" href="./data/domain.tsv" download>Download TSV</a><a class="mini-button" id="architectureDownloadYaml" href="./data/domain-architecture.yaml" download>Download YAML</a></span></header><div class="architecture-ruler" id="architectureRuler"></div><div class="architecture-viewport" id="architectureViewport" tabindex="0"><div class="architecture-spacer" id="architectureSpacer"><div class="architecture-row-layer" id="architectureRowLayer"></div></div></div><div class="viewer-overlay" id="architectureOverlay"><div class="overlay-card"><span class="loading-spinner"></span><strong id="architectureOverlayTitle">Loading domain architectures</strong><span id="architectureOverlayDetail">Reading publication data…</span></div></div></section>
+    <div class="tooltip" id="architectureTooltip" hidden></div><div class="error-box" id="architectureError" role="alert" hidden></div>
+  </main>
+  <footer class="page-footer"><span>Switch between true-length, normalized, and compact architectures without altering source coordinates.</span><span aria-hidden="true">•</span><span>Ctrl/Cmd + wheel zooms; drag empty space to pan.</span></footer>
+  <script src="./config.js?v=1.0.0"></script><script src="../shared/domain-architecture-viewer.js?v=1.0.0"></script><script>window.DomainArchitectureViewer.init();</script>
+</body>
+</html>

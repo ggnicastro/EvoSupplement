@@ -1,0 +1,284 @@
+# MYCViewer - advanced YAML template and field reference
+#
+# This file uses canonical snake_case field names. MYCViewer also accepts
+# compatibility aliases documented near the end of this file.
+#
+# Automatic context component (not configurable from YAML):
+#   name: Base structure
+#   selection: complete default chain(s), or all protein chains
+#   representation: cartoon
+#   color: white (#FFFFFF)
+#   opacity: 0.2
+#   hydrogens: hidden
+#
+# Layout is configured in config.js, not in this YAML file.
+
+version: 1
+title: Advanced protein component scene
+
+# Global residue-numbering mode.
+# Accepted values: auth | label
+# Accepted value aliases: author -> auth, sequential -> label
+numbering: auth
+
+# Default chain selection for all regions.
+# Accepted forms:
+#   default_chain: A
+#   default_chain: [A, B]
+#   default_chain: "A, B"
+# Remove it, or use all / "*", to target all chains.
+default_chain: A
+
+viewer:
+  # Global visual preset inherited by region components.
+  # Accepted values: default | illustrative
+  # illustrative supplies spacefill, the illustrative color theme,
+  # ignore-light rendering, outline, and SSAO unless overridden below.
+  style: illustrative
+
+  # Default representation for each region component.
+  # Accepted values:
+  # cartoon | backbone | ball_and_stick | line | spacefill |
+  # carbohydrate | surface | putty
+  # Hyphenated ball-and-stick is also normalized to ball_and_stick.
+  component_representation: cartoon
+
+  # Optional native Mol* representation parameters.
+  # The mapping is passed through to Mol* and is representation-specific.
+  component_representation_params:
+    ignoreLight: true
+
+  # Default color theme for region components.
+  # All accepted canonical values:
+  # uniform | default | atom-id | cartoon | chain-id | element-index |
+  # element-symbol | entity-id | entity-source | formal-charge |
+  # hydrophobicity | illustrative | model-index | molecule-type |
+  # occupancy | operator-hkl | operator-name | polymer-id |
+  # polymer-index | residue-charge | residue-name |
+  # secondary-structure | sequence-id | structure-index |
+  # trajectory-index | uncertainty | unit-index
+  component_color_theme: illustrative
+
+  # Optional native Mol* color-theme parameters.
+  # The mapping is passed through to Mol* and is theme-specific.
+  component_color_theme_params:
+    style:
+      name: entity-id
+      params:
+        overrideWater: true
+
+  # Fallback fixed color used when the effective theme is uniform and a
+  # region does not provide color or component_color.
+  # Colors may be #RGB, #RRGGBB, or a valid browser/X11 color name.
+  component_color: "#CBD5E1"
+
+  # Default region-component opacity: 0.0 to 1.0.
+  component_opacity: 0.85
+
+  # Initial visibility of region representations.
+  components_visible: true
+
+  # Viewer canvas background.
+  background: "#FFFFFF"
+
+  # Defaults for component creation and annotations.
+  create_components: true
+  show_labels: false
+  show_tooltips: true
+
+  # Optional scene-level Mol* post-processing.
+  # The illustrative preset already enables outline and SSAO; explicit values
+  # here override or extend the preset mapping.
+  postprocessing:
+    enable_outline: true
+    enable_ssao: true
+
+regions:
+  # ------------------------------------------------------------------------
+  # 1. Inclusive range with every canonical region-level option demonstrated
+  # ------------------------------------------------------------------------
+  - name: N-terminal domain
+    enabled: true
+
+    start: 1
+    end: 90
+
+    # Region-level selection overrides.
+    numbering: auth
+    chain: A
+
+    # color is shorthand for:
+    #   component_color_theme: uniform
+    #   component_color: <same value>
+    color: "#2563EB"
+
+    description: Example domain selected by an inclusive residue range.
+    tooltip: true
+    label_3d: false
+
+    create_component: true
+    component_name: N-terminal domain component
+    component_representation: cartoon
+    component_representation_params:
+      ignoreLight: true
+    component_color_theme: uniform
+    component_color: "#2563EB"
+    component_opacity: 0.90
+    component_visible: true
+
+  # ------------------------------------------------------------------------
+  # 2. Exact, non-contiguous positions on multiple chains
+  # ------------------------------------------------------------------------
+  - name: Conserved active-site residues
+    positions: [105, 142, 178]
+    chains: [A, B]
+    numbering: auth
+
+    component_representation: ball_and_stick
+    component_color_theme: element-symbol
+    component_opacity: 1.0
+    component_visible: true
+
+    description: Atom-colored residues grouped into one Mol* component.
+    tooltip: true
+
+  # ------------------------------------------------------------------------
+  # 3. Single residue applied to all chains
+  # ------------------------------------------------------------------------
+  - name: Catalytic residue
+    residue: 203
+    chain: all
+
+    component_representation: spacefill
+    component_color_theme: residue-name
+    component_opacity: 1.0
+
+  # ------------------------------------------------------------------------
+  # 4. Native theme with a theme-specific parameter mapping
+  # ------------------------------------------------------------------------
+  - name: Chain-colored segment
+    start: 220
+    end: 300
+    chains: [A, B]
+
+    component_representation: surface
+    component_color_theme: chain-id
+    component_color_theme_params:
+      asymId: auth
+    component_opacity: 0.65
+
+  # ------------------------------------------------------------------------
+  # 5. Tooltip/label component without an automatic representation
+  # ------------------------------------------------------------------------
+  - name: Annotation-only segment
+    start: 301
+    end: 320
+
+    create_component: false
+    tooltip: true
+    label_3d: true
+    description: Creates the selection, tooltip, and label, but no geometry.
+
+  # ------------------------------------------------------------------------
+  # 6. Disabled entry retained for documentation or future use
+  # ------------------------------------------------------------------------
+  - name: Disabled example
+    enabled: false
+    start: 321
+    end: 350
+    color: "#94A3B8"
+
+# ============================================================================
+# Selection rules
+# ============================================================================
+# Each region must use exactly one of these forms:
+#
+# 1. Range:
+#      start: 10
+#      end: 50
+#
+# 2. Exact positions:
+#      positions: [2, 10, 22]
+#
+# 3. Single residue:
+#      residue: 42
+#
+# Do not combine positions with start/end or residue in the same region.
+# start and end are inclusive. Duplicate exact positions are removed and the
+# list is sorted internally.
+
+# ============================================================================
+# Color-theme aliases accepted by MYCViewer
+# ============================================================================
+# atom, atoms, cpk, element, elements, atom-color, atom-colors,
+# element-color, element-colors -> element-symbol
+# chain, chains                         -> chain-id
+# residue, residues, residue-type,
+# amino-acid, amino-acids              -> residue-name
+# secondary                            -> secondary-structure
+# sequence, rainbow, sequence-position -> sequence-id
+# hydrophobic                          -> hydrophobicity
+# charge                               -> residue-charge
+# b-factor, bfactor, temperature-factor -> uncertainty
+# region, fixed                        -> uniform
+# automatic, auto                      -> default
+
+# ============================================================================
+# Compatibility field aliases accepted by the parser
+# ============================================================================
+# Top level:
+#   default_chain: defaultChain, chain
+#   numbering may also be placed under viewer.numbering
+#   background, representation, and show_labels also have top-level fallbacks
+#
+# viewer fields:
+#   style: quick_style, quickStyle, preset, base_style, baseStyle
+#   component_representation: componentRepresentation, representation
+#   component_representation_params:
+#       componentRepresentationParams, representation_params,
+#       representationParams
+#   component_color_theme:
+#       componentColorTheme, component_color_scheme, componentColorScheme
+#   component_color_theme_params:
+#       componentColorThemeParams, component_color_params, componentColorParams
+#   component_color: componentColor
+#   component_opacity: componentOpacity
+#   components_visible: componentsVisible
+#   create_components: createComponents
+#   show_labels: showLabels
+#   show_tooltips: showTooltips
+#   postprocessing: post_processing, postProcessing
+#
+# region fields:
+#   name: label, title
+#   start: begin, from
+#   end: stop, to
+#   positions: residues, residue_positions, residuePositions,
+#              position_list, positionList
+#   residue: position
+#   chain: chain_id, chainId
+#   color: colour
+#   description: note
+#   create_component: createComponent, component
+#   component_name: componentName
+#   component_representation: componentRepresentation, representation
+#   component_representation_params:
+#       componentRepresentationParams, representation_params,
+#       representationParams
+#   component_color: componentColor, component_colour
+#   component_color_theme:
+#       componentColorTheme, component_color_scheme, componentColorScheme
+#   component_color_theme_params:
+#       componentColorThemeParams, component_color_params, componentColorParams
+#   component_opacity: componentOpacity
+#   component_visible: componentVisible
+#   label_3d: show_label, label
+#
+# Boolean fields accept true/false and also yes/no, on/off, or 1/0.
+#
+# Current defensive limits:
+#   YAML size: 2 MB
+#   regions: 1,000
+#   exact positions per region: 5,000
+#   generated Mol* components: 250
+#   selector expressions: 25,000

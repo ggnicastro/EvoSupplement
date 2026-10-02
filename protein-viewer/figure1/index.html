@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Supplementary structural viewer for a published figure: PDB/mmCIF structure with YAML-defined region annotations, and an optional aligned-MSA panel.">
+  <meta name="theme-color" content="#111827">
+  <title>Supplementary Figure Viewer</title>
+
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/molstar@5.11.0/build/viewer/molstar.css">
+  <link rel="stylesheet" href="../shared/styles.css?v=2.13.0">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="./" aria-label="Mol* YAML Component Viewer home">
+      <span class="brand-mark" aria-hidden="true">M*</span>
+      <span class="brand-copy">
+        <strong id="brandTitle">Mol* YAML Component Viewer</strong>
+        <small id="brandSubtitle" hidden aria-hidden="true"></small>
+      </span>
+    </a>
+
+    <nav class="header-links" aria-label="Project links">
+      <span class="privacy-badge" title="Local files stay in this browser tab and are not uploaded">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Zm-1 4.32v2H9v2h2v2h2v-2h2v-2h-2v-2h-2Z"/></svg>
+        Local &amp; private
+      </span>
+      <a href="https://github.com/molstar/molstar" target="_blank" rel="noreferrer">
+        Mol* project
+      </a>
+    </nav>
+  </header>
+
+  <div class="paper-header" id="paperHeader" hidden>
+    <p class="paper-title" id="paperTitleEl" hidden></p>
+    <h1 class="figure-title" id="figureTitleEl" hidden></h1>
+  </div>
+
+  <main class="page-shell">
+    <section class="control-card is-hidden" aria-label="Structure and YAML component controls">
+      <div class="control-intro">
+        <p class="eyebrow">Component scene</p>
+        <h1 id="pageTitle">Build Mol* components from YAML</h1>
+        <p id="pageSubtitle">Render only YAML-defined region components. Viewer-level defaults are inherited by every component and can be overridden per region.</p>
+      </div>
+
+      <div class="control-grid">
+        <label class="field-group">
+          <span>Mol* layout</span>
+          <select id="layoutSelect">
+            <option value="canvas" selected>3D only</option>
+            <option value="sequence">Sequence + 3D</option>
+            <option value="controls">Controls + 3D</option>
+            <option value="sequence-controls">Sequence + controls</option>
+            <option value="full">Full Mol* interface</option>
+          </select>
+        </label>
+
+        <div class="action-group">
+          <button class="button button-secondary" id="loadConfiguredButton" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a5 5 0 0 1-.36-9.99A6.5 6.5 0 0 1 19.1 9.5 4.25 4.25 0 0 1 18.75 18H14v-2h4.75a2.25 2.25 0 0 0 .12-4.5l-1.39-.08-.39-1.34A4.5 4.5 0 0 0 8.45 9l-.28 1.1-1.14-.09H7A3 3 0 0 0 7 16h3v2H7Zm6-7 4 4h-3v6h-2v-6H9l4-4Z"/></svg>
+            Load configured pair
+          </button>
+          <button class="button button-secondary" id="choosePdbButton" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H2v16h20V6H12l-2-2Zm10 14H4V8h16v10Z"/></svg>
+            Choose structure (PDB/CIF)
+          </button>
+          <button class="button button-secondary" id="chooseYamlButton" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H2v16h20V6H12l-2-2Zm10 14H4V8h16v10Z"/></svg>
+            Choose YAML
+          </button>
+          <button class="button button-primary" id="loadLocalButton" type="button" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13v6H5v-6H3v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6h-2ZM13 5.83l2.59 2.58L17 7l-5-5-5 5 1.41 1.41L11 5.83V16h2V5.83Z"/></svg>
+            Load selected pair
+          </button>
+        </div>
+      </div>
+
+      <div class="selected-files" aria-live="polite">
+        <span class="file-pill" id="pdbFilePill" data-state="empty">
+          <strong>Structure</strong><span>No local file selected</span>
+        </span>
+        <span class="file-pill" id="yamlFilePill" data-state="empty">
+          <strong>YAML</strong><span>No local file selected</span>
+        </span>
+        <span class="drop-hint">You can also drop one <code>.pdb</code>/<code>.cif</code> and one <code>.yaml</code>/<code>.yml</code> anywhere below.</span>
+      </div>
+    </section>
+
+    <section class="workspace" id="dropZone" aria-label="Molecular component viewer">
+      <article class="viewer-card" id="viewerCard">
+        <header class="viewer-header">
+          <div>
+            <span class="viewer-kicker">YAML component scene</span>
+            <strong id="structureTitle">Waiting for a PDB/CIF + YAML pair</strong>
+          </div>
+          <div class="viewer-header-actions">
+            <span class="viewer-state" id="viewerState" data-state="idle"><span></span>Ready</span>
+            <button class="icon-button" id="fullscreenButton" type="button" aria-label="Open viewer fullscreen" title="Open viewer fullscreen">
+              <svg class="expand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14H5v5h5v-2H7v-3Zm-2-4h2V7h3V5H5v5Zm12 7h-3v2h5v-5h-2v3ZM14 5v2h3v3h2V5h-5Z"/></svg>
+              <svg class="collapse-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16h3v3h2v-5H5v2Zm3-8H5v2h5V5H8v3Zm6 11h2v-3h3v-2h-5v5Zm2-11V5h-2v5h5V8h-3Z"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="viewer-stage">
+          <div id="molstarViewer" class="molstar-host"></div>
+          <div class="viewer-overlay is-visible" id="viewerOverlay" data-mode="initializing">
+            <div class="overlay-panel">
+              <span class="overlay-graphic" aria-hidden="true">
+                <svg viewBox="0 0 64 64"><circle cx="19" cy="20" r="7"/><circle cx="45" cy="17" r="5"/><circle cx="42" cy="45" r="8"/><circle cx="18" cy="45" r="4"/><path d="m25 22 14-3M23 26l14 14M22 43l12 1"/></svg>
+              </span>
+              <span class="spinner" aria-hidden="true"></span>
+              <span class="error-mark" aria-hidden="true">!</span>
+              <strong id="overlayTitle">Initializing Mol* Viewer</strong>
+              <span id="overlayDetail">Preparing the molecular canvas…</span>
+              <div class="overlay-actions">
+                <button class="button button-primary is-hidden" id="overlayConfiguredButton" type="button">Load configured example</button>
+                <button class="button button-secondary is-hidden" id="overlayLocalButton" type="button">Choose local files</button>
+              </div>
+            </div>
+          </div>
+          <div class="drop-overlay" id="dropOverlay" aria-hidden="true">
+            <strong>Drop the structure and YAML files</strong>
+            <span>Both files will be processed locally in your browser.</span>
+          </div>
+        </div>
+
+        <footer class="viewer-footer">
+          <div class="source-summary" id="sourceSummary">No structure loaded</div>
+          <div class="viewer-footer-actions">
+            <button class="mini-button" id="reloadButton" type="button" disabled>Reload</button>
+            <button class="mini-button" id="downloadPdbButton" type="button" disabled>Download structure</button>
+            <button class="mini-button" id="downloadYamlButton" type="button" disabled>Download YAML</button>
+            <button class="mini-button is-hidden" id="downloadTemplateButton" type="button">YAML template</button>
+          </div>
+        </footer>
+      </article>
+    </section>
+
+    <section class="workspace msa-workspace" aria-label="Multiple sequence alignment">
+      <article class="viewer-card msa-card is-empty" id="msaCard">
+        <header class="viewer-header">
+          <div>
+            <span class="viewer-kicker">Multiple sequence alignment</span>
+            <strong>FASTA alignment, linked to chains via msa.references</strong>
+          </div>
+          <div class="viewer-header-actions">
+            <label class="msa-zoom" for="msaZoomInput" title="Adjust MSA cell size">
+              <span>Zoom</span>
+              <input type="range" id="msaZoomInput" min="4" max="72" step="1" value="8">
+              <span id="msaZoomValue">8px</span>
+            </label>
+            <span class="file-pill is-hidden" id="msaFilePill" data-state="empty">
+              <strong>MSA</strong><span>No local file selected</span>
+            </span>
+            <button class="button button-secondary is-hidden" id="chooseMsaButton" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H2v16h20V6H12l-2-2Zm10 14H4V8h16v10Z"/></svg>
+              Choose MSA (FASTA)
+            </button>
+          </div>
+        </header>
+
+        <div class="msa-body">
+          <div class="msa-names" id="msaNamesList"></div>
+          <div class="msa-scroll" id="msaScrollArea">
+            <div class="msa-stage" id="msaStage">
+              <canvas class="msa-canvas" id="msaCanvas" tabindex="0" aria-label="Multiple sequence alignment. Click to replace the selected column; Control or Command-click to toggle columns; Shift-click to select a range." title="Click: replace selection · Ctrl/Cmd-click: add or remove a column · Shift-click: select a range"></canvas>
+            </div>
+          </div>
+          <div class="msa-scrollbar-track msa-scrollbar-vertical" id="msaVerticalScrollbar"
+               role="scrollbar" aria-label="Scroll alignment vertically" aria-orientation="vertical"
+               aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" tabindex="0">
+            <div class="msa-scrollbar-thumb" id="msaVerticalThumb"></div>
+          </div>
+          <div class="msa-empty-state">No alignment configured for this figure.</div>
+        </div>
+
+        <div class="msa-scrollbar-row" id="msaScrollbarRow">
+          <div class="msa-scrollbar-label" aria-hidden="true">Scroll alignment</div>
+          <div class="msa-scrollbar-track msa-scrollbar-horizontal" id="msaHorizontalScrollbar"
+               role="scrollbar" aria-label="Scroll alignment horizontally" aria-orientation="horizontal"
+               aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" tabindex="0">
+            <div class="msa-scrollbar-thumb" id="msaHorizontalThumb"></div>
+          </div>
+          <div class="msa-scrollbar-corner" aria-hidden="true"></div>
+        </div>
+
+        <footer class="viewer-footer">
+          <div class="source-summary" id="msaSummary">No alignment loaded</div>
+          <div class="viewer-footer-actions">
+            <button class="mini-button" id="clearMsaSelectionButton" type="button" disabled>Clear selection</button>
+            <button class="mini-button is-hidden" id="clearMsaButton" type="button" disabled>Unload MSA</button>
+            <button class="mini-button" id="downloadMsaButton" type="button" disabled>Download FASTA</button>
+          </div>
+        </footer>
+      </article>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <span>Mol* Viewer 5.11.0</span>
+    <span aria-hidden="true">•</span>
+    <span>MolViewSpec residue selectors + component-only representations</span>
+    <span aria-hidden="true">•</span>
+    <span>Supplementary material, static GitHub Pages</span>
+  </footer>
+
+  <input id="pdbFileInput" type="file" accept=".pdb,.ent,.cif,.mmcif,chemical/x-pdb,chemical/x-cif" hidden>
+  <input id="yamlFileInput" type="file" accept=".yaml,.yml,text/yaml,application/yaml" hidden>
+  <input id="msaFileInput" type="file" accept=".fasta,.fa,.aln,.fas,text/x-fasta" hidden>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <noscript><div class="noscript-message">Enable JavaScript to use the molecular viewer.</div></noscript>
+
+  <script src="./config.js?v=14"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/molstar@5.11.0/build/viewer/molstar.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/js-yaml@5.4.1/dist/browser/js-yaml.umd.min.js"></script>
+  <script defer src="../shared/app.js?v=2.13.0"></script>
+</body>
+</html>

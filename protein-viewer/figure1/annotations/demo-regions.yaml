@@ -1,0 +1,76 @@
+version: 1
+title: Synthetic demo protein regions
+
+msa:
+  references:
+    A: WP_071705073.1
+
+# Use author residue numbers from the PDB file. Ranges are inclusive.
+numbering: auth
+default_chain: A
+
+viewer:
+  representation: cartoon
+  style: illustrative
+  base_color: "#FFFFFF"
+  background: "#FFFFFF"
+  base_opacity: 0.20
+  show_labels: false
+  show_tooltips: true
+
+
+  # Every enabled YAML region becomes a separately named Mol* component.
+  # They start hidden so the compact colored base view is not duplicated.
+  create_components: true
+  component_representation: cartoon
+  component_opacity: 1
+  components_visible: True
+  base_component_name: Base structure
+
+regions:
+  - name: Helix 1
+    start: 2
+    end: 16
+    color: "#418ABF"
+    component_visible: True
+    component_representation: cartoon
+
+
+  - name: Helix 2
+    start: 72
+    end: 83
+    color: "#78BC1D"
+    component_representation: cartoon
+    component_visible: True
+
+
+  - name: Helix 3
+    start: 90
+    end: 112
+    color: "#D6CE3E"
+    component_name: Helix 3
+    component_representation: Cartoon
+    component_opacity: 1
+    component_visible: True
+
+  - name: Helix 4
+    start: 147
+    end: 166
+    color: "#D97825"
+    component_name: Helix 4
+    component_representation: Cartoon
+    component_opacity: 1
+    component_visible: True
+
+
+  - name: Active site
+    positions: [74, 98, 150]
+    color: "#FACC15"
+    create_component: true
+    component_name: Active-site atoms
+    component_representation: ball_and_stick
+    component_color_theme: element-symbol
+    component_opacity: 1.0
+    component_visible: true
+
+  

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive taxonomy Sankey with a frozen publication taxonomy snapshot and author-curated granularity.">
+  <meta name="theme-color" content="#111827">
+  <title>Taxonomy Flow Viewer</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=1.3.1">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="EvoSupplement home">
+      <span class="brand-mark" aria-hidden="true">TX</span>
+      <span class="brand-copy">
+        <strong id="appTitle">Taxonomy Flow Viewer</strong>
+        <small id="appSubtitle" hidden aria-hidden="true"></small>
+      </span>
+    </a>
+    <span class="privacy-badge" title="The publication figure is static and runs entirely in the browser">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
+      Frozen publication snapshot
+    </span>
+  </header>
+
+  <section class="paper-header" id="paperHeader" hidden>
+    <p class="paper-title" id="paperTitleEl" hidden></p>
+    <h1 class="figure-title" id="figureTitleEl" hidden></h1>
+  </section>
+
+  <main class="page-shell">
+    <section class="viewer-toolbar" aria-label="Taxonomy flow controls">
+      <div class="toolbar-row">
+        <label class="search-field" for="taxonomySearch">
+          <span class="field-label">Find a taxon, TaxID, or protein</span>
+          <span class="search-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
+            <input id="taxonomySearch" type="search" autocomplete="off" spellcheck="false" placeholder="Name, TaxID, rank, or PID…">
+            <button class="clear-search" id="taxonomySearchClear" type="button" aria-label="Clear search" hidden>×</button>
+          </span>
+        </label>
+        <span id="taxonomySearchCount" class="viewer-substatus" aria-live="polite"></span>
+        <span class="toolbar-spacer"></span>
+        <div class="status-cluster">
+          <span class="viewer-status" id="taxonomyStatus" aria-live="polite">Loading…</span>
+          <span class="viewer-substatus" id="taxonomySubstatus"></span>
+        </div>
+      </div>
+
+      <div class="toolbar-row">
+        <label class="control-field" for="taxonomyCountMode">
+          <span>Node labels</span>
+          <select id="taxonomyCountMode">
+            <option value="both">Count + percent</option>
+            <option value="count">Count</option>
+            <option value="percent">Percent</option>
+          </select>
+        </label>
+        <label class="check-field"><input id="taxonomyShowLabels" type="checkbox" checked><span>Taxon labels</span></label>
+        <div class="control-field">
+          <span>View</span>
+          <span class="action-group">
+            <button class="icon-button" id="taxonomyZoomOut" type="button" aria-label="Zoom out">−</button>
+            <button class="action-button" id="taxonomyFit" type="button">Fit Sankey</button>
+            <button class="icon-button" id="taxonomyZoomIn" type="button" aria-label="Zoom in">+</button>
+            <span class="zoom-value" id="taxonomyZoomValue">100%</span>
+          </span>
+        </div>
+        <label class="control-field height-control" for="taxonomyHeightScale">
+          <span>Diagram height</span>
+          <span class="range-control"><input id="taxonomyHeightScale" type="range" min="20" max="250" step="5" value="100"><output id="taxonomyHeightScaleValue" for="taxonomyHeightScale">100%</output></span>
+        </label>
+        <label class="check-field" title="Synthetic Other groups are collapsed into their direct parent by default.">
+          <input id="taxonomyShowOther" type="checkbox">
+          <span>Show Other groups</span>
+        </label>
+        <details class="rank-control-menu" id="taxonomyRankControl">
+          <summary>
+            <span>Taxonomic levels</span>
+            <small id="taxonomyRankSummary">Configured view</small>
+          </summary>
+          <div class="rank-control-popover">
+            <label class="control-field" for="taxonomyHierarchyMode">
+              <span>Hierarchy</span>
+              <select id="taxonomyHierarchyMode">
+                <option value="standard">Selected standard levels</option>
+                <option value="all">Complete lineage</option>
+              </select>
+            </label>
+            <div>
+              <span class="field-label">Standard levels</span>
+              <div class="rank-selector viewer-rank-selector" id="taxonomyViewerRanks"></div>
+            </div>
+            <div class="rank-special-options">
+              <label class="check-field"><input id="taxonomyViewerIncludeUnclassified" type="checkbox"><span>Unclassified groups</span></label>
+              <label class="check-field"><input id="taxonomyViewerShowNoRank" type="checkbox"><span>No-rank clades</span></label>
+            </div>
+            <p class="rank-control-note">These controls change only this browser view. The publication YAML remains unchanged.</p>
+            <div class="rank-control-actions">
+              <button class="action-button" id="taxonomyRanksConfigured" type="button">Configured levels</button>
+              <button class="action-button" id="taxonomyRanksAllStandard" type="button">All standard levels</button>
+            </div>
+          </div>
+        </details>
+        <div class="control-field">
+          <span>Selection</span>
+          <button class="action-button" id="taxonomyClearSelection" type="button">Clear selection</button>
+        </div>
+        <span class="toolbar-spacer"></span>
+        <div class="legend-wrap" id="taxonomyLegendWrap" hidden>
+          <span class="legend-title" id="taxonomyLegendTitle">Color</span>
+          <div class="legend" id="taxonomyLegend"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sankey-panel" aria-label="Taxonomic Sankey">
+      <div class="sankey-viewport" id="taxonomyViewport">
+        <svg class="sankey-svg" id="taxonomySvg" role="img" aria-label="Taxonomic flow diagram">
+          <g class="sankey-world" id="taxonomyWorld"></g>
+        </svg>
+        <div class="loading-overlay" id="taxonomyLoadingOverlay" hidden>
+          <div class="loading-card"><strong>Loading taxonomy flow</strong><span id="taxonomyLoadingMessage">Reading publication data…</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="info-panel selection-panel" id="taxonomySelectionPanel" hidden>
+      <h2 id="taxonomySelectionTitle">Selected taxon</h2>
+      <div class="selection-grid">
+        <div class="selection-stat"><span>Scientific / source name</span><strong id="taxonomySelectionName"></strong></div>
+        <div class="selection-stat"><span>TaxID</span><strong id="taxonomySelectionTaxid"></strong></div>
+        <div class="selection-stat"><span>Rank</span><strong id="taxonomySelectionRank"></strong></div>
+        <div class="selection-stat"><span>Proteins</span><strong id="taxonomySelectionCount"></strong></div>
+        <div class="selection-stat"><span>Fraction</span><strong id="taxonomySelectionPercent"></strong></div>
+      </div>
+      <div class="selection-actions">
+        <button class="action-button" id="taxonomyDownloadSelection" type="button">Download protein IDs</button>
+      </div>
+    </section>
+
+    <section class="info-panel selection-panel" aria-label="Source downloads">
+      <h2>Publication inputs</h2>
+      <div class="selection-actions">
+        <a class="button" id="taxonomyDownloadResolved" href="./data/taxonomy-resolved.tsv" download>Resolved taxonomy TSV</a>
+        <a class="button" id="taxonomyDownloadYaml" href="./data/taxonomy-sankey.yaml" download>Curation YAML</a>
+        <a class="button" id="taxonomyDownloadColors" href="./data/taxonomy-colors.yaml" download>Color YAML</a>
+        <a class="button" id="taxonomyDownloadInput" href="./data/taxonomy-input.tsv" download>Original taxonomy TSV</a>
+      </div>
+    </section>
+  </main>
+
+  <div class="tooltip" id="taxonomyTooltip" hidden></div>
+  <script src="./config.js?v=1.3.1"></script>
+  <script src="../shared/taxonomy-sankey-viewer.js?v=1.3.1"></script>
+</body>
+</html>

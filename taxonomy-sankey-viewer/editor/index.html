@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Browser-based editor for reconciling NCBI TaxIDs and preparing a publication-ready taxonomic Sankey.">
+  <meta name="theme-color" content="#111827">
+  <title>Taxonomy Sankey Editor</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=1.3.1">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="EvoSupplement Studio home">
+      <span class="brand-mark" aria-hidden="true">TX</span>
+      <span class="brand-copy">
+        <strong id="appTitle">Taxonomy Sankey Editor</strong>
+        <small id="appSubtitle" hidden aria-hidden="true"></small>
+      </span>
+    </a>
+    <div class="header-actions">
+      <span class="privacy-badge" title="Files are processed in this browser. Online resolution sends only unique TaxIDs to NCBI when explicitly requested.">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
+        Local-first editor
+      </span>
+      <a class="button" href="../../builder/">Project Builder</a>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="editor-panel editor-intro">
+      <p class="field-label">Author workspace</p>
+      <h1>Prepare a reproducible taxonomy Sankey from protein identifiers and TaxIDs.</h1>
+      <p>The input classification is shown immediately. Resolve unique TaxIDs against NCBI or a local taxonomy snapshot, choose the taxonomic levels and compression rules, curate individual nodes, and export a frozen resolved TSV plus publication YAML. The published figure never queries an external service.</p>
+
+      <div class="upload-grid">
+        <div class="upload-card">
+          <strong>Protein taxonomy TSV <b>*</b></strong>
+          <small>Required columns: pid and taxid. A semicolon-separated classification column is recommended.</small>
+          <label class="file-button">Choose TSV<input id="editorInputFile" type="file" accept=".tsv,.txt,text/tab-separated-values"></label>
+          <span class="file-name" id="editorInputName">Bundled example</span>
+        </div>
+        <div class="upload-card">
+          <strong>Resolved taxonomy TSV</strong>
+          <small>Optional frozen output from a previous editor session.</small>
+          <label class="file-button">Choose resolved TSV<input id="editorResolvedFile" type="file" accept=".tsv,.txt,text/tab-separated-values"></label>
+          <span class="file-name" id="editorResolvedName">Bundled example</span>
+        </div>
+        <div class="upload-card">
+          <strong>Curation YAML</strong>
+          <small>Optional rank, threshold, collapse, rename, color, and ordering decisions.</small>
+          <label class="file-button">Choose YAML<input id="editorYamlFile" type="file" accept=".yaml,.yml,text/yaml"></label>
+          <span class="file-name" id="editorYamlName">Bundled example</span>
+        </div>
+        <div class="upload-card">
+          <strong>Color YAML</strong>
+          <small>Optional dictionary for domain, phylum, or other selected color groups.</small>
+          <label class="file-button">Choose colors<input id="editorColorFile" type="file" accept=".yaml,.yml,text/yaml"></label>
+          <span class="file-name" id="editorColorName">Bundled example</span>
+        </div>
+        <div class="upload-card">
+          <strong>NCBI taxonomy snapshot ZIP</strong>
+          <small>Optional taxonomy_report.jsonl package, resolved TSV snapshot, or nodes.dmp + names.dmp taxdump.</small>
+          <label class="file-button">Choose snapshot<input id="editorSnapshotFile" type="file" accept=".zip,application/zip"></label>
+          <span class="file-name" id="editorSnapshotName">No snapshot selected</span>
+        </div>
+      </div>
+
+      <div class="editor-actions">
+        <button class="button button-primary" id="editorLoadFiles" type="button">Load selected files</button>
+        <button class="button" id="editorRestoreExample" type="button">Restore bundled example</button>
+        <button class="button" id="editorClearOptional" type="button">Clear optional files</button>
+        <span class="viewer-substatus" id="editorLoadStatus" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <div class="editor-workspace">
+      <div class="editor-main">
+        <section class="viewer-toolbar" aria-label="Taxonomy flow controls">
+          <div class="toolbar-row">
+            <label class="search-field" for="taxonomySearch">
+              <span class="field-label">Find a taxon, TaxID, or protein</span>
+              <span class="search-box">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
+                <input id="taxonomySearch" type="search" autocomplete="off" spellcheck="false" placeholder="Name, TaxID, rank, or PID…">
+                <button class="clear-search" id="taxonomySearchClear" type="button" aria-label="Clear search" hidden>×</button>
+              </span>
+            </label>
+            <span id="taxonomySearchCount" class="viewer-substatus" aria-live="polite"></span>
+            <span class="toolbar-spacer"></span>
+            <div class="status-cluster">
+              <span class="viewer-status" id="taxonomyStatus" aria-live="polite">Loading…</span>
+              <span class="viewer-substatus" id="taxonomySubstatus"></span>
+            </div>
+          </div>
+          <div class="toolbar-row">
+            <label class="control-field" for="taxonomyCountMode"><span>Node labels</span><select id="taxonomyCountMode"><option value="both">Count + percent</option><option value="count">Count</option><option value="percent">Percent</option></select></label>
+            <label class="check-field"><input id="taxonomyShowLabels" type="checkbox" checked><span>Taxon labels</span></label>
+            <div class="control-field"><span>View</span><span class="action-group"><button class="icon-button" id="taxonomyZoomOut" type="button">−</button><button class="action-button" id="taxonomyFit" type="button">Fit Sankey</button><button class="icon-button" id="taxonomyZoomIn" type="button">+</button><span class="zoom-value" id="taxonomyZoomValue">100%</span></span></div>
+            <label class="control-field height-control" for="taxonomyHeightScale"><span>Diagram height</span><span class="range-control"><input id="taxonomyHeightScale" type="range" min="20" max="250" step="5" value="100"><output id="taxonomyHeightScaleValue" for="taxonomyHeightScale">100%</output></span></label>
+            <label class="check-field" title="Synthetic Other groups are collapsed into their direct parent by default."><input id="taxonomyShowOther" type="checkbox"><span>Show Other groups</span></label>
+            <div class="control-field"><span>Selection</span><button class="action-button" id="taxonomyClearSelection" type="button">Clear selection</button></div>
+            <span class="toolbar-spacer"></span>
+            <div class="legend-wrap" id="taxonomyLegendWrap" hidden><span class="legend-title" id="taxonomyLegendTitle">Color</span><div class="legend" id="taxonomyLegend"></div></div>
+          </div>
+        </section>
+
+        <section class="sankey-panel" aria-label="Taxonomic Sankey">
+          <div class="sankey-viewport" id="taxonomyViewport">
+            <svg class="sankey-svg" id="taxonomySvg" role="img" aria-label="Taxonomic flow diagram"><g class="sankey-world" id="taxonomyWorld"></g></svg>
+            <div class="loading-overlay" id="taxonomyLoadingOverlay" hidden><div class="loading-card"><strong>Working with taxonomy data</strong><span id="taxonomyLoadingMessage">Please wait…</span></div></div>
+          </div>
+        </section>
+
+        <section class="info-panel selection-panel" id="taxonomySelectionPanel" hidden>
+          <h2 id="taxonomySelectionTitle">Selected taxon</h2>
+          <div class="selection-grid">
+            <div class="selection-stat"><span>Scientific / source name</span><strong id="taxonomySelectionName"></strong></div>
+            <div class="selection-stat"><span>TaxID</span><strong id="taxonomySelectionTaxid"></strong></div>
+            <div class="selection-stat"><span>Rank</span><strong id="taxonomySelectionRank"></strong></div>
+            <div class="selection-stat"><span>Proteins</span><strong id="taxonomySelectionCount"></strong></div>
+            <div class="selection-stat"><span>Fraction</span><strong id="taxonomySelectionPercent"></strong></div>
+          </div>
+          <div class="selection-actions"><button class="action-button" id="taxonomyDownloadSelection" type="button">Download protein IDs</button></div>
+        </section>
+
+        <section class="editor-panel table-panel">
+          <div class="table-toolbar">
+            <div><h2>Taxon catalog</h2><span class="viewer-substatus" id="editorCatalogSummary"></span></div>
+            <input id="editorCatalogSearch" type="search" placeholder="Filter taxon table…">
+          </div>
+          <div class="table-wrap">
+            <table class="taxonomy-table">
+              <thead><tr><th>Taxon</th><th>Rank</th><th>TaxID / ID</th><th class="count">Proteins</th><th>Action</th></tr></thead>
+              <tbody id="editorCatalogBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <aside class="editor-side">
+        <section class="editor-panel">
+          <h2>Resolve taxonomy</h2>
+          <div class="resolver-box">
+            <strong>Online NCBI Datasets</strong>
+            <p>Only unique numeric TaxIDs are requested. Protein identifiers and classifications stay in this browser.</p>
+            <label class="control-field"><span>NCBI API key <small>optional</small></span><input id="editorNcbiApiKey" type="password" autocomplete="off" placeholder="Optional"></label>
+            <button class="button button-primary" id="editorResolveOnline" type="button">Resolve TaxIDs online</button>
+          </div>
+          <div class="resolver-box">
+            <strong>Local snapshot</strong>
+            <p>Use the ZIP selected above. NCBI Datasets packages downloaded with parents are preferred; taxdump archives are also supported.</p>
+            <button class="button" id="editorResolveSnapshot" type="button" disabled>Resolve from snapshot</button>
+          </div>
+          <div class="progress-track"><div class="progress-bar" id="editorResolveProgress"></div></div>
+          <div class="resolver-status" id="editorResolveStatus">The bundled example currently uses the input classification as a local fallback.</div>
+        </section>
+
+        <section class="editor-panel">
+          <h2>Hierarchy and compression</h2>
+          <div class="editor-grid">
+            <label class="control-field"><span>Hierarchy mode</span><select id="editorMode"><option value="all">All taxonomic nodes</option><option value="standard">Selected standard ranks</option></select></label>
+            <label class="control-field"><span>Color by</span><select id="editorColorBy"><option value="domain">Domain / realm</option><option value="phylum">Phylum</option><option value="class">Class</option><option value="order">Order</option><option value="family">Family</option><option value="genus">Genus</option><option value="self">Each node</option></select></label>
+            <div class="wide"><span class="field-label">Standard ranks</span><div class="rank-selector" id="editorRanks"></div></div>
+            <label class="control-field"><span>Minimum proteins</span><input id="editorMinimumCount" type="number" min="0" step="1"></label>
+            <label class="control-field"><span>Minimum percent</span><input id="editorMinimumPercent" type="number" min="0" max="100" step="0.1"></label>
+            <label class="control-field"><span>Top children per parent</span><input id="editorTopN" type="number" min="0" step="1"></label>
+            <label class="control-field"><span>Sibling order</span><select id="editorSortChildren"><option value="count">Count</option><option value="name">Name</option><option value="taxonomy">Taxonomy</option><option value="manual">Manual override then name</option></select></label>
+            <label class="check-field"><input id="editorCollapseSingle" type="checkbox"><span>Collapse single-child chains</span></label>
+            <label class="check-field"><input id="editorHideRoot" type="checkbox"><span>Hide root</span></label>
+            <label class="check-field"><input id="editorIncludeUnclassified" type="checkbox"><span>Keep unclassified taxa</span></label>
+            <label class="check-field"><input id="editorShowNoRank" type="checkbox"><span>Show no-rank nodes</span></label>
+          </div>
+          <div class="editor-actions"><button class="button button-primary" id="editorApplySettings" type="button">Apply settings</button><button class="button" id="editorResetSettings" type="button">Reset settings</button></div>
+        </section>
+
+        <section class="editor-panel">
+          <h2>Edit selected taxon</h2>
+          <div class="node-editor-empty" id="editorNodeEmpty">Click a Sankey node or a row in the taxon catalog.</div>
+          <div class="node-editor" id="editorNodeForm" hidden>
+            <div class="node-identity"><strong id="editorNodeIdentity"></strong><span id="editorNodeMeta"></span></div>
+            <label class="control-field"><span>Display name</span><input id="editorNodeDisplayName" type="text"></label>
+            <label class="control-field"><span>Action</span><select id="editorNodeAction"><option value="auto">Automatic</option><option value="always">Always show</option><option value="collapse">Collapse into parent</option><option value="exclude">Exclude subtree</option></select></label>
+            <label class="control-field"><span>Sibling order <small>optional</small></span><input id="editorNodeOrder" type="number" step="1" placeholder="Automatic"></label>
+            <div><span class="field-label">Node color override</span><div class="color-row"><input id="editorNodeColorPicker" type="color" value="#4f8fd9"><input id="editorNodeColorText" type="text" placeholder="#4f8fd9"></div></div>
+            <div class="editor-actions"><button class="button button-primary" id="editorSaveNode" type="button">Save taxon override</button><button class="button" id="editorResetNode" type="button">Reset override</button></div>
+          </div>
+        </section>
+
+        <section class="editor-panel">
+          <h2>Export publication files</h2>
+          <p>The final figure needs the frozen resolved TSV and curation YAML. A color YAML and resolution report are optional.</p>
+          <div class="export-grid">
+            <button class="button" id="editorDownloadResolved" type="button">Resolved TSV</button>
+            <button class="button" id="editorDownloadYaml" type="button">Curation YAML</button>
+            <button class="button" id="editorDownloadColors" type="button">Color YAML</button>
+            <button class="button" id="editorDownloadReport" type="button">Resolution report</button>
+            <button class="button button-primary wide" id="editorDownloadPackage" type="button">Download publication package ZIP</button>
+          </div>
+          <div class="warning-box">When the source remains <b>input-classification</b>, the Sankey is useful for exploration but has not yet been reconciled against an NCBI taxonomy snapshot.</div>
+          <details class="diagnostics" id="editorDiagnostics"><summary>Validation and reconciliation report</summary><div class="diagnostic-list" id="editorDiagnosticsList"></div></details>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <div class="tooltip" id="taxonomyTooltip" hidden></div>
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./config.js?v=1.3.1"></script>
+  <script src="../shared/taxonomy-sankey-viewer.js?v=1.3.1"></script>
+  <script src="./editor.js?v=1.3.1"></script>
+</body>
+</html>

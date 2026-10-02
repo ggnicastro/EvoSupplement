@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive publication phylogeny with author-defined roots, marked supports, clade groups, labels, and annotations.">
+  <meta name="theme-color" content="#172033">
+  <title>Phylogeny Viewer</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=2.1.0">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="Back to supplementary-material portal">
+      <span class="brand-mark" aria-hidden="true">PT</span>
+      <span class="brand-copy"><strong id="appTitle">Phylogeny Viewer</strong><small id="appSubtitle" hidden aria-hidden="true"></small></span>
+    </a>
+  </header>
+
+  <section class="paper-header" id="paperHeader" hidden>
+    <p class="paper-title" id="paperTitleEl" hidden></p>
+    <h1 class="figure-title" id="figureTitleEl" hidden></h1>
+  </section>
+
+  <main class="page-shell">
+    <section class="phylo-toolbar" aria-label="Phylogeny controls">
+      <div class="filter-row">
+        <label class="filter-field" for="phyInclude"><span class="field-label">Include</span><span class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg><input id="phyInclude" type="search" autocomplete="off" spellcheck="false" placeholder="Include by tip or annotation…"><button class="clear-search" id="phyIncludeClear" type="button" aria-label="Clear include filter" hidden>×</button></span></label>
+        <label class="filter-field" for="phyExclude"><span class="field-label">Exclude</span><span class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16ZM7 11h10v2H7v-2Z"/></svg><input id="phyExclude" type="search" autocomplete="off" spellcheck="false" placeholder="Exclude by the same syntax…"><button class="clear-search" id="phyExcludeClear" type="button" aria-label="Clear exclude filter" hidden>×</button></span></label>
+        <div class="status-cluster"><span class="phylo-status" id="phyStatus" aria-live="polite">Loading…</span><span class="match-nav"><button class="mini-button" id="phyPreviousMatch" type="button" disabled>↑</button><button class="mini-button" id="phyNextMatch" type="button" disabled>↓</button></span></div>
+      </div>
+      <div class="control-row">
+        <label class="control-field" for="phyColorBy"><span>Color by</span><select id="phyColorBy"><option value="">None</option></select></label>
+        <div class="layout-field"><span>Layout</span><span class="layout-toggle three-way" role="group" aria-label="Tree layout"><button class="layout-button" id="phyLayoutUnrooted" type="button" aria-pressed="true">Unrooted</button><button class="layout-button" id="phyLayoutRadial" type="button" aria-pressed="false">Radial</button><button class="layout-button" id="phyLayoutRectangular" type="button" aria-pressed="false">Rectangular</button></span></div>
+        <label class="check-field"><input id="phyUseBranchLengths" type="checkbox" checked><span>Branch lengths</span></label>
+        <label class="check-field"><input id="phyAlignLabels" type="checkbox" checked><span>Align labels</span></label>
+        <label class="range-field" for="phyBranchScale"><span>Tree scale</span><input id="phyBranchScale" type="range" min="0.15" max="4" step="0.05" value="1"><output id="phyBranchScaleValue">100%</output></label>
+        <label class="range-field" for="phyTipSpacing"><span>Tip spacing</span><input id="phyTipSpacing" type="range" min="10" max="48" step="1" value="22"><output id="phyTipSpacingValue">22 px</output></label>
+        <label class="range-field view-zoom-field" for="phyViewZoom"><span>View zoom</span><input id="phyViewZoom" type="range" min="0" max="3000" step="1" value="1000"><output id="phyViewZoomValue">100%</output></label>
+        <div class="view-action-field"><span>Fit</span><span class="view-action-group"><button class="layout-button" id="phyFitTree" type="button" aria-pressed="false">Tree</button><button class="layout-button" id="phyFitAll" type="button" aria-pressed="true">Tree + labels</button></span></div>
+        <div class="root-action-field"><span>Root</span><span class="root-action-group"><button class="action-button" id="phyReroot" type="button">Explore reroot</button><button class="action-button" id="phyRestoreRoot" type="button" disabled>Original root</button></span></div>
+        <span class="control-spacer"></span><button class="action-button" id="phyResetView" type="button">Configured view</button>
+      </div>
+      <div class="reroot-bar" id="phyRerootBar" role="status" hidden><span class="reroot-message" id="phyRerootMessage">Select a branch.</span><span class="reroot-actions"><button class="action-button primary" id="phyRerootConfirm" type="button" disabled>Use temporarily</button><button class="action-button" id="phyRerootCancel" type="button">Cancel</button></span></div>
+      <div class="legend-wrap" id="phyLegendWrap" hidden><span class="legend-title">Color</span><div class="phylo-legend" id="phyLegend"></div></div>
+    </section>
+
+    <section class="phylo-panel" aria-label="Interactive phylogenetic tree">
+      <header class="phylo-panel-head"><span class="source-summary" id="phySourceSummary">Loading source files…</span><span class="viewport-hint" title="Mouse navigation">Wheel zoom · drag to pan</span><span class="source-actions"><a class="mini-button" id="phyDownloadTree" href="#" hidden>Download tree</a><a class="mini-button" id="phyDownloadAnnotations" href="#" hidden>Download annotations</a><a class="mini-button" id="phyDownloadCuration" href="#" hidden>Download configuration</a></span></header>
+      <div class="phylo-viewport" id="phyViewport" tabindex="0" title="Use the mouse wheel to zoom and drag empty space to pan the tree."><svg class="phylo-svg" id="phySvg" width="1" height="1" aria-label="Phylogenetic tree"></svg></div>
+      <div class="viewer-overlay" id="phyOverlay"><div class="overlay-card"><span class="loading-spinner" id="phyOverlaySpinner"></span><strong id="phyOverlayTitle">Loading phylogeny</strong><span id="phyOverlayDetail">Parsing the tree and author configuration…</span></div></div>
+    </section>
+
+    <div class="phylo-tooltip" id="phyTooltip" role="tooltip" hidden></div>
+    <div class="phylo-error" id="phyError" role="alert" hidden></div>
+  </main>
+
+  <footer class="page-footer"><span>The author-defined root, marked supports, clade groups, colors, and labels come from the publication YAML.</span><span aria-hidden="true">•</span><span>Reader layout changes are temporary and never rewrite source files.</span></footer>
+
+  <script src="./config.js?v=3"></script>
+  <script src="../shared/phylogeny-viewer.js?v=2.1.0"></script>
+  <script>window.PhylogenyViewer.init();</script>
+</body>
+</html>

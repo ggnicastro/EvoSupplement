@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive undirected biological association network with annotation-driven coloring, edge-count filtering, and multiple layouts.">
+  <meta name="theme-color" content="#172033">
+  <title>Network Editor</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=1.2.0">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="EvoSupplement home">
+      <span class="brand-mark" aria-hidden="true">NW</span>
+      <span class="brand-copy">
+        <strong id="appTitle">Network Editor</strong>
+        <small id="appSubtitle" hidden aria-hidden="true"></small>
+      </span>
+    </a>
+    <span class="privacy-badge" title="The viewer runs entirely in the browser">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
+      Static &amp; browser-based
+    </span>
+  </header>
+
+  <section class="paper-header" id="paperHeader" hidden>
+    <p class="paper-title" id="paperTitleEl" hidden></p>
+    <h1 class="figure-title" id="figureTitleEl" hidden></h1>
+  </section>
+
+  <main class="page-shell">
+    <section class="demo-load-card" id="networkDemoLoader" aria-label="Load local network files">
+      <div class="demo-load-row">
+        <span class="file-field">
+          <span class="file-field-label">Edge TSV</span>
+          <label class="file-button" for="networkDemoEdgeInput">Choose TSV</label>
+          <input id="networkDemoEdgeInput" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain" hidden>
+          <span class="file-name" id="networkDemoEdgeName">No file selected</span>
+        </span>
+        <span class="file-field">
+          <span class="file-field-label">Node YAML <em>optional</em></span>
+          <label class="file-button" for="networkDemoNodeInput">Choose YAML</label>
+          <input id="networkDemoNodeInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" hidden>
+          <span class="file-name" id="networkDemoNodeName">Optional</span>
+          <button class="mini-button" id="networkDemoClearNodes" type="button" hidden>Clear</button>
+        </span>
+        <span class="file-field">
+          <span class="file-field-label">Group colors</span>
+          <label class="file-button" for="networkDemoColorInput">Optional YAML</label>
+          <input id="networkDemoColorInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" hidden>
+          <span class="file-name" id="networkDemoColorName">Optional</span>
+          <button class="mini-button" id="networkDemoClearColors" type="button" hidden>Clear</button>
+        </span>
+      </div>
+      <div class="demo-load-row">
+        <button class="action-button primary" id="networkDemoLoad" type="button" disabled>Load local files</button>
+        <button class="action-button" id="networkDemoReload" type="button">Reload bundled example</button>
+        <p class="demo-hint">Files are parsed locally in this browser. Only the edge TSV is required. Without a node YAML, source and target names become independent nodes. Optional node annotations can provide aliases, Display_name values, Include flags, functions, and notes; colors remain optional.</p>
+      </div>
+    </section>
+    <section class="network-toolbar" aria-label="Network controls">
+      <div class="filter-row">
+        <label class="search-field" for="networkSearch">
+          <span class="field-label">Find nodes</span>
+          <span class="search-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
+            <input id="networkSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Display name, YAML key, group, or note…">
+            <button class="clear-search" id="networkSearchClear" type="button" aria-label="Clear node search" hidden>×</button>
+          </span>
+        </label>
+        <span class="search-meta" id="networkSearchCount" aria-live="polite"></span>
+        <div class="status-cluster">
+          <span class="network-status" id="networkStatus" aria-live="polite">Loading…</span>
+          <span class="selection-summary" id="networkSelectionSummary">No persistent selection</span>
+        </div>
+      </div>
+
+      <div class="control-row">
+        <label class="control-field" for="networkLayout">
+          <span>Layout</span>
+          <select class="layout-select" id="networkLayout">
+            <option value="fruchterman-reingold">Fruchterman–Reingold</option>
+            <option value="spring">Spring (Eades)</option>
+            <option value="kamada-kawai">Kamada–Kawai</option>
+            <option value="grouped-spring">Grouped spring</option>
+            <option value="circle">Circle</option>
+            <option value="concentric">Concentric</option>
+            <option value="grid">Grid</option>
+          </select>
+        </label>
+        <div class="action-field">
+          <span>Recalculate</span>
+          <button class="action-button" id="networkRunLayout" type="button">Run layout</button>
+        </div>
+        <span class="layout-progress" id="networkLayoutProgress" hidden>Calculating layout…</span>
+
+        <label class="control-field threshold-field" for="networkThresholdSlider">
+          <span>Minimum total edge count</span>
+          <span class="threshold-controls">
+            <input id="networkThresholdSlider" type="range" min="0" max="1000" step="1" value="0" aria-label="Minimum total edge count">
+            <input id="networkThresholdNumber" type="number" min="0" step="1" value="5" aria-label="Exact minimum total edge count">
+            <output class="threshold-output" id="networkThresholdValue" for="networkThresholdSlider networkThresholdNumber">≥ 5</output>
+          </span>
+        </label>
+
+        <label class="control-field" for="networkNodeSize">
+          <span>Node size</span>
+          <select class="node-size-select" id="networkNodeSize">
+            <option value="weighted-degree">Weighted degree</option>
+            <option value="degree">Degree</option>
+            <option value="constant">Constant</option>
+          </select>
+        </label>
+
+        <label class="check-field" title="Show the canonical Display_name next to every visible node">
+          <input id="networkShowLabels" type="checkbox" checked>
+          <span>Labels</span>
+        </label>
+        <label class="check-field" title="Keep Include: 1 nodes visible even when they have no relationship above the active threshold">
+          <input id="networkShowIsolates" type="checkbox">
+          <span>Isolated nodes</span>
+        </label>
+
+        <span class="control-spacer"></span>
+        <div class="action-field">
+          <span>View</span>
+          <span class="action-group">
+            <button class="icon-button" id="networkZoomOut" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+            <button class="action-button" id="networkFit" type="button">Fit network</button>
+            <button class="icon-button" id="networkZoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+            <span class="mini-button" id="networkZoomValue" aria-live="polite">100%</span>
+          </span>
+        </div>
+        <div class="action-field">
+          <span>Positions</span>
+          <span class="action-group">
+            <button class="action-button" id="networkReleaseAll" type="button">Release nodes</button>
+            <button class="action-button" id="networkResetPositions" type="button">Reset positions</button>
+          </span>
+        </div>
+        <div class="action-field">
+          <span>Selection</span>
+          <button class="action-button" id="networkClearSelection" type="button" disabled>Clear selection</button>
+        </div>
+      </div>
+
+
+      <details class="community-panel" id="networkCommunityPanel" open>
+        <summary>Community analysis</summary>
+        <div class="community-controls">
+          <label class="check-field scope-toggle" title="When enabled, only canonical nodes with at least one YAML entry marked Include: 1 can enter the visible network">
+            <input id="networkOnlyIncluded" type="checkbox" checked>
+            <span>Only YAML Include = 1</span>
+          </label>
+
+          <label class="control-field" for="networkCommunityMethod">
+            <span>Method</span>
+            <select id="networkCommunityMethod">
+              <option value="none">None</option>
+              <option value="louvain">Louvain</option>
+              <option value="leiden">Leiden</option>
+            </select>
+          </label>
+
+          <label class="control-field resolution-field" for="networkCommunityResolutionSlider">
+            <span>Resolution</span>
+            <span class="resolution-controls">
+              <input id="networkCommunityResolutionSlider" type="range" min="0.05" max="5" step="0.05" value="1" aria-label="Community resolution">
+              <input id="networkCommunityResolutionNumber" type="number" min="0.05" max="10" step="0.05" value="1" aria-label="Exact community resolution">
+            </span>
+          </label>
+
+          <label class="check-field" title="Use the aggregated total edge_count as the relationship weight">
+            <input id="networkCommunityWeighted" type="checkbox" checked>
+            <span>Weight by edge count</span>
+          </label>
+
+          <label class="control-field compact-number" for="networkCommunitySeed">
+            <span>Seed</span>
+            <input id="networkCommunitySeed" type="number" step="1" value="42">
+          </label>
+
+          <label class="control-field compact-number" for="networkCommunityIterations">
+            <span>Iterations</span>
+            <input id="networkCommunityIterations" type="number" min="1" max="250" step="1" value="20">
+          </label>
+
+          <div class="action-field">
+            <span>Detection</span>
+            <button class="action-button" id="networkRecomputeCommunities" type="button" disabled>Recompute</button>
+          </div>
+
+          <label class="control-field" for="networkColorBy">
+            <span>Color nodes by</span>
+            <select id="networkColorBy">
+              <option value="function">YAML function</option>
+              <option value="community" disabled>Detected community</option>
+            </select>
+          </label>
+
+          <label class="control-field" for="networkGroupLayoutBy">
+            <span>Group layout by</span>
+            <select id="networkGroupLayoutBy">
+              <option value="none">None</option>
+              <option value="function">YAML function</option>
+              <option value="community" disabled>Detected community</option>
+            </select>
+          </label>
+
+          <div class="action-field">
+            <span>Grouped layout</span>
+            <button class="action-button" id="networkRelayoutGroups" type="button">Re-layout</button>
+          </div>
+
+          <span class="community-summary" id="networkCommunitySummary" aria-live="polite">Community detection is off</span>
+        </div>
+        <p class="community-note">Communities are recalculated only from the nodes and relationships currently visible after the YAML scope, minimum edge-count threshold, and isolated-node controls are applied.</p>
+        <section class="yaml-export-panel" aria-label="Generate node YAML from the current network">
+          <div class="yaml-export-copy">
+            <strong>Generate node YAML</strong>
+            <span>Export every TSV node identifier. Nodes connected in the current filtered network receive Include: 1 and the detected community as Function; other nodes receive Include: 0.</span>
+          </div>
+          <label class="check-field" title="Also mark currently visible isolated nodes as Include: 1 in the generated YAML">
+            <input id="networkExportIncludeIsolates" type="checkbox">
+            <span>Include visible isolated nodes</span>
+          </label>
+          <span class="action-group">
+            <button class="action-button primary" id="networkDownloadGeneratedYaml" type="button" disabled>Download generated node YAML</button>
+            <button class="action-button" id="networkDownloadCommunityColors" type="button" disabled>Download community colors</button>
+          </span>
+          <span class="yaml-export-summary" id="networkExportSummary" aria-live="polite">Choose Louvain or Leiden to assign communities.</span>
+        </section>
+      </details>
+
+      <div class="legend-wrap" id="networkLegendWrap" hidden>
+        <span class="legend-title" id="networkLegendTitle">Function</span>
+        <div class="network-legend" id="networkLegend"></div>
+      </div>
+
+      <details class="network-diagnostics" id="networkDiagnostics" hidden>
+        <summary>Data processing report</summary>
+        <div class="network-diagnostics-body" id="networkDiagnosticsBody"></div>
+      </details>
+    </section>
+
+    <section class="network-panel" aria-label="Interactive network">
+      <header class="network-panel-head">
+        <span class="source-summary" id="networkSourceSummary">Loading source files…</span>
+        <span class="source-actions">
+          <a class="mini-button" id="networkDownloadEdges" href="#" hidden>Download edges</a>
+          <a class="mini-button" id="networkDownloadNodes" href="#" hidden>Download node YAML</a>
+          <a class="mini-button" id="networkDownloadColors" href="#" hidden>Download colors</a>
+        </span>
+      </header>
+      <div class="network-viewport" id="networkViewport" tabindex="0" aria-label="Pan and zoom the network">
+        <svg class="network-svg" id="networkSvg" width="1" height="1" aria-label="Undirected association network">
+          <g id="networkRootGroup">
+            <g id="networkEdgesGroup"></g>
+            <g id="networkNodesGroup"></g>
+            <g id="networkLabelsGroup"></g>
+          </g>
+        </svg>
+      </div>
+      <div class="viewer-overlay" id="networkOverlay">
+        <div class="overlay-card">
+          <span class="loading-spinner" id="networkOverlaySpinner"></span>
+          <strong id="networkOverlayTitle">Loading network</strong>
+          <span id="networkOverlayDetail">Reading and aggregating the source files…</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="network-tooltip" id="networkTooltip" role="tooltip" hidden></div>
+    <div class="network-error" id="networkError" role="alert" hidden></div>
+    <div class="network-toast" id="networkToast" role="status" hidden></div>
+  </main>
+
+  <footer class="page-footer">
+    <span>Node YAML is optional in the editor; generated YAML can be reviewed and reused for publication.</span>
+    <span aria-hidden="true">•</span>
+    <span>Display-name aliases and all directional edge rows are unified before filtering.</span>
+    <span aria-hidden="true">•</span>
+    <span>Dragging changes only the browser view; source files are never rewritten.</span>
+  </footer>
+
+  <script src="./config.js?v=2"></script>
+  <script src="../shared/network-viewer.js?v=1.2.0"></script>
+  <script>window.NetworkViewer.init();</script>
+</body>
+</html>

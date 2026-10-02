@@ -1,0 +1,22 @@
+version: 1
+title: "Phylogeny editor example"
+layout:
+  mode: unrooted
+  use_branch_lengths: true
+  align_labels: true
+  branch_scale: 1
+  tip_spacing: 22
+  fit_mode: all
+  color_by: g
+root: null
+supports:
+  display: circle
+  color: "#172033"
+  size: 5
+  number_size: 9
+  marked: []
+labels:
+  id_column: id
+  template: "{tip}"
+  hover_columns: [id, g, last_h50]
+groups: []

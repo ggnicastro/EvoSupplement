@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Authoring editor for interactive protein domain architecture figures.">
+  <meta name="theme-color" content="#101720">
+  <title>Protein Domain Architecture Editor</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=1.0.0">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="EvoSupplement Studio">
+      <span class="brand-mark" aria-hidden="true">DA</span>
+      <span class="brand-copy"><strong id="appTitle">Protein Domain Architecture Editor</strong></span>
+    </a>
+    <span class="privacy-badge" title="Files stay in this browser"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>Static &amp; browser-based</span>
+  </header>
+
+  <section class="paper-header" id="paperHeader" hidden><p class="paper-title" id="paperTitleEl" hidden></p><h1 class="figure-title" id="figureTitleEl" hidden></h1></section>
+
+  <main class="page-shell">
+    <section class="load-card" aria-label="Load local architecture files">
+      <div class="load-row">
+        <span class="file-field"><span class="file-field-label">Domain TSV <b aria-hidden="true">*</b></span><label class="file-button" for="architectureEditorDataInput">Choose TSV</label><input id="architectureEditorDataInput" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain" hidden><span class="file-name" id="architectureEditorDataName">No file selected</span></span>
+        <span class="file-field"><span class="file-field-label">Architecture YAML <em>optional</em></span><label class="file-button" for="architectureEditorYamlInput">Choose YAML</label><input id="architectureEditorYamlInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" hidden><span class="file-name" id="architectureEditorYamlName">Optional</span></span>
+      </div>
+      <div class="load-row">
+        <button class="action-button primary" id="architectureEditorLoad" type="button" disabled>Load local files</button>
+        <button class="action-button" id="architectureEditorReload" type="button">Reload bundled example</button>
+        <button class="action-button" id="architectureEditorClearYaml" type="button" hidden>Clear YAML</button>
+        <p class="load-hint">One row represents one domain or feature. Required columns are <code>pid</code>, <code>domain</code>, <code>start</code>, <code>end</code>, and <code>plen</code>. Extra columns are detected as protein or domain metadata and become available for labels, sorting, grouping, and hover.</p>
+      </div>
+    </section>
+
+    <section class="toolbar" aria-label="Architecture controls">
+      <div class="toolbar-row">
+        <label class="search-field" for="architectureSearch"><span class="field-label">Find proteins or domains</span><span class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg><input id="architectureSearch" type="search" autocomplete="off" placeholder="PID, domain, taxonomy, metadata…"><button class="clear-search" id="architectureSearchClear" type="button" aria-label="Clear search">×</button></span></label>
+        <span class="status-text" id="architectureStatus" aria-live="polite">Load a domain table to begin.</span>
+      </div>
+      <div class="toolbar-row">
+        <label class="control-field" for="architectureMode"><span>Drawing mode</span><select id="architectureMode"><option value="true">True length</option><option value="normalized">Normalized proteins</option><option value="compact">Compact architecture</option></select></label>
+        <label class="control-field" for="architectureAlign"><span>Align rows by</span><select id="architectureAlign"><option value="n">N terminus</option><option value="c">C terminus</option><option value="anchor">Selected domain</option></select></label>
+        <span id="architectureAnchorControls" class="action-group" hidden>
+          <label class="control-field" for="architectureAnchorDomain"><span>Anchor domain</span><select id="architectureAnchorDomain"></select></label>
+          <label class="control-field" for="architectureAnchorPoint"><span>Anchor point</span><select id="architectureAnchorPoint"><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></label>
+        </span>
+        <label class="control-field" for="architectureSortPrimary"><span>Sort by</span><select id="architectureSortPrimary"></select></label>
+        <label class="control-field" for="architectureSortPrimaryDirection"><span>Direction</span><select id="architectureSortPrimaryDirection"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+        <label class="control-field" for="architectureGroupBy"><span>Group rows by</span><select id="architectureGroupBy"></select></label>
+        <label class="check-field"><input id="architectureCollapseIdentical" type="checkbox"><span>Collapse identical architectures</span></label>
+      </div>
+      <div class="toolbar-row">
+        <label class="control-field"><span>Row height</span><span class="range-wrap"><input id="architectureRowHeight" type="range" min="28" max="90" step="1" value="44"><output class="range-output" id="architectureRowHeightValue">44 px</output></span></label>
+        <label class="control-field"><span>Zoom</span><span class="range-wrap"><input id="architectureZoom" type="range" min="0.15" max="6" step="0.05" value="1"><output class="range-output" id="architectureZoomValue">100%</output></span></label>
+        <div class="action-field"><span>View</span><span class="action-group"><button class="icon-button" id="architectureZoomOut" type="button" aria-label="Zoom out">−</button><button class="action-button" id="architectureFit" type="button">Fit width</button><button class="icon-button" id="architectureZoomIn" type="button" aria-label="Zoom in">+</button></span></div>
+        <span id="architectureCompactControls" class="action-group" hidden>
+          <label class="control-field" for="architectureCompactGapMode"><span>Empty intervals</span><select id="architectureCompactGapMode"><option value="cap">Cap gap width</option><option value="remove">Remove gaps</option></select></label>
+          <label class="control-field"><span>Maximum gap</span><span class="range-wrap"><input id="architectureCompactGap" type="range" min="0" max="60" step="1" value="12"><output class="range-output">px</output></span></label>
+        </span>
+        <label class="check-field"><input id="architectureShowGapMarkers" type="checkbox" checked><span>Gap marks</span></label>
+        <label class="check-field"><input id="architectureShowDomainLabels" type="checkbox" checked><span>Domain labels</span></label>
+        <label class="check-field"><input id="architectureShowProteinLengths" type="checkbox" checked><span>Protein lengths</span></label>
+        <label class="check-field"><input id="architectureShowRuler" type="checkbox" checked><span>Ruler</span></label>
+      </div>
+      <details class="advanced-panel" open>
+        <summary>Protein labels, secondary sorting, and hover metadata</summary>
+        <div class="advanced-grid">
+          <label class="control-field"><span>Protein label template</span><input id="architectureLabelTemplate" type="text" value="{pid}" placeholder="{pid} | {organism}"><p class="field-help">Use any protein metadata field inside braces.</p></label>
+          <label class="control-field"><span>Subtitle template</span><input id="architectureSubtitleTemplate" type="text" value="" placeholder="{taxonomy}"></label>
+          <label class="control-field" for="architectureSortSecondary"><span>Secondary sort</span><select id="architectureSortSecondary"></select></label>
+          <label class="control-field" for="architectureSortSecondaryDirection"><span>Secondary direction</span><select id="architectureSortSecondaryDirection"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+          <div class="control-field"><span>Protein hover fields</span><div class="checkbox-list" id="architectureProteinHoverFields"></div></div>
+          <div class="control-field"><span>Domain hover fields</span><div class="checkbox-list" id="architectureDomainHoverFields"></div></div>
+          <div class="action-field"><span>Metadata display</span><button class="action-button" id="architectureApplyMetadata" type="button">Apply labels and hover</button></div>
+        </div>
+      </details>
+    </section>
+
+    <section class="viewer-panel" aria-label="Protein domain architectures">
+      <header class="viewer-head"><span class="source-summary" id="architectureSourceSummary">Loading example…</span><span class="source-actions"><a class="mini-button" id="architectureDownloadData" href="#" hidden download>Download TSV</a><a class="mini-button" id="architectureDownloadYaml" href="#" hidden download>Download YAML</a></span></header>
+      <div class="architecture-ruler" id="architectureRuler"></div>
+      <div class="architecture-viewport" id="architectureViewport" tabindex="0" aria-label="Scroll, Ctrl or Command plus wheel to zoom, and drag empty space to pan">
+        <div class="architecture-spacer" id="architectureSpacer"><div class="architecture-row-layer" id="architectureRowLayer"></div></div>
+      </div>
+      <div class="viewer-overlay" id="architectureOverlay"><div class="overlay-card"><span class="loading-spinner"></span><strong id="architectureOverlayTitle">Loading domain architectures</strong><span id="architectureOverlayDetail">Reading the bundled example…</span></div></div>
+    </section>
+
+    <section class="editor-panel" aria-label="Domain style editor">
+      <div class="editor-panel-head">
+        <div><h2>Domain style curation</h2><p>Rank domains by frequency, suggest a palette, then click a domain in the table or drawing to adjust its display name, color, and shape. SIG, TM, and LIPO keep fixed conventions and are excluded from Top-N suggestions.</p></div>
+        <div class="export-actions"><button class="action-button primary" id="architectureExportYaml" type="button">Download architecture YAML</button><button class="action-button" id="architectureExportPackage" type="button">Download publication package</button></div>
+      </div>
+      <div class="curation-controls">
+        <label class="control-field" for="architectureFrequencyMetric"><span>Rank by</span><select id="architectureFrequencyMetric"><option value="proteins">Distinct proteins</option><option value="occurrences">Occurrences</option><option value="residues">Residues covered</option></select></label>
+        <label class="control-field" for="architectureTopCount"><span>Top domains</span><select id="architectureTopCount"><option value="10">Top 10</option><option value="15">Top 15</option><option value="20">Top 20</option><option value="custom">Custom</option></select></label>
+        <label class="control-field" id="architectureCustomTopWrap" hidden><span>Custom count</span><input id="architectureCustomTop" type="number" min="1" max="250" value="12"></label>
+        <label class="check-field"><input id="architecturePreserveStyles" type="checkbox" checked><span>Preserve edited styles</span></label>
+        <button class="action-button" id="architectureSuggestStyles" type="button">Suggest colors and shapes</button>
+      </div>
+      <div class="curation-grid">
+        <div class="domain-catalog">
+          <div class="catalog-head"><h3>Domain catalog</h3><input class="catalog-search" id="architectureDomainSearch" type="search" placeholder="Find a domain…"></div>
+          <div class="domain-table-wrap"><table class="domain-table"><thead><tr><th>Domain</th><th class="numeric">Proteins</th><th class="numeric">Occurrences</th><th class="numeric">Residues</th><th>Style</th></tr></thead><tbody id="architectureDomainTableBody"></tbody></table></div>
+        </div>
+        <aside class="domain-editor" id="architectureDomainEditor"><p class="domain-editor-empty" id="architectureDomainEditorEmpty">Select an ordinary domain to edit its publication style. Special features retain the fixed EvoSupplement conventions.</p><div class="domain-editor-grid" id="architectureDomainEditorForm" hidden>
+          <div><span class="field-label">Domain identifier</span><strong id="architectureSelectedDomain"></strong></div>
+          <div class="editor-stat-grid"><div class="editor-stat"><span>Proteins</span><strong id="architectureSelectedProteins"></strong></div><div class="editor-stat"><span>Occurrences</span><strong id="architectureSelectedOccurrences"></strong></div><div class="editor-stat"><span>Residues</span><strong id="architectureSelectedResidues"></strong></div></div>
+          <label class="control-field"><span>Display name</span><input id="architectureStyleName" type="text"></label>
+          <label class="control-field"><span>Color</span><span class="color-control"><input id="architectureStyleColor" type="color"><input id="architectureStyleColorText" type="text" placeholder="#4f8fd9"></span></label>
+          <label class="control-field"><span>Shape</span><select id="architectureStyleShape"><option value="rounded">Rounded rectangle</option><option value="rectangle">Rectangle</option><option value="capsule">Capsule</option><option value="ellipse">Ellipse</option><option value="hexagon">Hexagon</option><option value="chevron">Chevron</option><option value="arrow">Arrow</option><option value="diamond">Diamond</option></select></label>
+          <label class="check-field"><input id="architectureStyleVisible" type="checkbox" checked><span>Visible in the figure</span></label>
+          <div class="action-group"><button class="action-button primary" id="architectureSaveStyle" type="button">Apply style</button><button class="action-button" id="architectureResetStyle" type="button">Reset</button></div>
+        </div></aside>
+      </div>
+    </section>
+
+    <div class="tooltip" id="architectureTooltip" hidden></div>
+    <div class="error-box" id="architectureError" role="alert" hidden></div>
+  </main>
+
+  <footer class="page-footer"><span>One TSV row represents one domain or special feature.</span><span aria-hidden="true">•</span><span>Ctrl/Cmd + wheel zooms; drag empty space to pan.</span><span aria-hidden="true">•</span><span>The editor never rewrites the selected source files.</span></footer>
+
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./config.js?v=1.0.0"></script>
+  <script src="../shared/domain-architecture-viewer.js?v=1.0.0"></script>
+  <script src="./editor.js?v=1.0.0"></script>
+</body>
+</html>

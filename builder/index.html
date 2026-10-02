@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>EvoSupplement Builder</title>
+  <link rel="stylesheet" href="./styles.css?v=1.5.0">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../" aria-label="EvoSupplement home">
+      <span class="brand-mark" aria-hidden="true">ES</span>
+      <span class="brand-copy">
+        <strong>EvoSupplement Builder</strong>
+        <small>Assemble a publication-ready supplementary site</small>
+      </span>
+    </a>
+    <div class="header-actions">
+      <span class="privacy-badge" title="Files remain in this browser session and are packaged locally">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Zm-1 4.32v2H9v2h2v2h2v-2h2v-2h-2v-2h-2Z"/></svg>
+        Local browser processing
+      </span>
+      <button class="button button-ghost" id="newProjectButton" type="button">New project</button>
+      <button class="button button-ghost" id="openProjectButton" type="button">Open project ZIP</button>
+      <input id="openProjectInput" type="file" accept=".zip,application/zip" hidden>
+    </div>
+  </header>
+
+  <main class="builder-shell">
+    <section class="hero-panel">
+      <div>
+        <p class="eyebrow">Static-site project generator</p>
+        <h1>Build an interactive paper supplement.</h1>
+        <p class="hero-copy">Enter the paper metadata, create sections, attach files or viewer inputs, validate the project, and download a ZIP ready for GitHub Pages.</p>
+      </div>
+      <ol class="workflow-steps" aria-label="Builder workflow">
+        <li><span>1</span> Paper</li>
+        <li><span>2</span> Sections</li>
+        <li><span>3</span> Validate</li>
+        <li><span>4</span> Download</li>
+      </ol>
+    </section>
+
+    <div class="workspace-grid">
+      <div class="editor-column">
+        <section class="panel" aria-labelledby="projectHeading">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">Step 1</p>
+              <h2 id="projectHeading">Project information</h2>
+            </div>
+            <span class="panel-note">Used in the portal, README, citation file, and deployment guide.</span>
+          </div>
+
+          <div class="form-grid form-grid-two">
+            <label class="field field-wide">
+              <span>Supplement title <b aria-hidden="true">*</b></span>
+              <input id="projectTitle" type="text" autocomplete="off" placeholder="Interactive supplementary material for…">
+            </label>
+            <label class="field">
+              <span>Short site name</span>
+              <input id="projectShortTitle" type="text" autocomplete="off" placeholder="EvoSupplement">
+            </label>
+            <label class="field">
+              <span>Repository / ZIP name</span>
+              <input id="repositoryName" type="text" autocomplete="off" placeholder="my-paper-supplement">
+            </label>
+            <label class="field field-wide">
+              <span>Description <small>optional</small></span>
+              <textarea id="projectDescription" rows="3" placeholder="A short description shown below the title on the portal."></textarea>
+            </label>
+            <label class="field">
+              <span>Journal or venue <small>optional</small></span>
+              <input id="projectJournal" type="text" autocomplete="off" placeholder="Journal name or bioRxiv">
+            </label>
+            <label class="field">
+              <span>Year <small>optional</small></span>
+              <input id="projectYear" type="text" inputmode="numeric" autocomplete="off" placeholder="2026">
+            </label>
+            <label class="field">
+              <span>DOI <small>optional</small></span>
+              <input id="projectDoi" type="text" autocomplete="off" placeholder="10.1234/example">
+            </label>
+            <label class="field">
+              <span>License</span>
+              <select id="projectLicense">
+                <option value="MIT">MIT</option>
+                <option value="none">No license file</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="subsection-heading">
+            <div>
+              <h3>Authors</h3>
+              <p>Add authors in publication order. ORCID is optional.</p>
+            </div>
+            <button class="button button-small button-secondary" id="addAuthorButton" type="button">Add author</button>
+          </div>
+          <div id="authorsHost" class="authors-list"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="contentsHeading">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">Step 2</p>
+              <h2 id="contentsHeading">Sections and materials</h2>
+            </div>
+            <button class="button button-secondary" id="addSectionButton" type="button">Add section</button>
+          </div>
+          <p class="section-intro">A section becomes a heading on the portal. Each item can be a regular file, an HTML package, an external link, a placeholder, or one of the EvoSupplement viewers.</p>
+          <div id="sectionsHost" class="sections-editor"></div>
+          <div id="emptySections" class="empty-state">
+            <div class="empty-icon" aria-hidden="true">＋</div>
+            <h3>No sections yet</h3>
+            <p>Create a section such as Figures, Tables, Interactive analyses, or Data availability.</p>
+            <button class="button button-primary" type="button" data-action="add-section">Add the first section</button>
+          </div>
+        </section>
+      </div>
+
+      <aside class="review-column">
+        <section class="panel sticky-panel" aria-labelledby="reviewHeading">
+          <div class="panel-heading compact">
+            <div>
+              <p class="panel-kicker">Steps 3–4</p>
+              <h2 id="reviewHeading">Review and package</h2>
+            </div>
+          </div>
+
+          <div class="summary-strip" id="projectSummary">
+            <div><strong>0</strong><span>sections</span></div>
+            <div><strong>0</strong><span>items</span></div>
+            <div><strong>0 B</strong><span>uploads</span></div>
+          </div>
+
+          <div class="review-actions">
+            <button class="button button-secondary button-block" id="validateButton" type="button">Validate project</button>
+            <button class="button button-primary button-block" id="downloadButton" type="button">Download project ZIP</button>
+          </div>
+
+          <div id="validationStatus" class="validation-status validation-neutral">
+            <strong>Not validated yet</strong>
+            <span>Validation runs automatically at a basic level and performs deeper file checks before packaging.</span>
+          </div>
+
+          <div id="validationResults" class="validation-results" aria-live="polite"></div>
+
+          <div class="preview-heading">
+            <h3>Portal preview</h3>
+            <span>Manifest structure</span>
+          </div>
+          <div id="portalPreview" class="portal-preview"></div>
+
+          <details class="deployment-preview">
+            <summary>What the ZIP includes</summary>
+            <ul>
+              <li>A generated portal and <code>manifest.js</code>.</li>
+              <li>Only the viewer modules used by the project.</li>
+              <li>Uploaded files in predictable folders.</li>
+              <li>README, citation metadata, deployment instructions, and a GitHub Pages workflow.</li>
+              <li>An <code>evosupplement-project.json</code> recipe for reopening the ZIP in this Builder.</li>
+            </ul>
+          </details>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <div id="busyOverlay" class="busy-overlay" hidden>
+    <div class="busy-card" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <h2 id="busyTitle">Building project</h2>
+      <p id="busyMessage">Preparing files…</p>
+      <div class="progress-track"><div id="busyProgress" class="progress-bar"></div></div>
+      <span id="busyPercent">0%</span>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./builder.js?v=1.5.0"></script>
+</body>
+</html>

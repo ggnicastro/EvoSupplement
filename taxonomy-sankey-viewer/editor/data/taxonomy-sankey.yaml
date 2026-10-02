@@ -1,0 +1,24 @@
+version: 1
+title: "Taxonomic distribution of the protein set"
+source:
+  resolver: "input-classification"
+  resolved_at: "2026-10-01"
+  note: "Bundled example derived from the input classification column. Resolve TaxIDs in the editor to freeze an NCBI-backed snapshot."
+layout:
+  mode: "all"
+  ranks: ["domain", "phylum", "class", "order", "family", "genus"]
+  minimum_count: 1
+  minimum_percent: 0
+  top_n_per_parent: 12
+  collapse_single_child: false
+  collapse_other: true
+  hide_root: true
+  include_unclassified: true
+  show_no_rank: true
+  sort_children: "count"
+  color_by: "domain"
+  show_counts: true
+  show_percentages: true
+  node_padding: 12
+  node_width: 18
+overrides: {}

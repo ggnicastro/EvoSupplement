@@ -1,0 +1,49 @@
+# MYCViewer - simple YAML template
+#
+# The viewer automatically adds a fixed Base structure:
+# white cartoon, opacity 0.2, with hydrogens hidden.
+# The entries below define the visible region components.
+
+version: 1
+title: Example protein component scene
+
+# auth  = residue numbers written in the PDB file
+# label = sequential polymer residue numbers used by Mol*
+numbering: auth
+
+# Remove this line to apply regions to all chains.
+default_chain: A
+
+viewer:
+  # default | illustrative
+  style: illustrative
+
+  # Default inherited by region components unless a region overrides it.
+  component_representation: cartoon
+  component_opacity: 1.0
+  components_visible: true
+
+  background: "#FFFFFF"
+  create_components: true
+  show_labels: false
+  show_tooltips: true
+
+regions:
+  # Inclusive residue range.
+  - name: N-terminal domain
+    start: 1
+    end: 90
+    color: "#2563EB"
+
+  # Non-contiguous residues grouped into one Mol* component.
+  - name: Active-site residues
+    positions: [105, 142, 178]
+    component_representation: ball_and_stick
+    component_color_theme: element-symbol
+    component_opacity: 1.0
+
+  # A single residue.
+  - name: Catalytic residue
+    residue: 203
+    color: "#F59E0B"
+    component_representation: spacefill

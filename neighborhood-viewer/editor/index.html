@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Author workspace for loading, curating, and exporting Gene Neighborhood Viewer inputs.">
+  <meta name="theme-color" content="#172033">
+  <title>Gene Neighborhood Editor</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=3.3.0">
+  <link rel="stylesheet" href="./editor.css?v=1.0.0">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand" aria-label="Gene Neighborhood Editor">
+      <span class="brand-mark" aria-hidden="true">GN</span>
+      <span class="brand-copy">
+        <strong id="appTitle">Gene Neighborhood Editor</strong>
+        
+      </span>
+    </div>
+    <span class="privacy-badge" title="Files are loaded and rendered only in this browser tab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
+      Local &amp; private
+    </span>
+  </header>
+
+  <section class="paper-header" id="paperHeader" hidden>
+    <p class="paper-title" id="paperTitleEl" hidden></p>
+    <h1 class="figure-title" id="figureTitleEl" hidden></h1>
+  </section>
+
+  <main class="page-shell">
+    <section class="nbh-load-bar" aria-label="Load neighborhood editor inputs">
+      <div class="nbh-file-field">
+        <span>Neighborhood TSV</span>
+        <button class="nbh-file-button" id="chooseTsvButton" type="button">Choose TSV</button>
+        <span class="nbh-file-name" id="tsvFileName">No file selected</span>
+        <button class="nbh-file-clear" id="clearTsvButton" type="button" title="Clear TSV">Clear</button>
+      </div>
+      <div class="nbh-file-field">
+        <span>Rename YAML <span class="nbh-optional">optional</span></span>
+        <button class="nbh-file-button" id="chooseRenameButton" type="button">Choose YAML</button>
+        <span class="nbh-file-name" id="renameFileName">Optional</span>
+        <button class="nbh-file-clear" id="clearRenameButton" type="button" title="Clear rename YAML">Clear</button>
+      </div>
+      <div class="nbh-file-field">
+        <span>Color YAML <span class="nbh-optional">optional</span></span>
+        <button class="nbh-file-button" id="chooseColorButton" type="button">Choose YAML</button>
+        <span class="nbh-file-name" id="colorFileName">Optional</span>
+        <button class="nbh-file-clear" id="clearColorButton" type="button" title="Clear color YAML">Clear</button>
+      </div>
+      <button class="nbh-load-button" id="loadFilesButton" type="button" disabled>Load files</button>
+      <span class="nbh-editor-hint">Only the neighborhood TSV is required. Existing rename and color YAML files can be loaded, edited, and exported as new files. Everything stays in this browser tab.</span>
+    </section>
+
+    <details class="nbh-curation-card" id="domainCurationCard" hidden open>
+      <summary>
+        <span>Domain curation</span>
+        <span class="nbh-curation-summary" id="domainCurationSummary">Waiting for data</span>
+      </summary>
+      <div class="nbh-curation-content">
+        <p class="nbh-curation-intro">Rank domains by frequency, suggest a reproducible color palette for the most frequent domains, rename individual domains, and export publication-ready flat YAML dictionaries. The original TSV domain identifier always remains the canonical key.</p>
+
+        <div class="nbh-curation-controls">
+          <label class="nbh-editor-field">
+            <span>Find domain</span>
+            <input id="domainSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Search original or display name…">
+          </label>
+          <label class="nbh-editor-field">
+            <span>Rank by</span>
+            <select id="domainRankMetric">
+              <option value="genes" selected>Distinct genes</option>
+              <option value="occurrences">Domain occurrences</option>
+              <option value="neighborhoods">Distinct neighborhoods</option>
+            </select>
+          </label>
+          <label class="nbh-editor-field">
+            <span>Frequency scope</span>
+            <select id="domainRankScope">
+              <option value="all" selected>All loaded data</option>
+              <option value="visible">Visible neighborhoods</option>
+            </select>
+          </label>
+          <label class="nbh-editor-field">
+            <span>Top domains</span>
+            <span class="nbh-top-controls">
+              <input id="domainTopCount" type="number" min="1" max="250" value="15">
+              <button class="nbh-chip" type="button" data-top-count="10">10</button>
+              <button class="nbh-chip" type="button" data-top-count="15">15</button>
+              <button class="nbh-chip" type="button" data-top-count="20">20</button>
+            </span>
+          </label>
+          <button class="nbh-editor-button is-primary" id="suggestDomainColors" type="button" disabled>Suggest colors</button>
+        </div>
+
+        <div class="nbh-curation-options">
+          <label><input id="preserveExistingColors" type="checkbox" checked> Preserve existing selected colors when suggesting</label>
+          <label><input id="domainEditMode" type="checkbox" checked> Clicking a domain in the viewer opens it here</label>
+          <label><input id="preserveUnmatchedEntries" type="checkbox" checked> Preserve loaded YAML entries not found in this TSV</label>
+        </div>
+
+        <div class="nbh-curation-grid">
+          <div class="nbh-domain-table-wrap" aria-label="Domain frequencies and curation status">
+            <table class="nbh-domain-table">
+              <thead>
+                <tr>
+                  <th class="is-number">#</th>
+                  <th>Color</th>
+                  <th>Original domain</th>
+                  <th>Display name</th>
+                  <th class="is-number">Occurrences</th>
+                  <th class="is-number">Genes</th>
+                  <th class="is-number">Neighborhoods</th>
+                </tr>
+              </thead>
+              <tbody id="domainTableBody"></tbody>
+            </table>
+            <p id="domainTableEmpty" hidden>No domains match this search.</p>
+          </div>
+
+          <aside class="nbh-domain-editor" aria-label="Selected domain editor">
+            <div class="nbh-domain-editor-empty" id="domainEditorEmpty">Select a domain from the table or click a domain block in the viewer.</div>
+            <div id="domainEditorForm" hidden>
+              <h3 id="selectedDomainTitle">Domain</h3>
+              <p class="domain-id" id="selectedDomainId"></p>
+              <div class="nbh-domain-editor-grid">
+                <label class="nbh-editor-field">
+                  <span>Display name</span>
+                  <span class="nbh-editor-inline">
+                    <input id="selectedDomainRename" type="text" autocomplete="off" spellcheck="false">
+                    <button class="nbh-editor-button" id="resetDomainRename" type="button">Use original</button>
+                  </span>
+                </label>
+
+                <label class="nbh-check-line"><input id="selectedDomainColorEnabled" type="checkbox"> Include this domain in color YAML</label>
+                <label class="nbh-editor-field">
+                  <span>Domain color</span>
+                  <span class="nbh-color-row">
+                    <input id="selectedDomainColorPicker" type="color" value="#4e79a7" aria-label="Domain color picker">
+                    <input id="selectedDomainColorText" type="text" value="#4E79A7" maxlength="7" spellcheck="false" aria-label="Hexadecimal domain color">
+                  </span>
+                </label>
+                <button class="nbh-editor-button" id="resetDomainColor" type="button">Remove from color YAML</button>
+
+                <div class="nbh-domain-counts" aria-label="Selected-domain frequency">
+                  <div class="nbh-count-card"><strong id="selectedDomainOccurrences">0</strong><span>Occurrences</span></div>
+                  <div class="nbh-count-card"><strong id="selectedDomainGenes">0</strong><span>Genes</span></div>
+                  <div class="nbh-count-card"><strong id="selectedDomainNeighborhoods">0</strong><span>Neighborhoods</span></div>
+                </div>
+                <p class="nbh-domain-note" id="selectedDomainMarkerNote" hidden></p>
+                <p class="nbh-domain-note">Renaming changes only the displayed label. Color and rename exports continue to use the original domain identifier as their key.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="nbh-curation-footer">
+          <label class="nbh-check-line"><input id="dummyExportSpacer" type="checkbox" checked disabled hidden><span>Exports contain only selected colors and names changed from their original identifiers.</span></label>
+          <button class="nbh-editor-button" id="downloadRenameYaml" type="button" disabled>Download rename YAML</button>
+          <button class="nbh-editor-button" id="downloadColorYaml" type="button" disabled>Download color YAML</button>
+          <button class="nbh-editor-button is-primary" id="downloadBothYaml" type="button" disabled>Download both as ZIP</button>
+          <p class="nbh-curation-message" id="domainCurationMessage" aria-live="polite"></p>
+        </div>
+      </div>
+    </details>
+
+    <section class="nbh-toolbar" aria-label="Viewer controls">
+      <div class="filter-row">
+        <div class="filter-field">
+          <label class="filter-label" for="nbhInclude">Include</label>
+          <div class="search-box include-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
+            <input id="nbhInclude" type="search" autocomplete="off" spellcheck="false" placeholder="Include neighborhoods…">
+            <button class="clear-search" id="nbhIncludeClear" type="button" title="Clear include filter" aria-label="Clear include filter" hidden>×</button>
+          </div>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="nbhExclude">Exclude</label>
+          <div class="search-box exclude-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16ZM7 11h10v2H7v-2Z"/></svg>
+            <input id="nbhExclude" type="search" autocomplete="off" spellcheck="false" placeholder="Exclude neighborhoods…">
+            <button class="clear-search" id="nbhExcludeClear" type="button" title="Clear exclude filter" aria-label="Clear exclude filter" hidden>×</button>
+          </div>
+        </div>
+
+        <span class="nbh-status" id="nbhStatus" aria-live="polite">Waiting for files…</span>
+      </div>
+
+      <div class="control-row">
+        <label class="control-field">
+          <span>Sizing</span>
+          <select id="nbhScaleMode">
+            <option value="fixed">Fixed domain widths</option>
+            <option value="fit">Fit window</option>
+          </select>
+        </label>
+        <label class="check-field" title="Align query genes to one shared vertical guide.">
+          <input id="nbhAlignQuery" type="checkbox"><span>Align query</span>
+        </label>
+        <label class="check-field" title="Mirror a neighborhood when its query gene is on the negative strand">
+          <input id="nbhFlip" type="checkbox"><span>Orient query →</span>
+        </label>
+        <label class="check-field">
+          <input id="nbhShowLabels" type="checkbox"><span>Domain labels</span>
+        </label>
+        <label class="zoom-field" for="nbhZoom">
+          <span>Zoom</span>
+          <input id="nbhZoom" type="range" min="0.7" max="2.8" step="0.1" value="1">
+          <output id="nbhZoomValue" for="nbhZoom">100%</output>
+        </label>
+        <details class="filter-help">
+          <summary>Filter syntax</summary>
+          <div>
+            <p><strong>Include:</strong> every term must match. <strong>Exclude:</strong> a match to any term removes that neighborhood.</p>
+            <p>Plain text searches all indexed fields. Field filters and quoted phrases work in both boxes.</p>
+            <code>domain:RDD organism:Streptomyces</code>
+            <code>pfam:FHA taxon:"Actinomycetota"</code>
+            <code>pid:WP_</code>
+            <p>Fields: <code>domain</code>, <code>pfam</code>, <code>organism</code>, <code>taxon</code>, <code>pid</code>, <code>nucleotide</code>, <code>product</code>, <code>assembly</code>, and <code>block</code>.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="nbh-panel" aria-label="Gene neighborhoods">
+      <div class="nbh-viewport" id="nbhViewport" tabindex="0">
+        <div class="nbh-spacer" id="nbhSpacer"><div class="nbh-row-layer" id="nbhRowLayer"></div></div>
+      </div>
+      <div id="nbhTooltipHost"></div>
+    </section>
+
+    <div class="nbh-error" id="nbhError" role="alert" hidden></div>
+  </main>
+
+  <footer class="page-footer">
+    <span>This editor never overwrites selected files; use the export buttons to save new YAML dictionaries.</span>
+    <span aria-hidden="true">•</span>
+    <span>Publication figure pages do not include curation controls.</span>
+  </footer>
+
+  <input id="tsvFileInput" type="file" accept=".tsv,.txt,text/tab-separated-values" hidden>
+  <input id="renameFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
+  <input id="colorFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
+
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./config.js?v=7"></script>
+  <script src="../shared/neighborhood-viewer.js?v=3.3.0"></script>
+  <script src="./domain-curation.js?v=1.0.0"></script>
+  <script>
+    (async () => {
+      await window.NeighborhoodViewer.init({
+        appTitle: 'appTitle', paperHeader: 'paperHeader', paperTitleEl: 'paperTitleEl', figureTitleEl: 'figureTitleEl',
+        includeInput: 'nbhInclude', excludeInput: 'nbhExclude', includeClearButton: 'nbhIncludeClear', excludeClearButton: 'nbhExcludeClear',
+        statusText: 'nbhStatus', scaleMode: 'nbhScaleMode', alignQueryCheckbox: 'nbhAlignQuery', flipCheckbox: 'nbhFlip',
+        labelsCheckbox: 'nbhShowLabels', zoomInput: 'nbhZoom', zoomValue: 'nbhZoomValue', viewport: 'nbhViewport',
+        spacer: 'nbhSpacer', rowLayer: 'nbhRowLayer', tooltipHost: 'nbhTooltipHost', errorBox: 'nbhError'
+      });
+
+      window.NeighborhoodDomainEditor.init({
+        tsvChoose: 'chooseTsvButton', renameChoose: 'chooseRenameButton', colorChoose: 'chooseColorButton',
+        tsvClear: 'clearTsvButton', renameClear: 'clearRenameButton', colorClear: 'clearColorButton',
+        tsvInput: 'tsvFileInput', renameInput: 'renameFileInput', colorInput: 'colorFileInput',
+        tsvName: 'tsvFileName', renameName: 'renameFileName', colorName: 'colorFileName', loadButton: 'loadFilesButton',
+        card: 'domainCurationCard', summary: 'domainCurationSummary', search: 'domainSearch', metric: 'domainRankMetric',
+        scope: 'domainRankScope', topCount: 'domainTopCount', suggestButton: 'suggestDomainColors', preserveExisting: 'preserveExistingColors',
+        editMode: 'domainEditMode', preserveUnmatched: 'preserveUnmatchedEntries', tableBody: 'domainTableBody', emptyRows: 'domainTableEmpty',
+        editorEmpty: 'domainEditorEmpty', editorForm: 'domainEditorForm', selectedTitle: 'selectedDomainTitle', selectedId: 'selectedDomainId',
+        renameInputEdit: 'selectedDomainRename', resetRename: 'resetDomainRename', colorEnabled: 'selectedDomainColorEnabled',
+        colorPicker: 'selectedDomainColorPicker', colorText: 'selectedDomainColorText', resetColor: 'resetDomainColor',
+        countOccurrences: 'selectedDomainOccurrences', countGenes: 'selectedDomainGenes', countNeighborhoods: 'selectedDomainNeighborhoods',
+        markerNote: 'selectedDomainMarkerNote', renameDownload: 'downloadRenameYaml', colorDownload: 'downloadColorYaml',
+        bothDownload: 'downloadBothYaml', message: 'domainCurationMessage'
+      });
+    })();
+  </script>
+</body>
+</html>

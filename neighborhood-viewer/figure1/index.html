@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive, virtualized gene-neighborhood viewer.">
+  <meta name="theme-color" content="#172033">
+  <title>Gene Neighborhood Viewer</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=3.3.0">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand" aria-label="Gene Neighborhood Viewer">
+      <span class="brand-mark" aria-hidden="true">GN</span>
+      <span class="brand-copy">
+        <strong id="appTitle">Gene Neighborhood Viewer</strong>
+        
+      </span>
+    </div>
+    <span class="privacy-badge" title="Files are loaded and rendered only in this browser tab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
+      Local &amp; private
+    </span>
+  </header>
+
+  <section class="paper-header" id="paperHeader" hidden>
+    <p class="paper-title" id="paperTitleEl" hidden></p>
+    <h1 class="figure-title" id="figureTitleEl" hidden></h1>
+  </section>
+
+  <main class="page-shell">
+    <section class="nbh-toolbar" aria-label="Viewer controls">
+      <div class="filter-row">
+        <div class="filter-field">
+          <label class="filter-label" for="nbhInclude">Include</label>
+          <div class="search-box include-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
+            <input id="nbhInclude" type="search" autocomplete="off" spellcheck="false" placeholder="Include neighborhoods…">
+            <button class="clear-search" id="nbhIncludeClear" type="button" title="Clear include filter" aria-label="Clear include filter" hidden>×</button>
+          </div>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="nbhExclude">Exclude</label>
+          <div class="search-box exclude-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16ZM7 11h10v2H7v-2Z"/></svg>
+            <input id="nbhExclude" type="search" autocomplete="off" spellcheck="false" placeholder="Exclude neighborhoods…">
+            <button class="clear-search" id="nbhExcludeClear" type="button" title="Clear exclude filter" aria-label="Clear exclude filter" hidden>×</button>
+          </div>
+        </div>
+
+        <span class="nbh-status" id="nbhStatus" aria-live="polite">Loading…</span>
+      </div>
+
+      <div class="control-row">
+        <label class="control-field">
+          <span>Sizing</span>
+          <select id="nbhScaleMode">
+            <option value="fixed">Fixed domain widths</option>
+            <option value="fit">Fit window</option>
+          </select>
+        </label>
+
+        <label class="check-field" title="Align query genes to one shared vertical guide. Off by default so every row starts at the left edge.">
+          <input id="nbhAlignQuery" type="checkbox">
+          <span>Align query</span>
+        </label>
+
+        <label class="check-field" title="Mirror a neighborhood when its query gene is on the negative strand">
+          <input id="nbhFlip" type="checkbox">
+          <span>Orient query →</span>
+        </label>
+
+        <label class="check-field">
+          <input id="nbhShowLabels" type="checkbox">
+          <span>Domain labels</span>
+        </label>
+
+        <label class="zoom-field" for="nbhZoom">
+          <span>Zoom</span>
+          <input id="nbhZoom" type="range" min="0.7" max="2.8" step="0.1" value="1">
+          <output id="nbhZoomValue" for="nbhZoom">100%</output>
+        </label>
+
+        <details class="filter-help">
+          <summary>Filter syntax</summary>
+          <div>
+            <p><strong>Include:</strong> every term must match. <strong>Exclude:</strong> a match to any term removes that neighborhood.</p>
+            <p>Plain text searches all indexed fields. Field filters and quoted phrases work in both boxes.</p>
+            <code>domain:RDD organism:Streptomyces</code>
+            <code>pfam:FHA taxon:"Actinomycetota"</code>
+            <code>pid:WP_</code>
+            <p>Fields: <code>domain</code>, <code>pfam</code>, <code>organism</code>, <code>taxon</code>, <code>pid</code>, <code>nucleotide</code>, <code>product</code>, <code>assembly</code>, and <code>block</code>.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="nbh-panel" aria-label="Gene neighborhoods">
+      <div class="nbh-viewport" id="nbhViewport" tabindex="0">
+        <div class="nbh-spacer" id="nbhSpacer">
+          <div class="nbh-row-layer" id="nbhRowLayer"></div>
+        </div>
+      </div>
+      <div id="nbhTooltipHost"></div>
+    </section>
+
+    <div class="nbh-error" id="nbhError" role="alert" hidden></div>
+  </main>
+
+  <footer class="page-footer">
+    <span>Genes are arrows; TM is a narrow yellow bar and SIG/SIF is a red bar at the protein start.</span>
+    <span aria-hidden="true">•</span>
+    <span>Fixed widths are left-justified by default; Align query is optional.</span>
+    <span aria-hidden="true">•</span>
+    <span>Click a gene or region to open it at NCBI.</span>
+  </footer>
+
+  <script src="./config.js?v=5"></script>
+  <script src="../shared/neighborhood-viewer.js?v=3.3.0"></script>
+  <script>
+    window.NeighborhoodViewer.init({
+      appTitle: 'appTitle',
+      paperHeader: 'paperHeader',
+      paperTitleEl: 'paperTitleEl',
+      figureTitleEl: 'figureTitleEl',
+      includeInput: 'nbhInclude',
+      excludeInput: 'nbhExclude',
+      includeClearButton: 'nbhIncludeClear',
+      excludeClearButton: 'nbhExcludeClear',
+      statusText: 'nbhStatus',
+      scaleMode: 'nbhScaleMode',
+      alignQueryCheckbox: 'nbhAlignQuery',
+      flipCheckbox: 'nbhFlip',
+      labelsCheckbox: 'nbhShowLabels',
+      zoomInput: 'nbhZoom',
+      zoomValue: 'nbhZoomValue',
+      viewport: 'nbhViewport',
+      spacer: 'nbhSpacer',
+      rowLayer: 'nbhRowLayer',
+      tooltipHost: 'nbhTooltipHost',
+      errorBox: 'nbhError'
+    });
+  </script>
+</body>
+</html>

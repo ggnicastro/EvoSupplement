@@ -1,0 +1,14 @@
+# Optional group-color dictionary.
+# Copy this file into a figure data folder and point colorUrl to it in config.js.
+Arc2_FHA: "#86b7e8"
+Arc2_classical: "#ef8e91"
+Arc2_core: "#cf87c7"
+Transcription: "#82c995"
+Envelope: "#f2b46f"
+Lipid_traff_T3: "#d7b57e"
+Conflict: "#b99bd3"
+Clp: "#e6bd43"
+pep_tm: "#b9cb7e"
+Pex: "#77cbc5"
+Center: "#9ca3af"
+Unassigned: "#b8c0cc"

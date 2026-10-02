@@ -1,0 +1,62 @@
+version: 1
+title: "RDD-Arc2 protein domain architectures"
+layout:
+  mode: "true"
+  compact_gap_mode: "cap"
+  compact_gap_px: 12
+  show_gap_markers: true
+  show_domain_labels: true
+  show_protein_lengths: true
+  show_ruler: true
+  row_height: 44
+  align: "n"
+  anchor_domain: "RDD-Arc2"
+  anchor_point: "start"
+  group_by: ""
+  collapse_identical: false
+  sort:
+    primary: "original"
+    primary_direction: "asc"
+    secondary: "pid"
+    secondary_direction: "asc"
+metadata:
+  label_template: "{pid}"
+  subtitle_template: ""
+  protein_hover_fields: ["pid","plen","domain_count","architecture"]
+  domain_hover_fields: ["domain","start","end","length"]
+  label_width: 270
+special_features:
+  "TM": {"color":"#4b5563","shape":"tm"}
+  "SIG": {"color":"#f2c94c","shape":"signal"}
+  "LIPO": {"color":"#d946ef","shape":"lipo"}
+styles:
+  "RDD-Arc2":
+    display_name: "RDD-Arc2"
+    color: "#4f8fd9"
+    shape: "rounded"
+    visible: true
+  "HTH-like":
+    display_name: "HTH-like"
+    color: "#67a96b"
+    shape: "capsule"
+    visible: true
+  "TMMD":
+    display_name: "TMMD"
+    color: "#e09245"
+    shape: "hexagon"
+    visible: true
+  "RDD":
+    display_name: "RDD"
+    color: "#b56ac4"
+    shape: "ellipse"
+    visible: true
+  "3HBundle":
+    display_name: "3HBundle"
+    color: "#d55d68"
+    shape: "chevron"
+    visible: true
+  "SpoIIM":
+    display_name: "SpoIIM"
+    color: "#5aa7a7"
+    shape: "diamond"
+    visible: true

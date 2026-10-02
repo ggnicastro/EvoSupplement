@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Author phylogenetic trees, marked supports, clade groups, roots, layouts, colors, and labels for EvoSupplement.">
+  <meta name="theme-color" content="#172033">
+  <title>Phylogeny Editor</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=2.1.0">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="EvoSupplement Studio home">
+      <span class="brand-mark" aria-hidden="true">PT</span>
+      <span class="brand-copy">
+        <strong id="appTitle">Phylogeny Editor</strong>
+        <small id="appSubtitle" hidden aria-hidden="true"></small>
+      </span>
+    </a>
+    <span class="privacy-badge" title="Local files are processed only in this browser tab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
+      Local &amp; private
+    </span>
+  </header>
+
+  <section class="paper-header" id="paperHeader" hidden>
+    <p class="paper-title" id="paperTitleEl" hidden></p>
+    <h1 class="figure-title" id="figureTitleEl" hidden></h1>
+  </section>
+
+  <main class="page-shell">
+    <section class="demo-load-card editor-load-card" aria-label="Load phylogeny inputs">
+      <div class="demo-load-row">
+        <div class="file-field">
+          <span class="file-field-label">Tree <b aria-hidden="true">*</b></span>
+          <button class="file-button" id="chooseTreeButton" type="button">Choose Newick</button>
+          <span class="file-name" id="treeFileName">No local file selected</span>
+        </div>
+        <div class="file-field">
+          <span class="file-field-label">Annotations <small>optional</small></span>
+          <button class="file-button" id="chooseAnnotationButton" type="button">Choose TSV / INFO</button>
+          <button class="mini-button" id="clearAnnotationButton" type="button" hidden>Clear</button>
+          <span class="file-name" id="annotationFileName">No local file selected</span>
+        </div>
+        <div class="file-field">
+          <span class="file-field-label">Phylogeny YAML <small>optional</small></span>
+          <button class="file-button" id="chooseCurationButton" type="button">Choose YAML</button>
+          <button class="mini-button" id="clearCurationButton" type="button" hidden>Clear</button>
+          <span class="file-name" id="curationFileName">No local file selected</span>
+        </div>
+        <button class="action-button primary" id="loadLocalButton" type="button" disabled>Load tree</button>
+        <button class="action-button" id="loadExampleButton" type="button">Reload example</button>
+      </div>
+      <p class="demo-hint">Only the Newick tree is required. The annotation table supplies optional leaf metadata and labels; the YAML restores an existing author configuration.</p>
+    </section>
+
+    <section class="phylo-toolbar" aria-label="Phylogeny controls">
+      <div class="filter-row">
+        <label class="filter-field" for="phyInclude">
+          <span class="field-label">Include</span>
+          <span class="search-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
+            <input id="phyInclude" type="search" autocomplete="off" spellcheck="false" placeholder="Include by tip or annotation…">
+            <button class="clear-search" id="phyIncludeClear" type="button" aria-label="Clear include filter" hidden>×</button>
+          </span>
+        </label>
+        <label class="filter-field" for="phyExclude">
+          <span class="field-label">Exclude</span>
+          <span class="search-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16ZM7 11h10v2H7v-2Z"/></svg>
+            <input id="phyExclude" type="search" autocomplete="off" spellcheck="false" placeholder="Exclude by the same syntax…">
+            <button class="clear-search" id="phyExcludeClear" type="button" aria-label="Clear exclude filter" hidden>×</button>
+          </span>
+        </label>
+        <div class="status-cluster">
+          <span class="phylo-status" id="phyStatus" aria-live="polite">Waiting for data…</span>
+          <span class="match-nav" aria-label="Navigate highlighted tips">
+            <button class="mini-button" id="phyPreviousMatch" type="button" title="Previous highlighted tip" disabled>↑</button>
+            <button class="mini-button" id="phyNextMatch" type="button" title="Next highlighted tip" disabled>↓</button>
+          </span>
+        </div>
+      </div>
+
+      <div class="control-row">
+        <label class="control-field" for="phyColorBy"><span>Color by</span><select id="phyColorBy"><option value="">None</option></select></label>
+        <div class="layout-field">
+          <span>Layout</span>
+          <span class="layout-toggle three-way" role="group" aria-label="Tree layout">
+            <button class="layout-button" id="phyLayoutUnrooted" type="button" aria-pressed="true">Unrooted</button>
+            <button class="layout-button" id="phyLayoutRadial" type="button" aria-pressed="false">Radial</button>
+            <button class="layout-button" id="phyLayoutRectangular" type="button" aria-pressed="false">Rectangular</button>
+          </span>
+        </div>
+        <label class="check-field" title="Use source branch lengths; turn off for a cladogram-style view"><input id="phyUseBranchLengths" type="checkbox" checked><span>Branch lengths</span></label>
+        <label class="check-field" title="Align tip labels on a common ring or right-hand guide"><input id="phyAlignLabels" type="checkbox" checked><span>Align labels</span></label>
+        <label class="range-field" for="phyBranchScale"><span>Tree scale</span><input id="phyBranchScale" type="range" min="0.15" max="4" step="0.05" value="1"><output id="phyBranchScaleValue">100%</output></label>
+        <label class="range-field" for="phyTipSpacing"><span>Tip spacing</span><input id="phyTipSpacing" type="range" min="10" max="48" step="1" value="22"><output id="phyTipSpacingValue">22 px</output></label>
+        <label class="range-field view-zoom-field" for="phyViewZoom"><span>View zoom</span><input id="phyViewZoom" type="range" min="0" max="3000" step="1" value="1000"><output id="phyViewZoomValue">100%</output></label>
+        <div class="view-action-field"><span>Fit</span><span class="view-action-group"><button class="layout-button" id="phyFitTree" type="button" aria-pressed="false">Tree</button><button class="layout-button" id="phyFitAll" type="button" aria-pressed="true">Tree + labels</button></span></div>
+        <div class="root-action-field"><span>Root</span><span class="root-action-group"><button class="action-button" id="phyReroot" type="button">Reroot</button><button class="action-button" id="phyRestoreRoot" type="button" disabled>Original root</button></span></div>
+        <span class="control-spacer"></span>
+        <button class="action-button" id="phyResetView" type="button">Reset configured view</button>
+      </div>
+
+      <div class="reroot-bar" id="phyRerootBar" role="status" hidden>
+        <span class="reroot-message" id="phyRerootMessage">Select the branch leading to the outgroup.</span>
+        <span class="reroot-actions"><button class="action-button primary" id="phyRerootConfirm" type="button" disabled>Confirm root</button><button class="action-button" id="phyRerootCancel" type="button">Cancel</button></span>
+      </div>
+      <div class="legend-wrap" id="phyLegendWrap" hidden><span class="legend-title">Color</span><div class="phylo-legend" id="phyLegend"></div></div>
+    </section>
+
+    <section class="phylo-author-panel" aria-label="Phylogeny authoring controls">
+      <div class="author-panel-head">
+        <div><span class="eyebrow">Publication configuration</span><h2>Supports, clade groups, and tip labels</h2></div>
+        <span class="author-head-actions"><button class="action-button" id="undoCuration" type="button" disabled>Undo</button><button class="action-button" id="redoCuration" type="button" disabled>Redo</button><button class="action-button primary" id="downloadPhylogenyYaml" type="button" disabled>Download phylogeny YAML</button></span>
+      </div>
+      <div class="author-grid">
+        <section class="author-card">
+          <h3>Marked supports</h3>
+          <p>Hover shows a support value temporarily. In the editor, clicking an internal node marks or unmarks its incoming support.</p>
+          <div class="author-fields compact-fields">
+            <label><span>Marked support display</span><select id="supportDisplay"><option value="circle">Circle</option><option value="number">Number</option></select></label>
+            <label><span>Default color</span><span class="color-pair"><input id="supportColor" type="color" value="#172033"><input id="supportColorText" type="text" value="#172033" spellcheck="false"></span></label>
+            <label><span>Circle size</span><input id="supportSize" type="range" min="2" max="14" step="1" value="5"><output id="supportSizeValue">5 px</output></label>
+            <label><span>Number size</span><input id="supportNumberSize" type="range" min="6" max="20" step="1" value="9"><output id="supportNumberSizeValue">9 px</output></label>
+          </div>
+          <div class="inline-actions">
+            <label class="inline-number"><span>Mark supports ≥</span><input id="supportThreshold" type="number" step="any" placeholder="0.95 or 95"></label>
+            <button class="action-button" id="markSupportsAbove" type="button" disabled>Mark above</button>
+            <button class="action-button" id="clearMarkedSupports" type="button" disabled>Clear marked</button>
+          </div>
+          <div class="selection-summary" id="selectedNodeSummary">Click an internal node to select its branch.</div>
+        </section>
+
+        <section class="author-card">
+          <h3>Create a clade group</h3>
+          <p>The selected branch defines one side of the split. The group remains attached to that bipartition after rerooting or changing layout.</p>
+          <div class="author-fields">
+            <label><span>Group name</span><input id="groupName" type="text" placeholder="Clade A"></label>
+            <label><span>Group color</span><span class="color-pair"><input id="groupColor" type="color" value="#4f8fd9"><input id="groupColorText" type="text" value="#4f8fd9" spellcheck="false"></span></label>
+            <label class="check-field"><input id="groupShowLabel" type="checkbox"><span>Show group name on tree</span></label>
+          </div>
+          <button class="action-button primary" id="addCladeGroup" type="button" disabled>Add selected clade</button>
+          <div class="group-list" id="cladeGroupList"><p class="empty-note">No clade groups yet.</p></div>
+        </section>
+
+        <section class="author-card">
+          <h3>Tip labels and TSV join</h3>
+          <p>The Newick tip ID remains the permanent identity. An optional TSV may supply display labels, hover fields, filters, and colors.</p>
+          <div class="author-fields">
+            <label><span>Tip ID column</span><select id="tipIdColumn" disabled><option value="id">id</option></select></label>
+            <label><span>Label template</span><input id="tipLabelTemplate" type="text" value="{tip}" spellcheck="false"><small>Examples: <code>{tip}</code>, <code>{organism}</code>, <code>{accession} | {organism}</code></small></label>
+            <div class="hover-column-field">
+              <div class="hover-column-head"><span>Hover fields</span><span class="hover-column-actions"><button class="mini-button" id="selectAllHoverColumns" type="button">All</button><button class="mini-button" id="clearHoverColumns" type="button">ID only</button></span></div>
+              <div class="hover-column-options" id="hoverColumnOptions" aria-label="TSV fields shown in tip hover"><span class="empty-note">Load an annotation TSV to choose hover fields.</span></div>
+              <small>New TSV columns appear here automatically. The selected tip-ID field is always included.</small>
+            </div>
+          </div>
+          <button class="action-button" id="applyTipLabels" type="button" disabled>Apply labels</button>
+        </section>
+      </div>
+      <div class="author-message" id="authorMessage" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="phylo-panel" aria-label="Interactive phylogenetic tree">
+      <header class="phylo-panel-head">
+        <span class="source-summary" id="phySourceSummary">No tree loaded</span>
+        <span class="viewport-hint" title="Mouse navigation">Wheel zoom · drag to pan</span><span class="source-actions"><a class="mini-button" id="phyDownloadTree" href="#" hidden>Download tree</a><a class="mini-button" id="phyDownloadAnnotations" href="#" hidden>Download annotations</a><a class="mini-button" id="phyDownloadCuration" href="#" hidden>Download YAML</a></span>
+      </header>
+      <div class="phylo-viewport" id="phyViewport" tabindex="0" title="Use the mouse wheel to zoom and drag empty space to pan the tree."><svg class="phylo-svg" id="phySvg" width="1" height="1" aria-label="Phylogenetic tree"></svg></div>
+      <div class="viewer-overlay" id="phyOverlay"><div class="overlay-card"><span class="loading-spinner" id="phyOverlaySpinner" hidden></span><strong id="phyOverlayTitle">Waiting for a tree</strong><span id="phyOverlayDetail">Load a Newick tree. An annotation table and YAML are optional.</span></div></div>
+    </section>
+
+    <div class="phylo-tooltip" id="phyTooltip" role="tooltip" hidden></div>
+    <div class="phylo-error" id="phyError" role="alert" hidden></div>
+  </main>
+
+  <footer class="page-footer"><span>The editor changes only the exported YAML; the source Newick and TSV are never rewritten.</span><span aria-hidden="true">•</span><span>All selected local files remain in this browser tab.</span></footer>
+
+  <input id="treeFileInput" type="file" accept=".tree,.tre,.nwk,.newick,text/plain" hidden>
+  <input id="annotationFileInput" type="file" accept=".tsv,.tab,.txt,.info,.csv,text/plain" hidden>
+  <input id="curationFileInput" type="file" accept=".yaml,.yml,.json,text/yaml,application/json,text/plain" hidden>
+
+  <script src="./config.js?v=3"></script>
+  <script src="../shared/phylogeny-viewer.js?v=2.1.0"></script>
+  <script src="./editor.js?v=2.1.0"></script>
+</body>
+</html>
