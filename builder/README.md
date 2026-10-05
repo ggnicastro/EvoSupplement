@@ -1,6 +1,6 @@
 # EvoSupplement Builder
 
-EvoSupplement Builder is a browser-based project generator for creating publication-ready supplementary websites without editing the manifest, module folders, or viewer configurations by hand.
+EvoSupplement Builder is a browser-based project generator for creating publication-ready supplementary websites from guided forms and module-specific publication inputs.
 
 Open `builder/` through an HTTP server, enter the paper metadata, create sections and items, attach the required files, validate the project, and download a ZIP ready for GitHub Pages.
 
@@ -29,8 +29,9 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - Network Viewer figures;
 - Taxonomy Flow Viewer figures generated from a frozen resolved-taxonomy TSV and curation YAML;
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
+- Multi-Structure Comparison Viewer figures generated from the publication package ZIP exported by its editor.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.5.1 includes the Taxonomy Flow Viewer, the author-configured Phylogeny Viewer 2.1.0, and the Protein Domain Architecture Viewer 1.0.0 as selectable item types.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.6.0 includes all seven interactive modules, including the Multi-Structure Comparison Viewer 1.0.0.
 
 ## Editors and publication figures
 
@@ -43,6 +44,8 @@ For taxonomy figures, the Taxonomy Sankey Editor resolves or imports lineages, c
 For phylogeny figures, the Phylogeny Editor exports `phylogeny.yaml`, which stores the selected layout, visual root, marked supports, clade groups, colors, and label rules. The Builder requires the Newick tree and this YAML; the tip-annotation table is optional.
 
 For domain-architecture figures, the Protein Domain Architecture Editor exports `domain-architecture.yaml`, which stores true-length, normalized, or compact layout settings together with domain names, colors, shapes, labels, sorting, grouping, and hover fields. The Builder requires the domain TSV and this YAML.
+
+For multi-structure figures, the Multi-Structure Comparison Editor exports a ZIP containing `multi-structure.json`, the ordered MOLX snapshots, optional PDB/mmCIF downloads, and the preserved MVT license. The Builder reads that package, fixes the publication panel count, and installs its contents under the figure data folder.
 
 Builder-generated projects copy the compatible shared implementation and a clean publication figure template. Author-editor controls are not added to reader-facing figures.
 

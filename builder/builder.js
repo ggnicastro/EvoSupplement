@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.5.1';
+  const BUILDER_VERSION = '1.6.0';
   const PROJECT_SCHEMA_VERSION = 1;
   const MODULE_VERSIONS = {
     protein: '2.13.0',
@@ -9,7 +9,8 @@
     phylogeny: '2.1.0',
     network: '1.2.0',
     taxonomy: '1.3.1',
-    architecture: '1.0.0'
+    architecture: '1.0.0',
+    multistructure: '1.0.0'
   };
 
   const MODULE_REGISTRY = {
@@ -72,6 +73,17 @@
         'domain-architecture-viewer/shared/domain-architecture-viewer.js',
         'domain-architecture-viewer/shared/styles.css'
       ]
+    },
+    multistructure: {
+      label: 'Multi-structure comparison',
+      folder: 'multi-structure-viewer',
+      template: 'multi-structure-viewer/figure1/index.html',
+      readme: 'multi-structure-viewer/README.md',
+      shared: [
+        'multi-structure-viewer/shared/multi-structure-viewer.js',
+        'multi-structure-viewer/shared/styles.css',
+        'multi-structure-viewer/MVT-LICENSE.txt'
+      ]
     }
   };
 
@@ -84,6 +96,7 @@
     network: 'Network',
     taxonomy: 'Taxonomy Sankey',
     architecture: 'Domain architecture',
+    multistructure: 'Multi-structure comparison',
     external: 'External link',
     coming: 'Coming soon'
   };
@@ -174,6 +187,8 @@
       case 'taxonomy':
         return {};
       case 'architecture':
+        return {};
+      case 'multistructure':
         return {};
       case 'network':
         return {
@@ -282,6 +297,7 @@
       case 'network': return ['edges'];
       case 'taxonomy': return ['taxonomyResolved', 'taxonomyYaml'];
       case 'architecture': return ['architectureData', 'architectureYaml'];
+      case 'multistructure': return ['multiStructurePackage'];
       default: return [];
     }
   }
@@ -658,7 +674,7 @@
   }
 
   function kindOptions(selected) {
-    const kinds = ['file', 'html', 'protein', 'neighborhood', 'phylogeny', 'network', 'taxonomy', 'architecture', 'external', 'coming'];
+    const kinds = ['file', 'html', 'protein', 'neighborhood', 'phylogeny', 'network', 'taxonomy', 'architecture', 'multistructure', 'external', 'coming'];
     return kinds.map(kind => `<option value="${kind}" ${selected === kind ? 'selected' : ''}>${escapeHtml(KIND_LABELS[kind])}</option>`).join('');
   }
 
@@ -780,6 +796,12 @@
             <div class="field"><span>Domain TSV <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'architectureData', 'Choose domain TSV', '.tsv,.txt,text/tab-separated-values')}<small class="field-help">One row per domain or feature; required columns are pid, domain, start, end, and plen.</small></div>
             <div class="field"><span>Architecture YAML <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'architectureYaml', 'Choose architecture YAML', '.yaml,.yml,text/yaml')}<small class="field-help">Create colors, shapes, compact layouts, labels, sorting, and hover fields in the Domain Architecture Editor.</small></div>
           </div>`;
+      case 'multistructure':
+        return `
+          <h4>Multi-Structure Comparison Viewer input</h4>
+          <div class="specific-grid">
+            <div class="field field-wide"><span>Publication package ZIP <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'multiStructurePackage', 'Choose publication package', '.zip,application/zip')}<small class="field-help">Create this ZIP in the Multi-Structure Comparison Editor. It contains the fixed panel set, MOLX scenes, labels, layouts, optional structure downloads, and initial camera synchronization setting.</small></div>
+          </div>`;
       case 'external':
         return `
           <h4>External resource</h4>
@@ -827,6 +849,7 @@
       case 'network': return `network-viewer/${slug}/`;
       case 'taxonomy': return `taxonomy-sankey-viewer/${slug}/`;
       case 'architecture': return `domain-architecture-viewer/${slug}/`;
+      case 'multistructure': return `multi-structure-viewer/${slug}/`;
       case 'external': return item.config.url || 'https://…';
       case 'coming': return 'No path — Coming soon';
       default: return '';
@@ -1094,6 +1117,25 @@
             }
           }
 
+          if (item.kind === 'multistructure') {
+            const packageFile = getUpload(item.id, 'multiStructurePackage');
+            if (packageFile) {
+              const inspected = await inspectMultiStructurePackage(packageFile);
+              if (!inspected.definitionPath) error('The package does not contain multi-structure.json.', location);
+              else {
+                const definition = inspected.definition;
+                const panels = Array.isArray(definition?.panels) ? definition.panels : [];
+                if (!panels.length) error('The multi-structure definition contains no panels.', location);
+                if (panels.length > 12) warning(`The comparison contains ${panels.length} panels and may require substantial GPU memory.`, location);
+                const normalizePackagePath = value => `${inspected.prefix}${String(value || '').replace(/^\.\//, '')}`;
+                const missingMolx = panels.filter(panel => !panel?.molx || !inspected.names.has(normalizePackagePath(panel.molx)));
+                if (missingMolx.length) error(`${missingMolx.length} panel MOLX file${missingMolx.length === 1 ? ' is' : 's are'} missing from the package.`, location);
+                const missingStructures = panels.filter(panel => panel?.structure && !inspected.names.has(normalizePackagePath(panel.structure)));
+                if (missingStructures.length) warning(`${missingStructures.length} optional structure download${missingStructures.length === 1 ? ' is' : 's are'} missing from the package.`, location);
+              }
+            }
+          }
+
           for (const role of [...getRequiredRoles(item), ...optionalRoles(item)]) {
             const file = getUpload(item.id, role);
             if (file?.size > 100 * 1024 * 1024) warning(`${roleLabel(role)} is ${formatBytes(file.size)}. Confirm that GitHub Pages and the reader's browser can handle it.`, location);
@@ -1115,6 +1157,7 @@
       case 'network': return ['nodes', 'colors'];
       case 'taxonomy': return ['taxonomyColors', 'taxonomyInput'];
       case 'architecture': return [];
+      case 'multistructure': return [];
       default: return [];
     }
   }
@@ -1123,7 +1166,7 @@
     return ({
       file: 'uploaded', html: 'HTML', structure: 'structure', annotations: 'annotation', msa: 'alignment',
       neighborhoods: 'neighborhood input', rename: 'rename YAML', colors: 'color YAML', tree: 'tree', phylogenyYaml: 'phylogeny YAML',
-      edges: 'edge TSV', nodes: 'node YAML', taxonomyResolved: 'resolved taxonomy TSV', taxonomyYaml: 'taxonomy curation YAML', taxonomyColors: 'taxonomy color YAML', taxonomyInput: 'original taxonomy TSV', architectureData: 'domain TSV', architectureYaml: 'architecture YAML'
+      edges: 'edge TSV', nodes: 'node YAML', taxonomyResolved: 'resolved taxonomy TSV', taxonomyYaml: 'taxonomy curation YAML', taxonomyColors: 'taxonomy color YAML', taxonomyInput: 'original taxonomy TSV', architectureData: 'domain TSV', architectureYaml: 'architecture YAML', multiStructurePackage: 'multi-structure publication package ZIP'
     })[role] || role;
   }
 
@@ -1477,6 +1520,29 @@
       assetRecords.push(assetRecord(item, 'architectureYaml', yamlPath, yaml));
       return;
     }
+
+    if (item.kind === 'multistructure') {
+      const packageFile = getUpload(item.id, 'multiStructurePackage');
+      const inspected = await inspectMultiStructurePackage(packageFile);
+      const generatedFiles = [];
+      for (const entry of inspected.entries) {
+        const relative = stripZipPrefix(entry.name, inspected.prefix);
+        if (!relative || !isSafeRelativePath(relative)) continue;
+        const path = `${itemBase}/data/${relative}`;
+        root.file(path, await entry.async('uint8array'), { binary: true });
+        generatedFiles.push(path);
+      }
+      assetRecords.push({
+        itemId: item.id,
+        role: 'multiStructurePackage',
+        kind: 'package',
+        originalName: packageFile.name,
+        mime: packageFile.type || 'application/zip',
+        basePath: `${itemBase}/data`,
+        files: generatedFiles
+      });
+      return;
+    }
   }
 
   function assetRecord(item, role, path, file) {
@@ -1659,6 +1725,18 @@
       }, 'Protein Domain Architecture Viewer');
     }
 
+    if (item.kind === 'multistructure') {
+      return configScript('MULTI_STRUCTURE_VIEWER_CONFIG', {
+        title: title || 'Multi-Structure Comparison Viewer',
+        editorMode: false,
+        autoLoad: true,
+        definitionUrl: './data/multi-structure.json',
+        syncOnLoad: false,
+        showDownloads: true,
+        maxPanels: 64
+      }, 'Multi-Structure Comparison Viewer');
+    }
+
     return '';
   }
 
@@ -1791,6 +1869,7 @@
       case 'network': return `./network-viewer/${slug}/`;
       case 'taxonomy': return `./taxonomy-sankey-viewer/${slug}/`;
       case 'architecture': return `./domain-architecture-viewer/${slug}/`;
+      case 'multistructure': return `./multi-structure-viewer/${slug}/`;
       case 'external': return item.config.url || '';
       default: return '';
     }
@@ -1831,6 +1910,29 @@
     const bytes = new Uint8Array(await response.arrayBuffer());
     SOURCE_CACHE.set(key, bytes);
     return bytes;
+  }
+
+  async function inspectMultiStructurePackage(file) {
+    const packageZip = await JSZip.loadAsync(file);
+    const entries = Object.values(packageZip.files).filter(entry => !entry.dir && !entry.name.startsWith('__MACOSX/') && !entry.name.endsWith('/.DS_Store') && isSafeRelativePath(entry.name));
+    const namesArray = entries.map(entry => entry.name.replace(/^\.\//, ''));
+    let prefix = '';
+    let definitionPath = namesArray.find(name => name.toLowerCase() === 'multi-structure.json') || '';
+    if (!definitionPath) {
+      const candidates = namesArray.filter(name => /(^|\/)multi-structure\.json$/i.test(name));
+      const topFolders = new Set(namesArray.filter(name => name.includes('/')).map(name => name.split('/')[0]));
+      if (candidates.length === 1 && topFolders.size === 1) {
+        prefix = `${[...topFolders][0]}/`;
+        definitionPath = candidates[0];
+      }
+    }
+    let definition = null;
+    if (definitionPath) {
+      const definitionEntry = packageZip.file(definitionPath);
+      if (!definitionEntry) throw new Error('Could not read multi-structure.json from the package.');
+      definition = JSON.parse(await definitionEntry.async('string'));
+    }
+    return { zip: packageZip, entries, prefix, definitionPath, definition, names: new Set(namesArray) };
   }
 
   async function inspectHtmlPackage(file) {
