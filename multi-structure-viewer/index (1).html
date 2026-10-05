@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Side-by-side comparison of multiple Mol* molecular scenes.">
+  <meta name="theme-color" content="#11161b">
+  <title>Multi-Structure Comparison Viewer</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/molstar@5.11.0/build/viewer/molstar.css">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.0.0">
+</head>
+<body class="figure-mode">
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="Supplement portal">
+      <span class="brand-mark" aria-hidden="true">MS</span>
+      <span id="brandTitle">Multi-Structure Comparison Viewer</span>
+    </a>
+  </header>
+
+  <main class="page-shell">
+    <section class="toolbar figure-toolbar" aria-label="Comparison controls">
+      <div class="toolbar-controls">
+        <label class="control-group layout-control"><span>Grid layout</span><select id="layoutSelect" aria-label="Panel grid layout"></select></label>
+        <label class="switch-control" title="Preserve current panel positions and apply future camera movements to all loaded panels">
+          <input id="syncCameras" type="checkbox">
+          <span class="switch-track" aria-hidden="true"></span>
+          <span><strong>Synchronize cameras</strong><small id="syncStatus">Independent cameras</small></span>
+        </label>
+      </div>
+      <div class="toolbar-copy"><span>Move panels independently, then enable synchronization to compare the same view across every structure.</span></div>
+    </section>
+
+    <section id="viewerGrid" class="viewer-grid" style="--columns: 2" aria-label="Mol* comparison panels"></section>
+  </main>
+
+  <footer class="page-footer"><span>Mol* Viewer 5.11.0</span><span aria-hidden="true">•</span><span id="footerPanelCount">Comparison panels</span><span aria-hidden="true">•</span><span>Expand a panel for sequence and Mol* controls.</span></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="./config.js?v=1.0.0"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/molstar@5.11.0/build/viewer/molstar.js"></script>
+  <script defer src="../shared/multi-structure-viewer.js?v=1.0.0"></script>
+</body>
+</html>

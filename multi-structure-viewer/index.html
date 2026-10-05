@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Authoring editor for side-by-side Mol* snapshot comparisons.">
+  <meta name="theme-color" content="#11161b">
+  <title>Multi-Structure Comparison Editor</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/molstar@5.11.0/build/viewer/molstar.css">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.0.0">
+</head>
+<body class="editor-mode">
+  <header class="app-header">
+    <a class="brand" href="../../" aria-label="EvoSupplement Studio">
+      <span class="brand-mark" aria-hidden="true">MS</span>
+      <span id="brandTitle">Multi-Structure Comparison Editor</span>
+    </a>
+    <span class="privacy-badge" title="Local files remain in this browser session">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
+      Static &amp; browser-based
+    </span>
+  </header>
+
+  <main class="page-shell">
+    <section class="toolbar" aria-label="Comparison controls">
+      <div class="toolbar-controls">
+        <label class="control-group panel-count-control">
+          <span>Number of panels</span>
+          <span class="number-action"><input id="panelCountInput" type="number" min="2" max="64" step="1" value="6" aria-describedby="panelCountHelp"><button class="compact-button" id="panelCountApply" type="button">Apply</button></span>
+        </label>
+        <label class="control-group layout-control">
+          <span>Grid layout</span>
+          <select id="layoutSelect" aria-label="Panel grid layout"></select>
+        </label>
+        <label class="switch-control" title="Preserve each panel's current position, then apply future camera movements to every loaded panel">
+          <input id="syncCameras" type="checkbox">
+          <span class="switch-track" aria-hidden="true"></span>
+          <span><strong>Synchronize cameras</strong><small id="syncStatus">Independent cameras</small></span>
+        </label>
+      </div>
+
+      <div class="toolbar-actions">
+        <button class="button button-secondary" id="loadHostedButton" type="button"><span>Reload example</span></button>
+        <button class="button button-secondary" id="clearAllButton" type="button"><span>Clear all</span></button>
+        <button class="button button-primary" id="bulkFileButton" type="button"><span id="bulkFileButtonLabel">Select .molx files</span></button>
+        <input id="bulkFileInput" type="file" hidden multiple accept=".molx">
+        <input id="panelFileInput" type="file" hidden accept=".molx">
+      </div>
+      <span id="panelCountHelp" class="visually-hidden">Choose any practical number of panels. Counts above twelve may require substantial GPU memory.</span>
+    </section>
+
+    <p class="helper-text" id="helperText">Load snapshots, position each structure independently, then enable camera synchronization to rotate, pan, and zoom every panel together.</p>
+
+    <section id="viewerGrid" class="viewer-grid" style="--columns: 3" aria-label="Mol* comparison panels"></section>
+
+    <section class="authoring-panel" aria-labelledby="publicationHeading">
+      <header class="authoring-head">
+        <div>
+          <h2 id="publicationHeading">Publication panels</h2>
+          <p>Edit labels, choose the focused Mol* layout, and optionally attach the original PDB or mmCIF file for reader download.</p>
+        </div>
+        <div class="authoring-actions">
+          <label class="check-inline"><input id="startSynchronized" type="checkbox"> Start the published figure synchronized</label>
+          <button class="button button-secondary" id="downloadDefinition" type="button">Download definition JSON</button>
+          <button class="button button-primary" id="downloadPackage" type="button">Download publication package</button>
+        </div>
+      </header>
+      <div class="panel-config-list" id="panelConfigHost"></div>
+      <p class="authoring-note" id="editorSummary">The package contains the definition, MOLX snapshots, optional structure files, and attribution notice required by the Project Builder.</p>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <span>Mol* Viewer 5.11.0</span><span aria-hidden="true">•</span><span id="footerPanelCount">6 panels</span><span aria-hidden="true">•</span><span>Position independently, then lock the cameras.</span>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="./config.js?v=1.0.0"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/molstar@5.11.0/build/viewer/molstar.js"></script>
+  <script defer src="./vendor/jszip.min.js"></script>
+  <script defer src="../shared/multi-structure-viewer.js?v=1.0.0"></script>
+  <script defer src="./editor.js?v=1.0.0"></script>
+</body>
+</html>
