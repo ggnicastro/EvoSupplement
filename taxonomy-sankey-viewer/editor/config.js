@@ -25,5 +25,6 @@ window.TAXONOMY_SANKEY_CONFIG = {
 
   maxFileBytes: 256 * 1024 * 1024,
   maxRows: 250000,
-  showDownloads: false
+  showDownloads: false,
+  authorMode: true
 };

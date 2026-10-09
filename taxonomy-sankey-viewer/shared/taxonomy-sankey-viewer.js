@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.3.1';
+  const VERSION = '1.4.0';
   const STANDARD_RANKS = ['domain', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species'];
   const DEFAULT_PALETTE = [
     '#4f8fd9', '#e09245', '#67a96b', '#b56ac4', '#d55d68', '#5aa7a7',
@@ -26,7 +26,8 @@
     initialSettings: {},
     maxFileBytes: 64 * 1024 * 1024,
     maxRows: 250000,
-    showDownloads: true
+    showDownloads: true,
+    authorMode: false
   };
 
   const config = { ...DEFAULTS, ...(window.TAXONOMY_SANKEY_CONFIG || {}) };
@@ -60,9 +61,10 @@
   const dom = {};
 
   function normalizeSettings(input = {}) {
-    const ranks = Array.isArray(input.ranks) && input.ranks.length
-      ? input.ranks.map(value => String(value).toLowerCase()).filter(value => STANDARD_RANKS.includes(value))
-      : ['domain', 'phylum', 'class', 'order', 'family', 'genus'];
+    const requestedRanks = Array.isArray(input.ranks) && input.ranks.length
+      ? new Set(input.ranks.map(value => String(value).toLowerCase()).filter(value => STANDARD_RANKS.includes(value)))
+      : new Set(['domain', 'phylum', 'class', 'order', 'family', 'genus']);
+    const ranks = STANDARD_RANKS.filter(rank => requestedRanks.has(rank));
     const collapseOtherInput = input.collapse_other ?? input.collapseOther;
     const showOtherInput = input.show_other ?? input.showOther;
     const collapseOther = collapseOtherInput !== undefined
@@ -85,6 +87,7 @@
       color_by: String(input.color_by ?? input.colorBy ?? 'domain'),
       show_counts: input.show_counts !== false && input.showCounts !== false,
       show_percentages: input.show_percentages !== false && input.showPercentages !== false,
+      strict_rank_columns: input.strict_rank_columns !== false && input.strictRankColumns !== false,
       height_scale: Math.min(2.5, Math.max(0.2, Number(input.height_scale ?? input.heightScale ?? 1) || 1)),
       node_padding: Math.min(60, Math.max(0, Number(input.node_padding ?? input.nodePadding ?? 12) || 0)),
       node_width: Math.max(8, Number(input.node_width ?? input.nodeWidth ?? 18) || 18)
@@ -441,6 +444,7 @@
       `  color_by: ${quoteYaml(settings.color_by)}`,
       `  show_counts: ${settings.show_counts}`,
       `  show_percentages: ${settings.show_percentages}`,
+      `  strict_rank_columns: ${settings.strict_rank_columns}`,
       `  height_scale: ${Number(settings.height_scale.toFixed(3))}`,
       `  node_padding: ${settings.node_padding}`,
       `  node_width: ${settings.node_width}`,
@@ -456,6 +460,10 @@
         if (value.action && value.action !== 'auto') lines.push(`    action: ${quoteYaml(value.action)}`);
         if (value.color) lines.push(`    color: ${quoteYaml(normalizeColor(value.color))}`);
         if (Number.isFinite(Number(value.order))) lines.push(`    order: ${Number(value.order)}`);
+        if (value.display_rank && STANDARD_RANKS.includes(normalizeRank(value.display_rank))) lines.push(`    display_rank: ${quoteYaml(normalizeRank(value.display_rank))}`);
+        if (value.source_taxid) lines.push(`    source_taxid: ${quoteYaml(value.source_taxid)}`);
+        if (value.source_name) lines.push(`    source_name: ${quoteYaml(value.source_name)}`);
+        if (value.source_rank) lines.push(`    source_rank: ${quoteYaml(normalizeRank(value.source_rank))}`);
       }
     }
     return `${lines.join('\n')}\n`;
@@ -545,6 +553,180 @@
     };
   }
 
+  function decorateRankDescriptor(descriptor, rank, columnIndex, options = {}) {
+    const normalizedRank = normalizeRank(rank);
+    return {
+      ...descriptor,
+      officialRank: normalizeRank(options.officialRank || descriptor.officialRank || descriptor.rank || ''),
+      displayRank: normalizedRank,
+      columnKey: options.columnKey || `rank:${normalizedRank}`,
+      columnOrder: Number.isFinite(Number(options.columnOrder)) ? Number(options.columnOrder) : columnIndex * 100,
+      columnType: options.columnType || 'rank',
+      placeholder: Boolean(options.placeholder || descriptor.placeholder),
+      placeholderVisible: Boolean(options.placeholderVisible || descriptor.placeholderVisible),
+      candidateAncestors: Array.isArray(options.candidateAncestors)
+        ? options.candidateAncestors.map(value => ({ ...value }))
+        : (Array.isArray(descriptor.candidateAncestors) ? descriptor.candidateAncestors.map(value => ({ ...value })) : []),
+      contextId: options.contextId || descriptor.contextId || '',
+      contextName: options.contextName || descriptor.contextName || '',
+      synthetic: Boolean(options.synthetic || descriptor.synthetic),
+      syntheticType: options.syntheticType || descriptor.syntheticType || ''
+    };
+  }
+
+  function isRootLikeNode(node) {
+    return normalizeRank(node?.rank) === 'root' || /^(root|cellular organisms)$/i.test(String(node?.name || ''));
+  }
+
+  function standardStrictPath(row, fullPath) {
+    const ranks = [...state.settings.ranks];
+    const fullPosition = new Map();
+    fullPath.forEach((node, index) => fullPosition.set(node.id, index));
+    const canonicalByRank = new Map(STANDARD_RANKS.map(rank => [rank, standardNode(row, rank)]));
+    const canonicalIds = new Set([...canonicalByRank.values()].filter(Boolean).map(node => node.id));
+    const usedIds = new Set();
+    const slots = Array.from({ length: ranks.length }, () => null);
+    const realDescriptors = [];
+
+    for (let index = 0; index < ranks.length; index += 1) {
+      const rank = ranks[index];
+      const descriptor = canonicalByRank.get(rank);
+      if (!descriptor) continue;
+      const requestedRank = normalizeRank(descriptor.override?.display_rank || rank);
+      const targetIndex = ranks.includes(requestedRank) ? ranks.indexOf(requestedRank) : index;
+      realDescriptors.push({ descriptor, officialIndex: index, targetIndex });
+      usedIds.add(descriptor.id);
+    }
+
+    // Preserve official columns first. A manual display-column override can use
+    // an otherwise empty rank, but it never displaces an official taxon already
+    // occupying that column.
+    for (const item of realDescriptors.filter(value => value.targetIndex === value.officialIndex)) {
+      slots[item.officialIndex] = decorateRankDescriptor(item.descriptor, ranks[item.officialIndex], item.officialIndex, {
+        officialRank: ranks[item.officialIndex]
+      });
+    }
+    for (const item of realDescriptors.filter(value => value.targetIndex !== value.officialIndex)) {
+      let destination = item.targetIndex;
+      if (slots[destination]) destination = item.officialIndex;
+      if (slots[destination]) continue;
+      slots[destination] = decorateRankDescriptor(item.descriptor, ranks[destination], destination, {
+        officialRank: ranks[item.officialIndex]
+      });
+    }
+
+    const specialNodes = fullPath.filter(node => {
+      if (!node?.id || canonicalIds.has(node.id) || isRootLikeNode(node)) return false;
+      return (state.settings.include_unclassified && isUnclassifiedNode(node))
+        || (state.settings.show_no_rank && isNoRankNode(node));
+    });
+    const promotedSpecialIds = new Set();
+    for (const node of specialNodes) {
+      const requestedRank = normalizeRank(node.override?.display_rank || '');
+      const targetIndex = ranks.indexOf(requestedRank);
+      if (targetIndex < 0 || slots[targetIndex]) continue;
+      slots[targetIndex] = decorateRankDescriptor(node, ranks[targetIndex], targetIndex, {
+        officialRank: node.rank,
+        columnType: 'rank'
+      });
+      promotedSpecialIds.add(node.id);
+    }
+
+    for (let index = 0; index < ranks.length; index += 1) {
+      if (slots[index]) continue;
+      // Derive the spacer identity from the complete frozen lineage rather than
+      // from the currently selected rank subset. This keeps a named spacer stable
+      // when readers add or remove columns in the publication figure.
+      const fullRankIndex = STANDARD_RANKS.indexOf(ranks[index]);
+      let previous = null;
+      let next = null;
+      for (let rankIndex = fullRankIndex - 1; rankIndex >= 0; rankIndex -= 1) {
+        const candidate = canonicalByRank.get(STANDARD_RANKS[rankIndex]);
+        if (candidate) { previous = candidate; break; }
+      }
+      for (let rankIndex = fullRankIndex + 1; rankIndex < STANDARD_RANKS.length; rankIndex += 1) {
+        const candidate = canonicalByRank.get(STANDARD_RANKS[rankIndex]);
+        if (candidate) { next = candidate; break; }
+      }
+      const previousPosition = previous && fullPosition.has(previous.id) ? fullPosition.get(previous.id) : -1;
+      const nextPosition = next && fullPosition.has(next.id) ? fullPosition.get(next.id) : fullPath.length;
+      const candidateAncestors = fullPath.slice(previousPosition + 1, nextPosition)
+        .filter(node => node?.id && !canonicalIds.has(node.id) && !isRootLikeNode(node))
+        .map(node => ({
+          id: node.id,
+          taxid: node.taxid || (/^\d+$/.test(node.id) ? node.id : ''),
+          name: node.name,
+          rank: normalizeRank(node.rank)
+        }));
+      const terminal = [...fullPath].reverse().find(node => node?.id && !isRootLikeNode(node)) || null;
+      const context = candidateAncestors[candidateAncestors.length - 1]
+        || (next ? { id: next.id, name: next.name, rank: next.rank, taxid: next.taxid || '' } : null)
+        || (terminal ? { id: terminal.id, name: terminal.name, rank: terminal.rank, taxid: terminal.taxid || '' } : null)
+        || (previous ? { id: previous.id, name: previous.name, rank: previous.rank, taxid: previous.taxid || '' } : null)
+        || { id: `row:${stableHash(row.pid)}`, name: row.scientificName || row.pid, rank: '', taxid: row.resolvedTaxid || row.inputTaxid || '' };
+      const id = `missing-rank:${ranks[index]}:${context.id}`;
+      const override = state.overrides[id] || {};
+      const sourceName = String(override.source_name || '').trim();
+      const displayName = String(override.display_name || sourceName || '').trim();
+      slots[index] = decorateRankDescriptor({
+        id,
+        taxid: String(override.source_taxid || '').trim(),
+        name: sourceName || `Missing ${rankLabel(ranks[index])}`,
+        displayName,
+        rank: ranks[index],
+        override,
+        placeholder: true,
+        placeholderVisible: Boolean(displayName),
+        synthetic: true,
+        syntheticType: 'missing-rank'
+      }, ranks[index], index, {
+        officialRank: '',
+        placeholder: true,
+        placeholderVisible: Boolean(displayName),
+        candidateAncestors,
+        contextId: context.id,
+        contextName: context.name,
+        synthetic: true,
+        syntheticType: 'missing-rank'
+      });
+    }
+
+    // Optional unclassified and no-rank clades are placed in dedicated
+    // intermediate columns immediately before the next canonical rank. They
+    // therefore never share a Kingdom, Phylum, Class, or other rank column.
+    const intermediateByRightSlot = new Map();
+    for (const node of specialNodes) {
+      if (promotedSpecialIds.has(node.id)) continue;
+      const position = fullPosition.get(node.id) ?? -1;
+      let rightSlot = ranks.length;
+      for (let index = 0; index < slots.length; index += 1) {
+        const slotPosition = fullPosition.get(slots[index].id);
+        if (Number.isFinite(slotPosition) && slotPosition > position) { rightSlot = index; break; }
+      }
+      if (!intermediateByRightSlot.has(rightSlot)) intermediateByRightSlot.set(rightSlot, []);
+      intermediateByRightSlot.get(rightSlot).push(node);
+    }
+    for (const values of intermediateByRightSlot.values()) {
+      values.sort((a, b) => (fullPosition.get(a.id) ?? 0) - (fullPosition.get(b.id) ?? 0));
+    }
+
+    const path = [];
+    for (let index = 0; index <= slots.length; index += 1) {
+      const intermediate = intermediateByRightSlot.get(index) || [];
+      intermediate.forEach((node, ordinal) => {
+        const beforeOrder = index === 0 ? -100 : index * 100 - 50;
+        path.push(decorateRankDescriptor(node, node.rank || 'no rank', index, {
+          officialRank: node.rank,
+          columnKey: `intermediate:${index}:${ordinal}`,
+          columnOrder: beforeOrder + ordinal,
+          columnType: 'intermediate'
+        }));
+      });
+      if (index < slots.length) path.push(slots[index]);
+    }
+    return path;
+  }
+
   function pathForRow(row) {
     const fullPath = row.lineageTaxids.map((_, index) => nodeFromResolved(row, index)).filter(node => node?.id);
 
@@ -554,7 +736,9 @@
     if (fullPath.some(node => (node.override?.action || 'auto') === 'exclude')) return [];
 
     let path = [];
-    if (state.settings.mode === 'standard') {
+    if (state.settings.mode === 'standard' && state.settings.strict_rank_columns) {
+      path = standardStrictPath(row, fullPath);
+    } else if (state.settings.mode === 'standard') {
       const selectedById = new Map();
       const selectedDescriptors = [];
       for (const rank of state.settings.ranks) {
@@ -575,11 +759,6 @@
         path.push(descriptor);
         seen.add(descriptor.id);
       }
-
-      // Resolved snapshots normally use the same IDs in the full lineage and
-      // standard-rank columns. Keep a safe fallback for incomplete snapshots
-      // without reverting to every lineage node (which would bypass the rank
-      // filter and reintroduce no-rank or unclassified taxa unexpectedly).
       for (const descriptor of selectedDescriptors) {
         if (!seen.has(descriptor.id)) {
           path.push(descriptor);
@@ -596,10 +775,9 @@
       if (clean.length && clean[clean.length - 1].id === node.id) continue;
       const action = node.override?.action || 'auto';
       if (action === 'exclude') return [];
-      const isRoot = normalizeRank(node.rank) === 'root' || /^(root|cellular organisms)$/i.test(node.name);
-      if (state.settings.hide_root && isRoot) continue;
-      if (!state.settings.include_unclassified && isUnclassifiedNode(node)) continue;
-      if (!state.settings.show_no_rank && isNoRankNode(node)) continue;
+      if (state.settings.hide_root && isRootLikeNode(node)) continue;
+      if (!node.placeholder && !state.settings.include_unclassified && isUnclassifiedNode(node)) continue;
+      if (!node.placeholder && !state.settings.show_no_rank && isNoRankNode(node)) continue;
       if (action === 'collapse') continue;
       clean.push(node);
     }
@@ -613,6 +791,17 @@
       name: node.name,
       displayName: node.displayName || node.name,
       rank: node.rank || 'no rank',
+      officialRank: normalizeRank(node.officialRank || node.rank || ''),
+      displayRank: normalizeRank(node.displayRank || node.rank || ''),
+      columnKey: node.columnKey || '',
+      columnOrder: Number.isFinite(Number(node.columnOrder)) ? Number(node.columnOrder) : null,
+      columnType: node.columnType || '',
+      placeholder: Boolean(node.placeholder),
+      placeholderVisible: Boolean(node.placeholderVisible),
+      candidateAncestors: Array.isArray(node.candidateAncestors) ? node.candidateAncestors.map(value => ({ ...value })) : [],
+      contextId: node.contextId || '',
+      contextName: node.contextName || '',
+      syntheticType: node.syntheticType || '',
       override: node.override || {},
       parent,
       children: new Map(),
@@ -745,11 +934,21 @@
           clone.terminalCount += otherCount;
           appendMembers(clone.terminalMembers, otherMembers);
         } else if (showOther) {
+          const exemplar = dropped.slice().sort((a, b) => {
+            const aOrder = Number.isFinite(Number(a.columnOrder)) ? Number(a.columnOrder) : a.depth;
+            const bOrder = Number.isFinite(Number(b.columnOrder)) ? Number(b.columnOrder) : b.depth;
+            return aOrder - bOrder;
+          })[0] || null;
           const other = makeTreeNode({
             id: otherId,
             name: `Other within ${node.displayName}`,
             displayName: otherOverride.display_name || `Other ${node.displayName}`,
-            rank: 'other',
+            rank: exemplar?.displayRank || exemplar?.rank || 'other',
+            officialRank: '',
+            displayRank: exemplar?.displayRank || exemplar?.rank || 'other',
+            columnKey: exemplar?.columnKey || '',
+            columnOrder: exemplar?.columnOrder,
+            columnType: exemplar?.columnType || 'rank',
             synthetic: true,
             syntheticType: 'other',
             isOther: true,
@@ -771,7 +970,8 @@
       function collapse(node) {
         for (const child of [...node.children.values()]) collapse(child);
         for (const child of [...node.children.values()]) {
-          if (child.synthetic || child.override?.action === 'always') continue;
+          if (child.synthetic || child.placeholder || child.override?.action === 'always') continue;
+          if (state.settings.mode === 'standard' && state.settings.strict_rank_columns && child.columnType === 'rank') continue;
           if (child.children.size === 1 && child.terminalCount === 0) {
             const grandchild = [...child.children.values()][0];
             if (grandchild.count === child.count) {
@@ -814,15 +1014,19 @@
   }
 
   function ancestorForRank(node, rank) {
+    const targetRank = normalizeRank(rank);
     let current = node;
     while (current && current.id !== '__root__') {
-      if (current.rank === rank) return current;
+      if (normalizeRank(current.displayRank || current.rank) === targetRank) return current;
       current = current.parent;
     }
     return null;
   }
 
   function colorCategoryForNode(node) {
+    if (node?.placeholder && !node.placeholderVisible) {
+      return node.parent && node.parent.id !== '__root__' ? colorCategoryForNode(node.parent) : 'Unassigned';
+    }
     const colorBy = state.settings.color_by || 'domain';
     if (colorBy === 'self') return node.displayName;
     if (colorBy.startsWith('depth:')) {
@@ -832,7 +1036,7 @@
       return current && current.id !== '__root__' ? current.displayName : node.displayName;
     }
     const ancestor = ancestorForRank(node, colorBy);
-    if (ancestor) return ancestor.displayName;
+    if (ancestor && (!ancestor.placeholder || ancestor.placeholderVisible)) return ancestor.displayName;
     let domain = ancestorForRank(node, 'domain');
     if (domain) return domain.displayName;
     let top = node;
@@ -857,24 +1061,53 @@
   function layoutTree(root, viewportWidth, viewportHeight) {
     assignOrder(root);
     const { nodes, links } = flattenTree(root);
-    const maxDepth = nodes.reduce((max, node) => Math.max(max, node.depth), 0);
-    const columns = Array.from({ length: maxDepth + 1 }, () => []);
-    for (const node of nodes) columns[node.depth].push(node);
+    const definitionMap = new Map();
+
+    for (const node of nodes) {
+      let key;
+      let order;
+      let type;
+      let rank;
+      if (state.settings.mode === 'standard' && state.settings.strict_rank_columns) {
+        rank = normalizeRank(node.displayRank || node.rank);
+        key = node.columnKey || `rank:${rank || 'unknown'}`;
+        order = Number.isFinite(Number(node.columnOrder))
+          ? Number(node.columnOrder)
+          : Math.max(0, state.settings.ranks.indexOf(rank)) * 100;
+        type = node.columnType || (STANDARD_RANKS.includes(rank) ? 'rank' : 'intermediate');
+      } else {
+        rank = normalizeRank(node.rank);
+        key = `depth:${node.depth}`;
+        order = node.depth;
+        type = 'depth';
+      }
+      if (!definitionMap.has(key)) definitionMap.set(key, { key, order, type, rank });
+      node.layoutColumnKey = key;
+    }
+
+    const columnMeta = [...definitionMap.values()].sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
+    const columnIndexByKey = new Map(columnMeta.map((value, index) => [value.key, index]));
+    const columns = Array.from({ length: Math.max(1, columnMeta.length) }, () => []);
+    for (const node of nodes) {
+      node.columnIndex = columnIndexByKey.get(node.layoutColumnKey) ?? 0;
+      columns[node.columnIndex].push(node);
+    }
     for (const column of columns) column.sort((a, b) => a.orderValue - b.orderValue || b.count - a.count);
 
+    const maxColumnIndex = Math.max(0, columns.length - 1);
     const margin = { top: 58, right: 235, bottom: 44, left: 145 };
     const minColumnSpace = 230;
-    const width = Math.max(980, viewportWidth || 1200, margin.left + margin.right + maxDepth * minColumnSpace + 60);
+    const width = Math.max(980, viewportWidth || 1200, margin.left + margin.right + maxColumnIndex * minColumnSpace + 60);
     const maxColumnNodes = Math.max(1, ...columns.map(column => column.length));
     const baseHeight = Math.max(560, viewportHeight || 620, margin.top + margin.bottom + maxColumnNodes * 30);
     const height = Math.max(300, Math.round(baseHeight * state.settings.height_scale));
     const usableHeight = Math.max(80, height - margin.top - margin.bottom);
     const nodeWidth = state.settings.node_width;
-    const xStep = maxDepth > 0 ? (width - margin.left - margin.right - nodeWidth) / maxDepth : 0;
+    const xStep = maxColumnIndex > 0 ? (width - margin.left - margin.right - nodeWidth) / maxColumnIndex : 0;
 
-    // A protein count is a weight, not a pixel count. The previous minimum of
-    // 1.4 px per protein made large datasets thousands of pixels tall. Derive
-    // a true count-to-pixel scale from the requested diagram height instead.
+    // A protein count is a weight, not a pixel count. Derive the count-to-pixel
+    // scale from the requested diagram height so very large protein sets remain
+    // compact while preserving proportional ribbons.
     const columnMetrics = columns.map(column => {
       const count = column.length;
       const desiredGap = state.settings.node_padding;
@@ -889,8 +1122,8 @@
       .map(metric => metric.availableForNodes / metric.sum);
     const flowScale = Math.max(0.0001, Math.min(...scaleCandidates.filter(Number.isFinite), 28));
 
-    columns.forEach((column, depth) => {
-      const metric = columnMetrics[depth];
+    columns.forEach((column, columnIndex) => {
+      const metric = columnMetrics[columnIndex];
       const gap = metric.gap;
       const preferredMinimum = Math.max(0.7, Math.min(6, usableHeight / Math.max(1, column.length * 2.8)));
       let heights = column.map(node => Math.max(preferredMinimum, node.count * flowScale));
@@ -904,8 +1137,9 @@
       const totalHeight = heights.reduce((a, b) => a + b, 0) + gapsHeight;
       let y = margin.top + Math.max(0, (usableHeight - totalHeight) / 2);
       column.forEach((node, index) => {
-        node.x0 = margin.left + depth * xStep;
-        node.x1 = node.x0 + nodeWidth;
+        node.x0 = margin.left + columnIndex * xStep;
+        const visualNodeWidth = node.placeholder && !node.placeholderVisible && !config.authorMode ? 0.5 : nodeWidth;
+        node.x1 = node.x0 + visualNodeWidth;
         node.y0 = y;
         node.y1 = y + heights[index];
         node.layoutHeight = heights[index];
@@ -951,7 +1185,10 @@
 
     const categoryColors = {};
     for (const node of nodes) categoryColors[node.colorCategory] = node.color;
-    return { root, nodes, links, columns, width, height, bounds: { x0: 0, y0: 0, x1: width, y1: height }, flowScale, categoryColors };
+    return {
+      root, nodes, links, columns, columnMeta, width, height,
+      bounds: { x0: 0, y0: 0, x1: width, y1: height }, flowScale, categoryColors
+    };
   }
 
   function buildGraph() {
@@ -997,8 +1234,10 @@
     return labels[normalized] || normalized.replace(/\b\w/g, char => char.toUpperCase());
   }
 
-  function columnTitle(column, index) {
-    const ranks = [...new Set(column.map(node => normalizeRank(node.rank)).filter(Boolean))];
+  function columnTitle(column, index, meta = null) {
+    if (meta?.type === 'rank' && meta.rank) return rankLabel(meta.rank);
+    if (meta?.type === 'intermediate') return 'Intermediate clades';
+    const ranks = [...new Set(column.map(node => normalizeRank(node.displayRank || node.rank)).filter(Boolean))];
     if (ranks.length === 1) return rankLabel(ranks[0]);
     if (ranks.length > 1 && ranks.length <= 3) return ranks.map(rankLabel).join(' / ');
     return `Level ${index + 1}`;
@@ -1104,7 +1343,7 @@
         y: 28,
         class: 'sankey-column-label'
       });
-      label.textContent = columnTitle(column, index);
+      label.textContent = columnTitle(column, index, state.graph.columnMeta?.[index]);
       columnsGroup.appendChild(label);
     });
     dom.world.appendChild(columnsGroup);
@@ -1131,28 +1370,38 @@
 
     const nodesGroup = svgEl('g', { class: 'sankey-nodes' });
     for (const node of state.graph.nodes) {
-      const group = svgEl('g', { class: 'sankey-node', 'data-node-id': node.id });
+      const unnamedPlaceholder = Boolean(node.placeholder && !node.placeholderVisible);
+      const hiddenSpacer = unnamedPlaceholder && !config.authorMode;
+      const editorSpacer = unnamedPlaceholder && config.authorMode;
+      const classes = ['sankey-node'];
+      if (node.placeholder) classes.push('is-placeholder');
+      if (editorSpacer) classes.push('is-empty-placeholder');
+      if (hiddenSpacer) classes.push('is-hidden-placeholder');
+      const group = svgEl('g', { class: classes.join(' '), 'data-node-id': node.id });
       const rect = svgEl('rect', {
         x: node.x0,
         y: node.y0,
         width: Math.max(1, node.x1 - node.x0),
         height: Math.max(1, node.y1 - node.y0),
-        fill: node.color,
-        class: 'sankey-node-bar'
+        fill: hiddenSpacer || editorSpacer ? 'transparent' : node.color,
+        class: `sankey-node-bar${node.placeholder ? ' sankey-placeholder-bar' : ''}`
       });
       const label = svgEl('text', {
         x: node.x1 + 6,
-        y: (node.y0 + node.y1) / 2 - 4,
-        class: 'sankey-label'
+        y: (node.y0 + node.y1) / 2 - (editorSpacer ? 0 : 4),
+        class: `sankey-label${editorSpacer ? ' sankey-placeholder-label' : ''}`
       });
-      label.textContent = node.displayName;
+      label.textContent = editorSpacer ? `+ ${rankLabel(node.displayRank || node.rank)}` : node.displayName;
       const count = svgEl('text', {
         x: node.x1 + 6,
         y: (node.y0 + node.y1) / 2 + 9,
         class: 'sankey-label-count'
       });
-      count.textContent = nodeCountLabel(node);
-      if (!state.showLabels) { label.setAttribute('display', 'none'); count.setAttribute('display', 'none'); }
+      count.textContent = editorSpacer ? '' : nodeCountLabel(node);
+      if (!state.showLabels || hiddenSpacer) {
+        label.setAttribute('display', 'none');
+        count.setAttribute('display', 'none');
+      }
       const hit = svgEl('rect', {
         x: node.x0 - 4,
         y: node.y0 - 3,
@@ -1160,17 +1409,21 @@
         height: Math.max(10, node.y1 - node.y0 + 6),
         class: 'sankey-hit'
       });
-      hit.addEventListener('pointerenter', event => showNodeTooltip(event, node));
-      hit.addEventListener('pointermove', moveTooltip);
-      hit.addEventListener('pointerleave', hideTooltip);
-      hit.addEventListener('click', event => {
-        event.stopPropagation();
-        selectNode(node.id);
-      });
+      if (hiddenSpacer) hit.setAttribute('pointer-events', 'none');
+      else {
+        hit.addEventListener('pointerenter', event => showNodeTooltip(event, node));
+        hit.addEventListener('pointermove', moveTooltip);
+        hit.addEventListener('pointerleave', hideTooltip);
+        hit.addEventListener('click', event => {
+          event.stopPropagation();
+          selectNode(node.id);
+        });
+      }
       group.append(rect, label, count, hit);
       node.element = group;
       nodesGroup.appendChild(group);
     }
+
     dom.world.appendChild(nodesGroup);
 
     applyHighlightState();
@@ -1199,11 +1452,25 @@
   function showNodeTooltip(event, node) {
     const percent = state.graph?.root?.count ? node.count / state.graph.root.count * 100 : 0;
     const taxid = node.taxid || (node.id.startsWith('taxid:') ? node.id.slice(6) : '');
+    const officialRank = normalizeRank(node.officialRank || node.rank || '');
+    const displayRank = normalizeRank(node.displayRank || node.rank || '');
+    const title = node.placeholder && !node.placeholderVisible
+      ? `Missing ${rankLabel(displayRank)}`
+      : node.displayName;
+    const typeRows = node.placeholder
+      ? `<span>Node type</span><b>${node.placeholderVisible ? 'Custom display node' : 'Empty rank spacer'}</b>`
+      : '';
+    const sourceRows = node.placeholder && node.override?.source_name
+      ? `<span>Source ancestor</span><b>${escapeHtml(node.override.source_name)}${node.override.source_rank ? ` · ${escapeHtml(node.override.source_rank)}` : ''}</b>`
+      : '';
     dom.tooltip.innerHTML = `
-      <strong>${escapeHtml(node.displayName)}</strong>
+      <strong>${escapeHtml(title)}</strong>
       <div class="tooltip-grid">
-        <span>Rank</span><b>${escapeHtml(node.rank)}</b>
+        ${typeRows}
+        ${officialRank && !node.placeholder ? `<span>Official rank</span><b>${escapeHtml(officialRank)}</b>` : ''}
+        <span>Displayed in</span><b>${escapeHtml(rankLabel(displayRank))}</b>
         ${taxid ? `<span>TaxID</span><b>${escapeHtml(taxid)}</b>` : ''}
+        ${sourceRows}
         <span>Proteins</span><b>${formatNumber(node.count)}</b>
         <span>Fraction</span><b>${formatPercent(percent)}</b>
         <span>Color group</span><b>${escapeHtml(node.colorCategory || '')}</b>
@@ -1304,10 +1571,10 @@
     dom.selectionPanel.hidden = !node;
     if (!node) return;
     const percent = state.graph?.root?.count ? node.count / state.graph.root.count * 100 : 0;
-    if (dom.selectionTitle) dom.selectionTitle.textContent = node.displayName;
-    if (dom.selectionName) dom.selectionName.textContent = node.name;
+    if (dom.selectionTitle) dom.selectionTitle.textContent = node.displayName || `Missing ${rankLabel(node.displayRank || node.rank)}`;
+    if (dom.selectionName) dom.selectionName.textContent = node.placeholder ? (node.override?.source_name || node.contextName || 'Unassigned display node') : node.name;
     if (dom.selectionTaxid) dom.selectionTaxid.textContent = node.taxid || '—';
-    if (dom.selectionRank) dom.selectionRank.textContent = node.rank;
+    if (dom.selectionRank) dom.selectionRank.textContent = node.placeholder ? `${rankLabel(node.displayRank || node.rank)} · custom spacer` : rankLabel(node.displayRank || node.rank);
     if (dom.selectionCount) dom.selectionCount.textContent = formatNumber(node.count);
     if (dom.selectionPercent) dom.selectionPercent.textContent = formatPercent(percent);
     if (dom.downloadSelection) dom.downloadSelection.disabled = !node.members?.length;

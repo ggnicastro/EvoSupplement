@@ -6,7 +6,7 @@
   <meta name="description" content="Browser-based editor for reconciling NCBI TaxIDs and preparing a publication-ready taxonomic Sankey.">
   <meta name="theme-color" content="#111827">
   <title>Taxonomy Sankey Editor</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=1.3.1">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.4.0">
 </head>
 <body>
   <header class="app-header">
@@ -157,6 +157,7 @@
 
         <section class="editor-panel">
           <h2>Hierarchy and compression</h2>
+          <p class="editor-note">In Selected standard ranks mode, every rank has its own fixed column. Missing ranks remain as invisible routing spacers in figures and as clickable <b>+ Rank</b> placeholders in this editor.</p>
           <div class="editor-grid">
             <label class="control-field"><span>Hierarchy mode</span><select id="editorMode"><option value="all">All taxonomic nodes</option><option value="standard">Selected standard ranks</option></select></label>
             <label class="control-field"><span>Color by</span><select id="editorColorBy"><option value="domain">Domain / realm</option><option value="phylum">Phylum</option><option value="class">Class</option><option value="order">Order</option><option value="family">Family</option><option value="genus">Genus</option><option value="self">Each node</option></select></label>
@@ -180,6 +181,14 @@
             <div class="node-identity"><strong id="editorNodeIdentity"></strong><span id="editorNodeMeta"></span></div>
             <label class="control-field"><span>Display name</span><input id="editorNodeDisplayName" type="text"></label>
             <label class="control-field"><span>Action</span><select id="editorNodeAction"><option value="auto">Automatic</option><option value="always">Always show</option><option value="collapse">Collapse into parent</option><option value="exclude">Exclude subtree</option></select></label>
+            <label class="control-field"><span>Display column</span><select id="editorNodeDisplayRank"><option value="">Automatic / official rank</option><option value="domain">Domain / realm</option><option value="kingdom">Kingdom</option><option value="phylum">Phylum</option><option value="class">Class</option><option value="order">Order</option><option value="family">Family</option><option value="genus">Genus</option><option value="species">Species</option></select></label>
+            <div class="column-shift-row"><button class="button" id="editorMoveNodeLeft" type="button">← Move left</button><button class="button" id="editorMoveNodeRight" type="button">Move right →</button><span id="editorNodeColumnStatus"></span></div>
+            <div class="missing-rank-tools" id="editorMissingRankTools" hidden>
+              <strong>Name this missing rank</strong>
+              <p>This creates a display-only parent in the selected rank column. The frozen NCBI taxonomy remains unchanged.</p>
+              <label class="control-field"><span>Use ancestor from resolved lineage <small>optional</small></span><select id="editorMissingAncestor"><option value="">Custom name</option></select></label>
+              <span class="missing-rank-context" id="editorMissingRankContext"></span>
+            </div>
             <label class="control-field"><span>Sibling order <small>optional</small></span><input id="editorNodeOrder" type="number" step="1" placeholder="Automatic"></label>
             <div><span class="field-label">Node color override</span><div class="color-row"><input id="editorNodeColorPicker" type="color" value="#4f8fd9"><input id="editorNodeColorText" type="text" placeholder="#4f8fd9"></div></div>
             <div class="editor-actions"><button class="button button-primary" id="editorSaveNode" type="button">Save taxon override</button><button class="button" id="editorResetNode" type="button">Reset override</button></div>
@@ -205,8 +214,8 @@
 
   <div class="tooltip" id="taxonomyTooltip" hidden></div>
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./config.js?v=1.3.1"></script>
-  <script src="../shared/taxonomy-sankey-viewer.js?v=1.3.1"></script>
-  <script src="./editor.js?v=1.3.1"></script>
+  <script src="./config.js?v=1.4.0"></script>
+  <script src="../shared/taxonomy-sankey-viewer.js?v=1.4.0"></script>
+  <script src="./editor.js?v=1.4.0"></script>
 </body>
 </html>

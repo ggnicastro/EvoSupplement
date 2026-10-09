@@ -4,6 +4,7 @@
   const files = { input: null, resolved: null, yaml: null, colors: null, snapshot: null };
   let activeCatalogId = '';
   let catalogQuery = '';
+  const STANDARD_RANKS = ['domain', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species'];
 
   const $ = id => document.getElementById(id);
   const els = {};
@@ -16,7 +17,7 @@
       resolveOnline: $('editorResolveOnline'), resolveSnapshot: $('editorResolveSnapshot'), apiKey: $('editorNcbiApiKey'), resolveProgress: $('editorResolveProgress'), resolveStatus: $('editorResolveStatus'),
       mode: $('editorMode'), colorBy: $('editorColorBy'), ranks: $('editorRanks'), minimumCount: $('editorMinimumCount'), minimumPercent: $('editorMinimumPercent'), topN: $('editorTopN'), sortChildren: $('editorSortChildren'),
       collapseSingle: $('editorCollapseSingle'), hideRoot: $('editorHideRoot'), includeUnclassified: $('editorIncludeUnclassified'), showNoRank: $('editorShowNoRank'), applySettings: $('editorApplySettings'), resetSettings: $('editorResetSettings'),
-      nodeEmpty: $('editorNodeEmpty'), nodeForm: $('editorNodeForm'), nodeIdentity: $('editorNodeIdentity'), nodeMeta: $('editorNodeMeta'), nodeDisplayName: $('editorNodeDisplayName'), nodeAction: $('editorNodeAction'), nodeOrder: $('editorNodeOrder'), nodeColorPicker: $('editorNodeColorPicker'), nodeColorText: $('editorNodeColorText'), saveNode: $('editorSaveNode'), resetNode: $('editorResetNode'),
+      nodeEmpty: $('editorNodeEmpty'), nodeForm: $('editorNodeForm'), nodeIdentity: $('editorNodeIdentity'), nodeMeta: $('editorNodeMeta'), nodeDisplayName: $('editorNodeDisplayName'), nodeAction: $('editorNodeAction'), nodeDisplayRank: $('editorNodeDisplayRank'), moveNodeLeft: $('editorMoveNodeLeft'), moveNodeRight: $('editorMoveNodeRight'), nodeColumnStatus: $('editorNodeColumnStatus'), missingRankTools: $('editorMissingRankTools'), missingAncestor: $('editorMissingAncestor'), missingRankContext: $('editorMissingRankContext'), nodeOrder: $('editorNodeOrder'), nodeColorPicker: $('editorNodeColorPicker'), nodeColorText: $('editorNodeColorText'), saveNode: $('editorSaveNode'), resetNode: $('editorResetNode'),
       catalogBody: $('editorCatalogBody'), catalogSearch: $('editorCatalogSearch'), catalogSummary: $('editorCatalogSummary'),
       downloadResolved: $('editorDownloadResolved'), downloadYaml: $('editorDownloadYaml'), downloadColors: $('editorDownloadColors'), downloadReport: $('editorDownloadReport'), downloadPackage: $('editorDownloadPackage'),
       diagnosticsList: $('editorDiagnosticsList')
@@ -224,6 +225,80 @@
     }).join('');
   }
 
+  function rankLabel(rank) {
+    const labels = { domain: 'Domain / realm', kingdom: 'Kingdom', phylum: 'Phylum', class: 'Class', order: 'Order', family: 'Family', genus: 'Genus', species: 'Species' };
+    return labels[String(rank || '').toLowerCase()] || String(rank || 'No rank');
+  }
+
+  function nodeForEditor(id) {
+    const state = window.TaxonomySankeyViewer.getState();
+    return state.graph?.nodes.find(node => node.id === id) || state.nodeCatalog.get(id) || null;
+  }
+
+  function availableDisplayRanks(state) {
+    return state.settings.mode === 'standard' ? [...state.settings.ranks] : [...STANDARD_RANKS];
+  }
+
+  function populateDisplayRank(node, override, state) {
+    const ranks = availableDisplayRanks(state);
+    els.nodeDisplayRank.innerHTML = '<option value="">Automatic / official rank</option>'
+      + ranks.map(rank => `<option value="${escapeHtml(rank)}">${escapeHtml(rankLabel(rank))}</option>`).join('');
+    const requested = String(override.display_rank || '').toLowerCase();
+    els.nodeDisplayRank.value = ranks.includes(requested) ? requested : '';
+    const current = node.displayRank || requested || node.rank || '';
+    const official = node.officialRank || node.rank || '';
+    els.nodeColumnStatus.textContent = node.placeholder
+      ? `This spacer belongs to the ${rankLabel(current)} column.`
+      : `Official rank: ${rankLabel(official)} · displayed in: ${rankLabel(current)}${requested ? ' · manual override' : ''}`;
+    const currentIndex = ranks.indexOf(current);
+    const editable = state.settings.mode === 'standard' && !node.placeholder;
+    els.nodeDisplayRank.disabled = !editable;
+    els.moveNodeLeft.disabled = !editable || currentIndex <= 0;
+    els.moveNodeRight.disabled = !editable || currentIndex < 0 || currentIndex >= ranks.length - 1;
+  }
+
+  function populateMissingRankTools(node, override) {
+    const isPlaceholder = Boolean(node.placeholder);
+    els.missingRankTools.hidden = !isPlaceholder;
+    if (!isPlaceholder) {
+      els.missingAncestor.innerHTML = '<option value="">Custom name</option>';
+      els.missingRankContext.textContent = '';
+      return;
+    }
+    const candidates = Array.isArray(node.candidateAncestors) ? node.candidateAncestors : [];
+    els.missingAncestor.innerHTML = '<option value="">Custom name</option>' + candidates.map(candidate => {
+      const taxid = candidate.taxid || (/^\d+$/.test(String(candidate.id || '')) ? candidate.id : '');
+      return `<option value="${escapeHtml(candidate.id)}" data-name="${escapeHtml(candidate.name)}" data-rank="${escapeHtml(candidate.rank || '')}" data-taxid="${escapeHtml(taxid)}">${escapeHtml(candidate.name)} · ${escapeHtml(candidate.rank || 'no rank')}${taxid ? ` · ${escapeHtml(taxid)}` : ''}</option>`;
+    }).join('');
+    const match = candidates.find(candidate => {
+      const taxid = candidate.taxid || (/^\d+$/.test(String(candidate.id || '')) ? candidate.id : '');
+      return (override.source_taxid && String(override.source_taxid) === String(taxid))
+        || (override.source_name && override.source_name === candidate.name);
+    });
+    els.missingAncestor.value = match?.id || '';
+    const context = node.contextName ? `Routing context: ${node.contextName}.` : '';
+    els.missingRankContext.textContent = `${context} You may type any display name, or select an ancestor from the frozen lineage. This does not change the NCBI rank.`;
+  }
+
+  function shiftSelectedNode(direction) {
+    if (!activeCatalogId) return;
+    const state = window.TaxonomySankeyViewer.getState();
+    const node = nodeForEditor(activeCatalogId);
+    if (!node || node.placeholder || state.settings.mode !== 'standard') return;
+    const ranks = availableDisplayRanks(state);
+    const current = node.displayRank || node.rank;
+    const currentIndex = ranks.indexOf(current);
+    const targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= ranks.length) return;
+    const requestedRank = ranks[targetIndex];
+    window.TaxonomySankeyViewer.setOverride(activeCatalogId, { display_rank: requestedRank });
+    const updated = nodeForEditor(activeCatalogId);
+    selectCatalogNode(activeCatalogId, false);
+    els.loadStatus.textContent = updated?.displayRank === requestedRank
+      ? `${node.displayName || node.name} moved to the ${rankLabel(requestedRank)} display column.`
+      : `The ${rankLabel(requestedRank)} column is already occupied on this lineage. The node stayed in ${rankLabel(updated?.displayRank || node.rank)}.`;
+  }
+
   function selectCatalogNode(id, selectInGraph = true) {
     activeCatalogId = id || '';
     const state = window.TaxonomySankeyViewer.getState();
@@ -238,10 +313,15 @@
     const override = state.overrides[activeCatalogId] || {};
     els.nodeEmpty.hidden = true;
     els.nodeForm.hidden = false;
-    els.nodeIdentity.textContent = override.display_name || node.displayName || node.name;
-    els.nodeMeta.textContent = `${node.rank || 'no rank'} · ${activeCatalogId} · ${(node.count || 0).toLocaleString()} proteins`;
+    const shownName = override.display_name || node.displayName || node.name || `Missing ${rankLabel(node.displayRank || node.rank)}`;
+    els.nodeIdentity.textContent = shownName;
+    const official = node.placeholder ? 'missing in resolved standard ranks' : rankLabel(node.officialRank || node.rank);
+    const displayed = rankLabel(node.displayRank || node.rank);
+    els.nodeMeta.textContent = `${official} · display: ${displayed} · ${activeCatalogId} · ${(node.count || 0).toLocaleString()} proteins`;
     els.nodeDisplayName.value = override.display_name || '';
     els.nodeAction.value = override.action || 'auto';
+    populateDisplayRank(node, override, state);
+    populateMissingRankTools(node, override);
     els.nodeOrder.value = Number.isFinite(Number(override.order)) ? override.order : '';
     const color = override.color || '#4f8fd9';
     els.nodeColorPicker.value = /^#[0-9a-f]{6}$/i.test(color) ? color : '#4f8fd9';
@@ -257,13 +337,29 @@
       els.loadStatus.textContent = 'Enter a hexadecimal color such as #4f8fd9.';
       return;
     }
+    const node = nodeForEditor(activeCatalogId);
+    const selectedAncestor = els.missingAncestor?.selectedOptions?.[0] || null;
+    const sourceName = node?.placeholder && selectedAncestor?.value ? selectedAncestor.dataset.name || '' : '';
+    const sourceTaxid = node?.placeholder && selectedAncestor?.value ? selectedAncestor.dataset.taxid || '' : '';
+    const sourceRank = node?.placeholder && selectedAncestor?.value ? selectedAncestor.dataset.rank || '' : '';
+    const requestedDisplayRank = node?.placeholder ? '' : els.nodeDisplayRank.value;
     window.TaxonomySankeyViewer.setOverride(activeCatalogId, {
       display_name: els.nodeDisplayName.value.trim(),
       action: els.nodeAction.value,
+      display_rank: requestedDisplayRank || null,
       order: els.nodeOrder.value === '' ? null : Number(els.nodeOrder.value),
-      color
+      color,
+      source_taxid: sourceTaxid || null,
+      source_name: sourceName || null,
+      source_rank: sourceRank || null
     });
+    const updated = nodeForEditor(activeCatalogId);
     selectCatalogNode(activeCatalogId, false);
+    els.loadStatus.textContent = node?.placeholder
+      ? 'Missing-rank display node saved. The resolved taxonomy TSV was not modified.'
+      : (requestedDisplayRank && updated?.displayRank !== requestedDisplayRank
+        ? `The ${rankLabel(requestedDisplayRank)} column is already occupied on this lineage. The node stayed in ${rankLabel(updated?.displayRank || node.rank)}.`
+        : 'Taxon override saved.');
     renderDiagnostics();
   }
 
@@ -272,10 +368,12 @@
     const state = window.TaxonomySankeyViewer.getState();
     const existing = state.overrides[activeCatalogId] || {};
     window.TaxonomySankeyViewer.setOverride(activeCatalogId, {
-      display_name: '', action: 'auto', order: null, color: '',
+      display_name: '', action: 'auto', display_rank: null, order: null, color: '',
+      source_taxid: null, source_name: null, source_rank: null,
       ...Object.fromEntries(Object.keys(existing).map(key => [key, key === 'action' ? 'auto' : null]))
     });
     selectCatalogNode(activeCatalogId, false);
+    els.loadStatus.textContent = 'Node override reset.';
   }
 
   function renderDiagnostics() {
@@ -335,6 +433,20 @@
     els.catalogBody.addEventListener('click', event => { const row = event.target.closest('tr[data-node-id]'); if (row) selectCatalogNode(row.dataset.nodeId); });
     els.nodeColorPicker.addEventListener('input', () => { els.nodeColorText.value = els.nodeColorPicker.value; });
     els.nodeColorText.addEventListener('input', () => { if (/^#[0-9a-f]{6}$/i.test(els.nodeColorText.value)) els.nodeColorPicker.value = els.nodeColorText.value; });
+    els.nodeDisplayRank.addEventListener('change', () => {
+      const node = nodeForEditor(activeCatalogId);
+      if (!node || node.placeholder) return;
+      const requested = els.nodeDisplayRank.value;
+      els.nodeColumnStatus.textContent = requested
+        ? `Pending display column: ${rankLabel(requested)}. Click Save taxon override to apply it.`
+        : `Pending display column: automatic / ${rankLabel(node.officialRank || node.rank)}. Click Save taxon override to apply it.`;
+    });
+    els.moveNodeLeft.addEventListener('click', () => shiftSelectedNode(-1));
+    els.moveNodeRight.addEventListener('click', () => shiftSelectedNode(1));
+    els.missingAncestor.addEventListener('change', () => {
+      const option = els.missingAncestor.selectedOptions?.[0];
+      if (option?.value) els.nodeDisplayName.value = option.dataset.name || '';
+    });
     els.saveNode.addEventListener('click', saveNodeOverride);
     els.resetNode.addEventListener('click', resetNodeOverride);
     els.downloadResolved.addEventListener('click', exportResolved);
@@ -344,7 +456,7 @@
     els.downloadPackage.addEventListener('click', exportPackage);
 
     document.addEventListener('taxonomy-sankey:loaded', () => { syncSettings(); renderCatalog(); renderDiagnostics(); });
-    document.addEventListener('taxonomy-sankey:rendered', () => { renderCatalog(); });
+    document.addEventListener('taxonomy-sankey:rendered', () => { renderCatalog(); if (activeCatalogId) selectCatalogNode(activeCatalogId, false); });
     document.addEventListener('taxonomy-sankey:selection', event => {
       const id = event.detail?.id || '';
       if (id) selectCatalogNode(id, false);

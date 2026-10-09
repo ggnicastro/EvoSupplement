@@ -82,7 +82,11 @@ Uses an ordered subset of:
 
 The standard-rank fields come from the resolved taxonomy snapshot. If the data have only the input classification, these fields are heuristic and should be reconciled before publication.
 
-In selected-standard-ranks mode, the **Keep unclassified taxa** and **Show no-rank nodes** controls can add those special lineage nodes alongside the chosen canonical ranks. When they are disabled, no-rank and unclassified nodes are omitted rather than reintroduced as a fallback for incomplete rows.
+Version 1.4 uses **strict rank columns** in this mode. Every selected canonical rank has a fixed horizontal position: a class is always drawn in the Class column, an order in the Order column, and so on. Missing ranks are represented internally by routing spacers instead of shifting later taxa left into the wrong column.
+
+In the Editor, an unnamed spacer appears as a clickable dashed **+ Rank** node. The author can leave it empty, type a custom display name, or choose an ancestor already present in the frozen resolved lineage. A named spacer becomes a visible display-only parent in that rank column; it does not change the TaxID, official rank, or resolved TSV. Unnamed spacers remain invisible in publication figures.
+
+The **Keep unclassified taxa** and **Show no-rank nodes** controls can add those special lineage nodes in dedicated intermediate columns. They never share a canonical Kingdom, Phylum, Class, Order, Family, Genus, or Species column unless the author explicitly assigns a display-column override.
 
 ## Compression controls
 
@@ -105,14 +109,19 @@ Click a node in the Sankey or a row in the taxon catalog to set:
 
 - display name;
 - action: automatic, always show, collapse into parent, or exclude subtree;
+- display column, including **Move left** and **Move right** helpers;
 - sibling order;
 - color override.
 
-TaxIDs or stable lineage IDs remain the internal identity, so renaming a node does not break the data mapping.
+Clicking an empty rank spacer opens the same editor. The author can name the missing level manually or select a candidate ancestor from the resolved lineage. The YAML records the source ancestor and the chosen display rank so the publication remains transparent about the difference between official taxonomy and editorial presentation.
+
+TaxIDs or stable lineage IDs remain the internal identity, so renaming or repositioning a node does not alter the frozen taxonomy data mapping. Manual column changes are visual overrides and are most appropriate for clades, no-rank nodes, unclassified groups, and display-only parents.
 
 ## Published layout
 
-The visualizer uses a hierarchy-aware layered layout. Children remain contiguous within each parent, which prevents avoidable flow crossings in a taxonomy tree. The figure starts with the ranks and special-node policies saved by the author in `taxonomy-sankey.yaml`. Readers can open **Taxonomic levels** to add or remove standard ranks, switch temporarily to the complete lineage, and show or hide unclassified and no-rank nodes. **Configured levels** restores the author's starting view. These reader changes are session-only and never rewrite the publication YAML.
+The visualizer uses a hierarchy-aware layered layout. In selected-standard-ranks mode, x positions are derived from the canonical rank columns rather than the compressed depth of each lineage. Invisible routing spacers carry flows across absent levels while keeping descendants aligned with the correct column. Children remain contiguous within each parent, which prevents avoidable flow crossings in a taxonomy tree.
+
+The figure starts with the ranks, custom display parents, display-column overrides, and special-node policies saved by the author in `taxonomy-sankey.yaml`. Readers can open **Taxonomic levels** to add or remove standard ranks, switch temporarily to the complete lineage, and show or hide unclassified and no-rank nodes. **Configured levels** restores the author's starting view. These reader changes are session-only and never rewrite the publication YAML.
 
 The figure supports:
 
@@ -144,10 +153,11 @@ One row per protein, including:
 Stores:
 
 - resolver metadata;
-- hierarchy mode and displayed ranks;
+- hierarchy mode, displayed ranks, and strict-rank-column policy;
 - compression parameters;
 - sorting and color grouping;
-- node-specific rename, action, color, and order overrides.
+- node-specific rename, action, color, order, and display-column overrides;
+- named missing-rank display nodes and their optional source ancestors.
 
 ### `taxonomy-colors.yaml`
 
@@ -163,7 +173,7 @@ Lists unresolved, remapped, and classification-difference information for review
 2. Load the protein taxonomy TSV.
 3. Resolve TaxIDs online or from a local snapshot.
 4. Select levels and compression rules.
-5. Curate individual nodes.
+5. Curate individual nodes and, when useful, click **+ Rank** placeholders to name missing display levels.
 6. Download the publication package.
 7. Use `taxonomy-resolved.tsv` and `taxonomy-sankey.yaml` in the Project Builder.
 8. Add the optional color YAML and original input TSV when desired.

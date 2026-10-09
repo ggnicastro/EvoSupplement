@@ -31,7 +31,7 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
 - Multi-Structure Comparison Viewer figures generated from the publication package ZIP exported by its editor.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.6.0 includes all seven interactive modules, including the Multi-Structure Comparison Viewer 1.0.0.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.6.1 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.0 and Multi-Structure Comparison Viewer 1.0.0.
 
 ## Editors and publication figures
 
@@ -39,7 +39,7 @@ The source EvoSupplement repository uses `shared/`, `editor/`, and `figureN/` co
 
 Editors are author workspaces for local loading, validation, curation, and derived-file generation. For protein figures, the Protein Structure and MSA Editor can start from a structure alone, create a compatible annotation YAML from Mol* residue selections, and help assign structure chains to aligned FASTA references. The Builder expects the finalized YAML when it packages a reader-facing protein figure.
 
-For taxonomy figures, the Taxonomy Sankey Editor resolves or imports lineages, compresses the displayed hierarchy, and exports `taxonomy-resolved.tsv` plus `taxonomy-sankey.yaml`. The Builder packages those frozen files so the reader-facing figure never depends on a live taxonomy service.
+For taxonomy figures, the Taxonomy Sankey Editor resolves or imports lineages, assigns every selected canonical rank to a fixed column, lets authors name missing-rank display spacers or move curated nodes between display columns, and exports `taxonomy-resolved.tsv` plus `taxonomy-sankey.yaml`. The Builder packages those frozen files so the reader-facing figure never depends on a live taxonomy service.
 
 For phylogeny figures, the Phylogeny Editor exports `phylogeny.yaml`, which stores the selected layout, visual root, marked supports, clade groups, colors, and label rules. The Builder requires the Newick tree and this YAML; the tip-annotation table is optional.
 
