@@ -119,6 +119,9 @@
       text-decoration: none;
     }
     .portal-doi:hover { text-decoration: underline; }
+    .portal-cover { width: 100%; margin: 26px 0 30px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    .portal-cover img { display: block; width: 100%; height: auto; object-fit: contain; }
+    .portal-cover figcaption { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
     .portal-section { margin-top: 34px; }
     .portal-section:first-of-type { margin-top: 8px; }
     .portal-section-title {
@@ -314,6 +317,15 @@
           </a>`;
       }
 
+      function renderCover(cover) {
+        if (!cover || typeof cover.src !== 'string' || !cover.src.trim()) return '';
+        const alt = typeof cover.alt === 'string' ? cover.alt : '';
+        const caption = typeof cover.caption === 'string' && cover.caption.trim()
+          ? `<figcaption>${escapeHtml(cover.caption)}</figcaption>`
+          : '';
+        return `<figure class="portal-cover"><img src="${escapeHtml(cover.src)}" alt="${escapeHtml(alt)}" decoding="async">${caption}</figure>`;
+      }
+
       function renderHeader(paper) {
         const container = document.getElementById('portalHeader');
         if (!paper) { container.innerHTML = ''; return; }
@@ -334,7 +346,8 @@
           <h1 class="portal-title">${escapeHtml(paper.title || 'Supplementary Material')}</h1>
           ${citationHtml}
           ${doiHtml}
-          ${descriptionHtml}`;
+          ${descriptionHtml}
+          ${renderCover(paper.cover)}`;
       }
 
       function renderSections(sections) {

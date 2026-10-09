@@ -91,6 +91,7 @@ Editors and publication figures intentionally have different interfaces. Editors
 Open `builder/` from the Studio page or directly through an HTTP server. The Builder supports:
 
 - paper metadata and ordered authors;
+- an optional cover image with accessibility text and a caption, displayed without cropping;
 - arbitrary sections and ordered items;
 - uploaded files and self-contained HTML pages;
 - ZIP-packaged HTML pages with an `index.html` entry point;
@@ -108,6 +109,8 @@ Builder 1.7.0 adds **Save state** and **Load state**. A state ZIP contains the d
 Builder 1.8.0 adds **Download portable ZIP** for Windows, macOS, and Linux x64. Recipients extract the ZIP and open its launcher to view the supplement in their browser, without Python or Git hosting. Windows uses its built-in PowerShell/.NET tools, macOS requires its system Perl, and Linux Intel/AMD x64 requires system glibc 2.34+ and a desktop terminal. Keep the launcher window open while viewing. Windows and macOS execution still needs verification on those platforms. See the [portable workflow and platform requirements](builder/README.md#share-a-portable-supplement).
 
 Builder 1.8.1 uses English launcher names and adds an **Open supplement** icon to Windows portable exports. The shortcut starts the included command launcher; `Open-supplement.cmd` remains available as a fallback.
+
+Builder 1.9.0 adds an optional uploaded cover image above the publication sections. PNG, JPEG, WebP, GIF, and SVG are supported. The complete image keeps its aspect ratio, with optional accessibility text and a caption. The image and its settings are saved in Builder states and packed locally in both publication export formats. Older states and projects without a cover retain their existing layout.
 
 Creating a portable ZIP may need internet access to obtain viewer libraries, which are included for local use afterward. External links and remote resources inside custom HTML or imported content may still require internet. The normal project ZIP remains available for hosting.
 
@@ -147,6 +150,7 @@ Common paper fields are:
 | `journal` | Journal, venue, or preprint server. |
 | `year` | Publication year. |
 | `doi` | DOI without the DOI website prefix. |
+| `cover` | Optional object with a local image `src`, accessibility text `alt`, and `caption`. |
 
 Each section contains ordered items. Common item fields are:
 

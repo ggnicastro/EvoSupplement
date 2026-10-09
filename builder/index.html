@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>EvoSupplement Builder</title>
-  <link rel="stylesheet" href="./styles.css?v=1.8.1">
+  <link rel="stylesheet" href="./styles.css?v=1.9.0">
 </head>
 <body>
   <header class="app-header">
@@ -90,6 +90,34 @@
               </select>
             </label>
           </div>
+
+          <section class="project-cover-editor" aria-labelledby="projectCoverHeading">
+            <div class="subsection-heading">
+              <div>
+                <h3 id="projectCoverHeading">Cover image <small>optional</small></h3>
+                <p>Add a graphical abstract, diagram, or other image above the supplement sections. The complete image is shown without cropping.</p>
+              </div>
+            </div>
+            <div class="project-cover-upload">
+              <label class="field" for="projectCoverInput">
+                <span>Choose cover image</span>
+                <input id="projectCoverInput" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,image/png,image/jpeg,image/webp,image/gif,image/svg+xml" aria-describedby="projectCoverInfo">
+              </label>
+              <button class="button button-small button-ghost" id="removeProjectCoverBtn" type="button" hidden>Remove image</button>
+            </div>
+            <p id="projectCoverInfo" class="field-help" aria-live="polite">No cover image selected. PNG, JPEG, WebP, GIF, and SVG are supported.</p>
+            <img id="projectCoverPreview" class="project-cover-thumbnail" alt="" hidden>
+            <div class="form-grid">
+              <label class="field" for="projectCoverAlt">
+                <span>Image description <small>for accessibility</small></span>
+                <input id="projectCoverAlt" type="text" autocomplete="off" placeholder="Describe the image for readers who cannot see it.">
+              </label>
+              <label class="field" for="projectCoverCaption">
+                <span>Caption <small>optional</small></span>
+                <input id="projectCoverCaption" type="text" autocomplete="off" placeholder="A short caption or image credit shown below the cover.">
+              </label>
+            </div>
+          </section>
 
           <div class="subsection-heading">
             <div>
@@ -209,8 +237,8 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./portable/vendor/portable-vendor.js?v=1.8.1"></script>
-  <script src="./portable/launcher/shortcut.js?v=1.8.1"></script>
-  <script src="./builder.js?v=1.8.1"></script>
+  <script src="./portable/vendor/portable-vendor.js?v=1.9.0"></script>
+  <script src="./portable/launcher/shortcut.js?v=1.9.0"></script>
+  <script src="./builder.js?v=1.9.0"></script>
 </body>
 </html>

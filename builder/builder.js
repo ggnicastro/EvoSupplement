@@ -1,13 +1,16 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.8.1';
+  const BUILDER_VERSION = '1.9.0';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
   const STATE_SCHEMA_VERSION = 1;
   const STATE_FORMAT = 'evosupplement-builder-state';
   const STATE_MANIFEST = 'evosupplement-builder-state.json';
+  // This namespace cannot collide with imported item IDs (letters, digits, _ and -).
+  const PROJECT_UPLOAD_ID = '@project';
+  const COVER_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' };
   const PORTABLE_TARGETS = {
     windows: { label: 'Windows', launcher: 'Open supplement.lnk', fallbackLauncher: 'Open-supplement.cmd', files: [
       ['launcher/Open-supplement.cmd', 'Open-supplement.cmd'],
@@ -125,6 +128,8 @@
   let state = createInitialState();
   let validationMessages = [];
   let toastTimer = null;
+  let coverPreviewFile = null;
+  let coverPreviewUrl = '';
 
   const els = {
     projectTitle: document.getElementById('projectTitle'),
@@ -135,6 +140,12 @@
     projectYear: document.getElementById('projectYear'),
     projectDoi: document.getElementById('projectDoi'),
     projectLicense: document.getElementById('projectLicense'),
+    projectCoverInput: document.getElementById('projectCoverInput'),
+    projectCoverAlt: document.getElementById('projectCoverAlt'),
+    projectCoverCaption: document.getElementById('projectCoverCaption'),
+    projectCoverInfo: document.getElementById('projectCoverInfo'),
+    projectCoverPreview: document.getElementById('projectCoverPreview'),
+    removeProjectCoverBtn: document.getElementById('removeProjectCoverBtn'),
     authorsHost: document.getElementById('authorsHost'),
     sectionsHost: document.getElementById('sectionsHost'),
     emptySections: document.getElementById('emptySections'),
@@ -173,6 +184,8 @@
         year: String(new Date().getFullYear()),
         doi: '',
         license: 'MIT',
+        coverAlt: '',
+        coverCaption: '',
         authors: [{ id: uid('author'), name: '', orcid: '' }]
       },
       sections: []
@@ -309,6 +322,56 @@
     else uploadFiles.delete(fileKey(itemId, role));
   }
 
+  function coverValidationError(file) {
+    if (!file.size) return 'The cover image is empty. Choose a PNG, JPG, WebP, GIF or SVG image.';
+    const extension = extensionOf(file.name).slice(1);
+    if (!Object.prototype.hasOwnProperty.call(COVER_TYPES, extension)) {
+      return 'Choose a PNG, JPG, WebP, GIF or SVG file for the cover image.';
+    }
+    return '';
+  }
+
+  function handleCoverUpload(file) {
+    if (!file) return;
+    const error = coverValidationError(file);
+    if (error) { showToast(error); return; }
+    setUpload(PROJECT_UPLOAD_ID, 'cover', file);
+    updateReview();
+    showToast('Cover image added. It will be included in saved states and exported supplements.');
+  }
+
+  function clearProjectCover() {
+    setUpload(PROJECT_UPLOAD_ID, 'cover', null);
+    state.project.coverAlt = '';
+    state.project.coverCaption = '';
+    syncProjectInputs();
+    updateReview();
+  }
+
+  function getCoverPreviewUrl() {
+    const file = getUpload(PROJECT_UPLOAD_ID, 'cover');
+    if (file !== coverPreviewFile) {
+      if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
+      coverPreviewFile = file;
+      // Some systems supply an empty/incorrect MIME type, particularly for SVG.
+      // Give the preview its image type without changing the original saved File.
+      const type = file && COVER_TYPES[extensionOf(file.name).slice(1)];
+      coverPreviewUrl = file ? URL.createObjectURL(file.slice(0, file.size, type || file.type)) : '';
+    }
+    return coverPreviewUrl;
+  }
+
+  function renderCoverControls() {
+    const file = getUpload(PROJECT_UPLOAD_ID, 'cover');
+    const src = getCoverPreviewUrl();
+    els.projectCoverInfo.textContent = file ? `${file.name} · ${formatBytes(file.size)}` : 'No cover image selected.';
+    els.projectCoverPreview.hidden = !file;
+    els.removeProjectCoverBtn.hidden = !file;
+    if (src) els.projectCoverPreview.src = src;
+    else els.projectCoverPreview.removeAttribute('src');
+    els.projectCoverPreview.alt = state.project.coverAlt || 'Supplement cover image';
+  }
+
   function getRequiredRoles(item) {
     switch (item.kind) {
       case 'file': return ['file'];
@@ -331,6 +394,12 @@
     document.getElementById('saveStateButton').addEventListener('click', saveBuilderState);
     document.getElementById('loadStateButton').addEventListener('click', () => els.loadStateInput.click());
     els.loadStateInput.addEventListener('change', handleOpenProject);
+    els.projectCoverInput.addEventListener('change', event => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      handleCoverUpload(file);
+    });
+    els.removeProjectCoverBtn.addEventListener('click', clearProjectCover);
     document.getElementById('addAuthorButton').addEventListener('click', () => {
       state.project.authors.push({ id: uid('author'), name: '', orcid: '' });
       renderAuthors();
@@ -352,7 +421,9 @@
       [els.projectJournal, 'journal'],
       [els.projectYear, 'year'],
       [els.projectDoi, 'doi'],
-      [els.projectLicense, 'license']
+      [els.projectLicense, 'license'],
+      [els.projectCoverAlt, 'coverAlt'],
+      [els.projectCoverCaption, 'coverCaption']
     ];
 
     for (const [element, field] of projectBindings) {
@@ -399,6 +470,9 @@
     els.projectYear.value = state.project.year || '';
     els.projectDoi.value = state.project.doi || '';
     els.projectLicense.value = state.project.license ?? 'MIT';
+    els.projectCoverAlt.value = state.project.coverAlt || '';
+    els.projectCoverCaption.value = state.project.coverCaption || '';
+    els.projectCoverInput.value = '';
   }
 
   function addSection() {
@@ -886,6 +960,7 @@
   }
 
   function updateReview() {
+    renderCoverControls();
     renderSummary();
     renderPortalPreview();
     const quick = validateFast();
@@ -904,6 +979,11 @@
 
   function renderPortalPreview() {
     const authors = state.project.authors.map(author => author.name.trim()).filter(Boolean).join(', ');
+    const coverUrl = getCoverPreviewUrl();
+    const coverHtml = coverUrl ? `<figure class="cover-preview">
+      <img src="${escapeAttribute(coverUrl)}" alt="${escapeAttribute(state.project.coverAlt || 'Supplement cover image')}">
+      ${state.project.coverCaption ? `<figcaption>${escapeHtml(state.project.coverCaption)}</figcaption>` : ''}
+    </figure>` : '';
     const sectionsHtml = state.sections.map(section => {
       if (!section.items.length) return '';
       return `
@@ -926,6 +1006,7 @@
       <h3 class="preview-project-title">${escapeHtml(state.project.title || 'Supplementary material')}</h3>
       ${authors ? `<p class="preview-authors">${escapeHtml(authors)}</p>` : ''}
       ${state.project.description ? `<p class="preview-description">${escapeHtml(state.project.description)}</p>` : ''}
+      ${coverHtml}
       ${sectionsHtml || '<div class="preview-empty">Add sections and items to preview the manifest.</div>'}`;
   }
 
@@ -946,6 +1027,8 @@
     if (!state.project.authors.some(author => author.name.trim())) error('Add at least one author.', 'Project information');
     if (!slugify(state.project.repositoryName, '')) error('Enter a valid repository / ZIP name.', 'Project information');
     if (!state.sections.length) error('Add at least one section.', 'Sections');
+    const cover = getUpload(PROJECT_UPLOAD_ID, 'cover');
+    if (cover && coverValidationError(cover)) error(coverValidationError(cover), 'Cover image');
 
     const paths = new Map();
     for (const section of state.sections) {
@@ -1324,6 +1407,25 @@
     root.file('.github/workflows/pages.yml', await fetchSourceText('builder/templates/pages.yml'));
 
     if (state.project.license === 'MIT') root.file('LICENSE', generateMitLicense());
+
+    const cover = getUpload(PROJECT_UPLOAD_ID, 'cover');
+    if (cover) {
+      const error = coverValidationError(cover);
+      if (error) throw new Error(error);
+      // A fixed basename avoids launcher-reserved names in portable servers.
+      // The recipe retains the original filename for a lossless import.
+      const path = `assets/cover/cover${extensionOf(cover.name)}`;
+      root.file(path, cover);
+      manifest.paper.cover = {
+        src: `./${path}`,
+        alt: state.project.coverAlt.trim() || 'Supplement cover image',
+        caption: state.project.coverCaption.trim()
+      };
+      assetRecords.push({
+        scope: 'project', role: 'cover', kind: 'file', path,
+        originalName: cover.name, mime: cover.type, size: cover.size, lastModified: cover.lastModified
+      });
+    }
 
     const copiedModules = new Set();
     let completedItems = 0;
@@ -2005,7 +2107,7 @@
         const path = `uploads/${String(index + 1).padStart(6, '0')}/${sanitizeFileName(file.name)}`;
         zip.file(path, file);
         return {
-          itemId: key.slice(0, separator),
+          ...(key === fileKey(PROJECT_UPLOAD_ID, 'cover') ? { scope: 'project' } : { itemId: key.slice(0, separator) }),
           role: key.slice(separator + 2),
           kind: 'file',
           path,
@@ -2144,10 +2246,12 @@
       let done = 0;
       for (const asset of assets) {
         requireObject(asset, 'attached file');
-        if (!itemIds.has(asset.itemId) || typeof asset.role !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(asset.role)) {
+        const isCover = asset.scope === 'project';
+        if (isCover ? (asset.role !== 'cover' || asset.kind !== 'file' || asset.itemId !== undefined) :
+          (asset.scope !== undefined || !itemIds.has(asset.itemId) || typeof asset.role !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(asset.role))) {
           throw new Error('An attached file has an invalid item or file role.');
         }
-        const key = fileKey(asset.itemId, asset.role);
+        const key = fileKey(isCover ? PROJECT_UPLOAD_ID : asset.itemId, asset.role);
         if (restoredFiles.has(key)) throw new Error('The saved project contains duplicate file attachments.');
         if (asset.mime !== undefined && typeof asset.mime !== 'string') throw new Error('An attached file has an invalid MIME type.');
         if (asset.originalName !== undefined && typeof asset.originalName !== 'string') throw new Error('An attached file has an invalid name.');
@@ -2185,6 +2289,10 @@
           const bytes = await entry.async('uint8array');
           if (asset.size !== undefined && bytes.byteLength !== asset.size) throw new Error(`The attached file “${asset.originalName || asset.path}” has the wrong size.`);
           restoredFiles.set(key, new File([bytes], asset.originalName ?? asset.path.split('/').pop(), fileOptions));
+        }
+        if (isCover) {
+          const error = coverValidationError(restoredFiles.get(key));
+          if (error) throw new Error(error);
         }
         done += 1;
         setBusyProgress(10 + Math.round((done / Math.max(1, assets.length)) * 75), `Restoring attached files (${done}/${assets.length})…`);
@@ -2260,7 +2368,7 @@
     // Preserve extension fields so compatible schema-1 releases can round-trip them.
     imported.project = importFields(imported.project, {
       title: '', shortTitle: 'EvoSupplement', repositoryName: 'evosupplement', repositoryTouched: true,
-      description: '', journal: '', year: '', doi: '', license: 'MIT'
+      description: '', journal: '', year: '', doi: '', license: 'MIT', coverAlt: '', coverCaption: ''
     }, 'project information');
     const identifiers = new Set();
     const importId = (value, prefix) => {

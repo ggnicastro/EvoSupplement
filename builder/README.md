@@ -4,6 +4,12 @@ EvoSupplement Builder is a browser-based project generator for creating publicat
 
 Open `builder/` through an HTTP server, enter the paper metadata, create sections and items, attach the required files, and validate the project. Download a project ZIP for hosting or a portable ZIP that recipients can open locally without Python or Git hosting.
 
+## Add an optional cover image
+
+Builder 1.9.0 lets you add a **Cover image** in Project information. Choose a PNG, JPEG, WebP, GIF, or SVG file, add an accessibility description, and optionally enter a caption or credit. The published portal displays the entire image below the paper information and above the sections, preserving its aspect ratio without cropping. **Remove image** returns the portal to its original layout.
+
+The selected image is processed locally, included in both regular and portable publication ZIPs, and preserved in **Save state** / **Load state** together with its description and caption. **Open project ZIP** restores it from a generated publication as well. The portal manifest stores the optional image as `paper.cover` with `src`, `alt`, and `caption` fields. Existing states and projects without a cover continue to work without adding one.
+
 ## Save and restore Builder state
 
 **Save state** downloads an editable snapshot named `<repository>-builder-state-<timestamp>.zip`. It preserves the paper metadata, authors, section and item order, item settings, and attached files, even when the draft is incomplete or has publication-validation errors. Saving a state does not run publication validation or fetch templates or viewer assets.
@@ -80,7 +86,7 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
 - Multi-Structure Comparison Viewer figures generated from the publication package ZIP exported by its editor.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.8.1 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.9.0 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
 
 ## Editors and publication figures
 
@@ -103,6 +109,7 @@ Builder-generated projects copy the compatible shared implementation and a clean
 A generated project contains:
 
 - the publication portal `index.html` and generated `manifest.js`;
+- the optional project cover image, when selected;
 - uploaded scientific files and viewer inputs;
 - shared JavaScript and CSS for used modules;
 - one publication folder per interactive item;
