@@ -4,6 +4,28 @@ EvoSupplement Builder is a browser-based project generator for creating publicat
 
 Open `builder/` through an HTTP server, enter the paper metadata, create sections and items, attach the required files, validate the project, and download a ZIP ready for GitHub Pages.
 
+## Save and restore Builder state
+
+**Save state** downloads an editable snapshot named `<repository>-builder-state-<timestamp>.zip`. It preserves the paper metadata, authors, section and item order, item settings, and attached files, even when the draft is incomplete or has publication-validation errors. Saving a state does not run publication validation or fetch templates or viewer assets.
+
+To continue after changing or updating the Builder:
+
+1. Click **Save state** before closing the current Builder or installing an update.
+2. Open the updated Builder through HTTP.
+3. Click **Load state** and select the saved state ZIP.
+4. Continue editing with the draft and attached files restored; there is no need to select each input again.
+
+The snapshot retains the original attachment bytes, including uploaded HTML ZIPs and Multi-Structure Comparison publication-package ZIPs. It stores the Builder project and its attachments, not a copy of the Builder implementation or unsaved work in separate module-editor tabs. When you generate a publication later, the currently running Builder supplies its templates and viewer code.
+
+| Action | ZIP purpose | Incomplete drafts |
+|---|---|---|
+| **Save state** / **Load state** | Back up and resume editable Builder work, including its attached files. | Supported. |
+| **Download project ZIP** / **Open project ZIP** | Generate and reopen a publication site with `evosupplement-project.json`. | Publication validation must pass before generation. |
+
+State ZIPs contain an `evosupplement-builder-state.json` manifest using state schema **1**, separate from the publication recipe. The schema is versioned independently of the Builder so compatible Builder versions can restore the same snapshot. Missing supported optional settings receive the current defaults. Unsupported future schemas are rejected rather than silently converted; compatibility with every future Builder version is not guaranteed.
+
+There is no automatic saving. Save another state ZIP after making changes and keep it until you have verified restoration in the updated Builder.
+
 ## Studio page versus generated portal
 
 The source repository opens as **EvoSupplement Studio**. That page links to the Project Builder and module editors and is not copied into paper projects.
@@ -31,7 +53,7 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
 - Multi-Structure Comparison Viewer figures generated from the publication package ZIP exported by its editor.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.6.2 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.7.0 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
 
 ## Editors and publication figures
 
@@ -79,7 +101,7 @@ Do not open the Builder directly through `file://`; browsers may block access to
 
 ## Privacy
 
-Selected files remain in the browser session. ZIP assembly and validation run locally in the browser. The Builder does not require a server-side upload endpoint.
+Selected files are processed in the browser session. Saving a state or generating a publication ZIP downloads a copy to your device. ZIP assembly and validation run locally in the browser. The Builder does not require a server-side upload endpoint. Saved state ZIPs include the attached files, so handle them with the same care as the source material.
 
 ## Bundled dependency
 

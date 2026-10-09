@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>EvoSupplement Builder</title>
-  <link rel="stylesheet" href="./styles.css?v=1.6.2">
+  <link rel="stylesheet" href="./styles.css?v=1.7.0">
 </head>
 <body>
   <header class="app-header">
@@ -122,6 +122,18 @@
 
       <aside class="review-column">
         <section class="panel sticky-panel" aria-labelledby="reviewHeading">
+          <section class="state-workspace" aria-labelledby="stateHeading">
+            <p class="panel-kicker">Continue later</p>
+            <h2 id="stateHeading">Save your progress</h2>
+            <p id="stateHelp">Save an editable ZIP of your draft, including uploaded files. Incomplete projects can be saved and reopened in compatible Builder versions.</p>
+            <div class="state-actions">
+              <button class="button button-secondary button-block" id="saveStateButton" type="button" aria-describedby="stateHelp">Save state</button>
+              <button class="button button-ghost button-block" id="loadStateButton" type="button" aria-describedby="stateHelp">Load state</button>
+              <input id="loadStateInput" type="file" accept=".zip,application/zip" hidden>
+            </div>
+            <p class="state-reminder">Save before closing or updating the Builder. Progress is not saved automatically.</p>
+          </section>
+
           <div class="panel-heading compact">
             <div>
               <p class="panel-kicker">Steps 3–4</p>
@@ -139,6 +151,7 @@
             <button class="button button-secondary button-block" id="validateButton" type="button">Validate project</button>
             <button class="button button-primary button-block" id="downloadButton" type="button">Download project ZIP</button>
           </div>
+          <p class="publication-help">Generate the validated site for publication.</p>
 
           <div id="validationStatus" class="validation-status validation-neutral">
             <strong>Not validated yet</strong>
@@ -181,6 +194,6 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./builder.js?v=1.6.2"></script>
+  <script src="./builder.js?v=1.7.0"></script>
 </body>
 </html>

@@ -37,8 +37,9 @@ The Studio root does not render a paper manifest. When the Project Builder creat
 3. Open the Project Builder.
 4. Enter the paper title, authors, description, journal information, and DOI.
 5. Create ordered sections and add files, HTML packages, links, placeholders, or interactive modules.
-6. Validate the project and download the generated ZIP.
-7. Extract the ZIP, preview its publication portal locally, and publish the extracted project with GitHub Pages or another static host.
+6. Use **Save state** to keep an editable draft with all attached files. After updating the Builder, use **Load state** to resume without selecting the inputs again.
+7. Validate the project and download the generated publication ZIP.
+8. Extract the ZIP, preview its publication portal locally, and publish the extracted project with GitHub Pages or another static host.
 
 ## Repository organization
 
@@ -98,7 +99,10 @@ Open `builder/` from the Studio page or directly through an HTTP server. The Bui
 - input validation and predictable output paths;
 - packaging only the modules used by the project;
 - a generated manifest, README, deployment guide, citation file, license, and GitHub Pages workflow;
+- saving and loading editable state ZIPs, including incomplete drafts and the original uploaded file bytes;
 - reopening a previously generated ZIP through `evosupplement-project.json`.
+
+Builder 1.7.0 adds **Save state** and **Load state**. A state ZIP contains the draft settings and attachments, including uploaded ZIP packages, and can be reopened by compatible Builder versions. It can be saved without publication validation or template downloads. State manifests use `evosupplement-builder-state.json` schema 1; missing supported optional settings use current defaults, while unsupported future schemas are rejected. Save explicitly before closing or updating the Builder; there is no autosave. See the [Builder documentation](builder/README.md#save-and-restore-builder-state) for the restore workflow.
 
 A generated project receives the publication portal from `builder/templates/publication-portal.html`, not the Studio root page. This separation prevents authoring tools from replacing the reader-facing supplement.
 

@@ -1,8 +1,13 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.6.2';
+  const BUILDER_VERSION = '1.7.0';
   const PROJECT_SCHEMA_VERSION = 1;
+  // State archives contain authoring data and original uploads, never Builder code.
+  // Keep this version independent of UI/releases; add migrations before changing it.
+  const STATE_SCHEMA_VERSION = 1;
+  const STATE_FORMAT = 'evosupplement-builder-state';
+  const STATE_MANIFEST = 'evosupplement-builder-state.json';
   const MODULE_VERSIONS = {
     protein: '2.13.0',
     neighborhood: '3.4.0',
@@ -124,6 +129,7 @@
     validationStatus: document.getElementById('validationStatus'),
     validationResults: document.getElementById('validationResults'),
     openProjectInput: document.getElementById('openProjectInput'),
+    loadStateInput: document.getElementById('loadStateInput'),
     busyOverlay: document.getElementById('busyOverlay'),
     busyTitle: document.getElementById('busyTitle'),
     busyMessage: document.getElementById('busyMessage'),
@@ -306,6 +312,9 @@
     document.getElementById('newProjectButton').addEventListener('click', resetProject);
     document.getElementById('openProjectButton').addEventListener('click', () => els.openProjectInput.click());
     els.openProjectInput.addEventListener('change', handleOpenProject);
+    document.getElementById('saveStateButton').addEventListener('click', saveBuilderState);
+    document.getElementById('loadStateButton').addEventListener('click', () => els.loadStateInput.click());
+    els.loadStateInput.addEventListener('change', handleOpenProject);
     document.getElementById('addAuthorButton').addEventListener('click', () => {
       state.project.authors.push({ id: uid('author'), name: '', orcid: '' });
       renderAuthors();
@@ -351,8 +360,7 @@
   }
 
   function resetProject() {
-    const hasContent = state.sections.length || state.project.title || state.project.authors.some(author => author.name);
-    if (hasContent && !window.confirm('Start a new project? Unsaved Builder changes will be cleared.')) return;
+    if (hasProjectContent() && !window.confirm('Start a new project? Unsaved Builder changes will be cleared.')) return;
     state = createInitialState();
     uploadFiles.clear();
     validationMessages = [];
@@ -363,13 +371,13 @@
 
   function syncProjectInputs() {
     els.projectTitle.value = state.project.title || '';
-    els.projectShortTitle.value = state.project.shortTitle || 'EvoSupplement';
-    els.repositoryName.value = state.project.repositoryName || 'evosupplement';
+    els.projectShortTitle.value = state.project.shortTitle ?? 'EvoSupplement';
+    els.repositoryName.value = state.project.repositoryName ?? 'evosupplement';
     els.projectDescription.value = state.project.description || '';
     els.projectJournal.value = state.project.journal || '';
     els.projectYear.value = state.project.year || '';
     els.projectDoi.value = state.project.doi || '';
-    els.projectLicense.value = state.project.license || 'MIT';
+    els.projectLicense.value = state.project.license ?? 'MIT';
   }
 
   function addSection() {
@@ -1885,11 +1893,60 @@
 
   function serializeState() {
     return JSON.parse(JSON.stringify({
+      ...state,
       schemaVersion: PROJECT_SCHEMA_VERSION,
       builderVersion: BUILDER_VERSION,
       project: state.project,
       sections: state.sections
     }));
+  }
+
+  async function saveBuilderState() {
+    setBusy(true, 'Saving Builder state', 'Collecting settings and original uploads…', 5);
+    try {
+      if (typeof JSZip === 'undefined') throw new Error('The ZIP library did not load. Reload the Builder page.');
+      // Capture before the first await. Drafts need no publication validation or templates.
+      const savedState = serializeState();
+      const files = [...uploadFiles.entries()];
+      const zip = new JSZip();
+      const assets = files.map(([key, file], index) => {
+        const separator = key.indexOf('::');
+        const path = `uploads/${String(index + 1).padStart(6, '0')}/${sanitizeFileName(file.name)}`;
+        zip.file(path, file);
+        return {
+          itemId: key.slice(0, separator),
+          role: key.slice(separator + 2),
+          kind: 'file',
+          path,
+          originalName: file.name,
+          mime: file.type,
+          size: file.size,
+          lastModified: file.lastModified
+        };
+      });
+      const savedAt = new Date().toISOString();
+      zip.file(STATE_MANIFEST, JSON.stringify({
+        format: STATE_FORMAT,
+        schemaVersion: STATE_SCHEMA_VERSION,
+        builder: { name: 'EvoSupplement Builder', version: BUILDER_VERSION },
+        savedAt,
+        moduleVersions: MODULE_VERSIONS,
+        project: savedState,
+        assets
+      }, null, 2));
+      const blob = await zip.generateAsync({
+        type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 }, platform: 'UNIX'
+      }, metadata => setBusyProgress(10 + metadata.percent * 0.9, `Saving ${files.length} attached file${files.length === 1 ? '' : 's'}…`));
+      const timestamp = savedAt.replace(/[:.]/g, '-');
+      const fileName = `${slugify(savedState.project.repositoryName, 'evosupplement')}-builder-state-${timestamp}.zip`;
+      triggerDownload(blob, fileName);
+      showToast('Builder state saved with all attached files. Use Load state to resume.');
+    } catch (error) {
+      console.error(error);
+      showToast(`Could not save the Builder state: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function fetchSourceText(path) {
@@ -1967,41 +2024,83 @@
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    setBusy(true, 'Opening project', 'Reading the generated ZIP…', 10);
+    setBusy(true, 'Loading saved work', 'Checking the ZIP and its attached files…', 5);
     try {
-      const projectZip = await JSZip.loadAsync(file);
-      const recipeEntries = Object.keys(projectZip.files).filter(path => /(^|\/)evosupplement-project\.json$/i.test(path));
-      if (!recipeEntries.length) throw new Error('This ZIP does not contain evosupplement-project.json.');
-      recipeEntries.sort((a, b) => a.length - b.length);
-      const recipePath = recipeEntries[0];
-      const prefix = recipePath.slice(0, -'evosupplement-project.json'.length);
+      const projectZip = await JSZip.loadAsync(file, { checkCRC32: true });
+      const candidates = Object.values(projectZip.files).filter(entry => !entry.dir &&
+        /(^|\/)(evosupplement-builder-state|evosupplement-project)\.json$/i.test(entry.name));
+      candidates.sort((a, b) => a.name.split('/').length - b.name.split('/').length);
+      if (!candidates.length) throw new Error('Choose a saved Builder state ZIP or a project ZIP generated by the Builder.');
+      if (candidates[1] && candidates[0].name.split('/').length === candidates[1].name.split('/').length) {
+        throw new Error('This ZIP contains multiple project manifests. Open one saved state or project at a time.');
+      }
+      const recipePath = candidates[0].name;
+      requireArchiveEntry(projectZip, recipePath);
+      const prefix = recipePath.slice(0, recipePath.lastIndexOf('/') + 1);
       const recipe = JSON.parse(await projectZip.file(recipePath).async('string'));
-      if (Number(recipe.schemaVersion) !== PROJECT_SCHEMA_VERSION) throw new Error(`Unsupported project recipe version: ${recipe.schemaVersion}`);
+      const isSnapshot = recipePath.toLowerCase().endsWith(STATE_MANIFEST);
+      requireObject(recipe, 'saved project');
+      if (isSnapshot && recipe.format !== STATE_FORMAT) throw new Error('This is not an EvoSupplement Builder state.');
+      const supportedVersion = isSnapshot ? STATE_SCHEMA_VERSION : PROJECT_SCHEMA_VERSION;
+      if (Number(recipe.schemaVersion) !== supportedVersion) {
+        throw new Error(`Unsupported ${isSnapshot ? 'Builder state' : 'project recipe'} schema version: ${recipe.schemaVersion}. Use a compatible Builder version.`);
+      }
       const imported = normalizeImportedState(recipe.project);
       const restoredFiles = new Map();
-      const assets = Array.isArray(recipe.assets) ? recipe.assets : [];
+      const itemIds = new Set(imported.sections.flatMap(section => section.items.map(item => item.id)));
+      if (!Array.isArray(recipe.assets)) throw new Error('The saved project has no valid attached-file inventory.');
+      const assets = recipe.assets;
       let done = 0;
       for (const asset of assets) {
+        requireObject(asset, 'attached file');
+        if (!itemIds.has(asset.itemId) || typeof asset.role !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(asset.role)) {
+          throw new Error('An attached file has an invalid item or file role.');
+        }
+        const key = fileKey(asset.itemId, asset.role);
+        if (restoredFiles.has(key)) throw new Error('The saved project contains duplicate file attachments.');
+        if (asset.mime !== undefined && typeof asset.mime !== 'string') throw new Error('An attached file has an invalid MIME type.');
+        if (asset.originalName !== undefined && typeof asset.originalName !== 'string') throw new Error('An attached file has an invalid name.');
+        if (asset.lastModified !== undefined && (!Number.isSafeInteger(asset.lastModified) || asset.lastModified < 0)) {
+          throw new Error('An attached file has an invalid modification date.');
+        }
+        const fileOptions = { type: asset.mime ?? 'application/octet-stream' };
+        if (asset.lastModified !== undefined) fileOptions.lastModified = asset.lastModified;
         if (asset.kind === 'package') {
+          if (isSnapshot) throw new Error('Builder states must contain original uploads, including original ZIP packages.');
+          if (!Array.isArray(asset.files) || !asset.files.length || !isArchivePath(asset.basePath)) {
+            throw new Error('The saved project contains an invalid package inventory.');
+          }
           const packageZip = new JSZip();
+          const packagePaths = new Set();
           for (const generatedPath of asset.files || []) {
-            const entry = projectZip.file(`${prefix}${generatedPath}`);
-            if (!entry) continue;
-            const relative = generatedPath.startsWith(`${asset.basePath}/`) ? generatedPath.slice(asset.basePath.length + 1) : generatedPath.split('/').pop();
+            if (typeof generatedPath !== 'string' || !generatedPath.startsWith(`${asset.basePath}/`)) {
+              throw new Error('An attached package contains an invalid file path.');
+            }
+            const entry = requireArchiveEntry(projectZip, `${prefix}${generatedPath}`);
+            const relative = generatedPath.slice(asset.basePath.length + 1);
+            if (!isArchivePath(relative) || packagePaths.has(relative)) throw new Error('An attached package contains an invalid or duplicate file path.');
+            packagePaths.add(relative);
             packageZip.file(relative, await entry.async('uint8array'));
           }
           const blob = await packageZip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-          restoredFiles.set(fileKey(asset.itemId, asset.role), new File([blob], asset.originalName || 'html-package.zip', { type: asset.mime || 'application/zip' }));
+          fileOptions.type = asset.mime || 'application/zip';
+          restoredFiles.set(key, new File([blob], asset.originalName || 'package.zip', fileOptions));
         } else {
-          const entry = projectZip.file(`${prefix}${asset.path}`);
-          if (!entry) continue;
-          const blob = await entry.async('blob');
-          restoredFiles.set(fileKey(asset.itemId, asset.role), new File([blob], asset.originalName || asset.path.split('/').pop(), { type: asset.mime || blob.type || 'application/octet-stream' }));
+          if (asset.kind !== 'file' || !isArchivePath(asset.path)) throw new Error('An attached file has an invalid type or path.');
+          if (isSnapshot && (!asset.path.startsWith('uploads/') || typeof asset.originalName !== 'string' || !Number.isSafeInteger(asset.size) || asset.size < 0)) {
+            throw new Error('The Builder state contains an invalid original-file inventory.');
+          }
+          const entry = requireArchiveEntry(projectZip, `${prefix}${asset.path}`);
+          const bytes = await entry.async('uint8array');
+          if (asset.size !== undefined && bytes.byteLength !== asset.size) throw new Error(`The attached file “${asset.originalName || asset.path}” has the wrong size.`);
+          restoredFiles.set(key, new File([bytes], asset.originalName ?? asset.path.split('/').pop(), fileOptions));
         }
         done += 1;
         setBusyProgress(10 + Math.round((done / Math.max(1, assets.length)) * 75), `Restoring attached files (${done}/${assets.length})…`);
       }
 
+      // No session mutation until the entire archive has been checked and restored.
+      if (hasProjectContent() && !window.confirm('Replace the current Builder work with this saved state or project? Cancel to save your current state first.')) return;
       state = imported;
       uploadFiles.clear();
       for (const [key, value] of restoredFiles) uploadFiles.set(key, value);
@@ -2009,48 +2108,100 @@
       syncProjectInputs();
       renderAll();
       setBusyProgress(100, 'Project restored.');
-      showToast(`Opened ${file.name}.`);
+      showToast(`Loaded ${file.name} with ${restoredFiles.size} attached file${restoredFiles.size === 1 ? '' : 's'}.`);
     } catch (error) {
       console.error(error);
-      showToast(`Could not open the project ZIP: ${error.message}`);
+      showToast(`Could not load the ZIP: ${error.message}`);
     } finally {
-      window.setTimeout(() => setBusy(false), 180);
+      setBusy(false);
     }
   }
 
+  function isArchivePath(path) {
+    return typeof path === 'string' && isSafeRelativePath(path) && !/[\\\x00-\x1f]/.test(path) &&
+      !path.split('/').some(part => !part || part === '.');
+  }
+
+  function requireArchiveEntry(zip, path) {
+    if (!isArchivePath(path)) throw new Error('The archive contains an unsafe file path.');
+    const entry = zip.file(path);
+    if (!entry) throw new Error(`The archive is missing an attached file: ${path}`);
+    if (entry.unsafeOriginalName && entry.unsafeOriginalName !== path) throw new Error('The archive contains an unsafe original file path.');
+    return entry;
+  }
+
+  function hasProjectContent() {
+    const defaults = createInitialState().project;
+    return Boolean(state.sections.length || uploadFiles.size ||
+      state.project.authors.some(author => author.name || author.orcid) || state.project.authors.length > 1 ||
+      Object.keys(defaults).some(key => key !== 'authors' && state.project[key] !== defaults[key]));
+  }
+
+  function requireObject(value, label) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`The ${label} is invalid.`);
+    return value;
+  }
+
+  function importFields(value, defaults, label) {
+    requireObject(value, label);
+    const result = { ...defaults, ...value };
+    for (const [key, fallback] of Object.entries(defaults)) {
+      if (typeof result[key] !== typeof fallback || (typeof fallback === 'number' && !Number.isFinite(result[key]))) {
+        throw new Error(`The ${label} field “${key}” is invalid.`);
+      }
+    }
+    return result;
+  }
+
   function normalizeImportedState(project) {
-    if (!project || typeof project !== 'object') throw new Error('The project recipe is invalid.');
+    requireObject(project, 'project state');
+    if (project.schemaVersion !== undefined && Number(project.schemaVersion) !== PROJECT_SCHEMA_VERSION) {
+      throw new Error(`Unsupported project state schema version: ${project.schemaVersion}. Use a compatible Builder version.`);
+    }
     const imported = JSON.parse(JSON.stringify(project));
     imported.schemaVersion = PROJECT_SCHEMA_VERSION;
     imported.builderVersion = BUILDER_VERSION;
-    imported.project ||= {};
-    imported.project.title ||= '';
-    imported.project.shortTitle ||= 'EvoSupplement';
-    imported.project.repositoryName ||= 'evosupplement';
-    imported.project.repositoryTouched = true;
-    imported.project.description ||= '';
-    imported.project.journal ||= '';
-    imported.project.year ||= '';
-    imported.project.doi ||= '';
-    imported.project.license ||= 'MIT';
-    imported.project.authors = Array.isArray(imported.project.authors) && imported.project.authors.length
-      ? imported.project.authors.map(author => ({ id: author.id || uid('author'), name: author.name || '', orcid: author.orcid || '' }))
-      : [{ id: uid('author'), name: '', orcid: '' }];
-    imported.sections = Array.isArray(imported.sections) ? imported.sections.map(section => ({
-      id: section.id || uid('section'),
-      title: section.title || '',
-      slug: section.slug || slugify(section.title, 'section'),
-      slugTouched: true,
-      items: Array.isArray(section.items) ? section.items.map(item => ({
-        id: item.id || uid('item'),
-        title: item.title || '',
-        description: item.description || '',
-        slug: item.slug || slugify(item.title, 'item'),
-        slugTouched: true,
-        kind: KIND_LABELS[item.kind] ? item.kind : 'file',
-        config: { ...defaultConfig(item.kind), ...(item.config || {}) }
-      })) : []
-    })) : [];
+    // Defaults apply only to absent fields. Empty strings and false are draft data.
+    // Preserve extension fields so compatible schema-1 releases can round-trip them.
+    imported.project = importFields(imported.project, {
+      title: '', shortTitle: 'EvoSupplement', repositoryName: 'evosupplement', repositoryTouched: true,
+      description: '', journal: '', year: '', doi: '', license: 'MIT'
+    }, 'project information');
+    const identifiers = new Set();
+    const importId = (value, prefix) => {
+      const id = value === undefined ? uid(prefix) : value;
+      if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(id) || identifiers.has(id)) {
+        throw new Error('The saved project contains an invalid or duplicate identifier.');
+      }
+      identifiers.add(id);
+      return id;
+    };
+    const authors = imported.project.authors ?? [{ name: '', orcid: '' }];
+    if (!Array.isArray(authors)) throw new Error('The saved author list is invalid.');
+    imported.project.authors = authors.map(author => {
+      const normalized = importFields(author, { name: '', orcid: '' }, 'author');
+      return { ...normalized, id: importId(author.id, 'author') };
+    });
+    if (!Array.isArray(imported.sections)) throw new Error('The saved section list is invalid.');
+    imported.sections = imported.sections.map(section => {
+      requireObject(section, 'section');
+      const normalized = importFields(section, { title: '', slug: slugify(section.title, 'section'), slugTouched: true }, 'section');
+      normalized.id = importId(section.id, 'section');
+      if (!Array.isArray(section.items)) throw new Error('A saved item list is invalid.');
+      normalized.items = section.items.map(item => {
+        requireObject(item, 'item');
+        if (typeof item.kind !== 'string' || !Object.prototype.hasOwnProperty.call(KIND_LABELS, item.kind)) {
+          throw new Error(`Unsupported saved item type: ${item.kind}. Use a compatible Builder version.`);
+        }
+        const normalizedItem = importFields(item, {
+          title: '', description: '', slug: slugify(item.title, 'item'), slugTouched: true
+        }, 'item');
+        normalizedItem.id = importId(item.id, 'item');
+        normalizedItem.config = importFields(item.config ?? {}, defaultConfig(item.kind), 'item configuration');
+        return normalizedItem;
+      });
+      return normalized;
+    });
     return imported;
   }
 
@@ -2067,6 +2218,9 @@
 
   function setBusy(visible, title = '', message = '', percent = 0) {
     els.busyOverlay.hidden = !visible;
+    // Block keyboard edits as well as pointer edits while capturing/restoring a state.
+    document.querySelector('.app-header').inert = visible;
+    document.querySelector('main').inert = visible;
     if (visible) {
       els.busyTitle.textContent = title;
       els.busyMessage.textContent = message;
@@ -2092,7 +2246,9 @@
     if (typeof JSZip === 'undefined') {
       validationMessages = [{ level: 'error', location: 'Builder', text: 'JSZip did not load. The Builder cannot create archives.' }];
       renderValidationStatus(validationMessages, true);
-      document.getElementById('downloadButton').disabled = true;
+      for (const id of ['downloadButton', 'saveStateButton', 'loadStateButton', 'openProjectButton']) {
+        document.getElementById(id).disabled = true;
+      }
     }
     if (location.protocol === 'file:') {
       validationMessages = [{ level: 'warning', location: 'Builder', text: 'Serve the repository over HTTP. Browser security may block template loading from file://.' }];
