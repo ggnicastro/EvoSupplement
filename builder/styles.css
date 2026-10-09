@@ -179,6 +179,10 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
 .state-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .state-workspace > p.state-reminder { margin: 10px 0 0; font-size: 10.5px; }
 .publication-help { margin: 8px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.portable-export { display: grid; gap: 12px; margin-top: 18px; padding: 15px; border: 1px solid #ccd8fa; border-radius: 11px; background: #f8faff; }
+.portable-export h3 { margin: 0; font-size: 14px; letter-spacing: -.01em; }
+.portable-export p { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.portable-export p.portable-note { font-size: 10.5px; }
 .validation-status { display: grid; gap: 3px; margin-top: 14px; padding: 12px; border-radius: 10px; border: 1px solid var(--line); }
 .validation-status strong { font-size: 12px; }
 .validation-status span { color: var(--muted); font-size: 10.5px; line-height: 1.5; }

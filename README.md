@@ -21,7 +21,7 @@ The Studio root does not render a paper manifest. When the Project Builder creat
 
 | Tool | Purpose |
 |---|---|
-| [EvoSupplement Project Builder](builder/README.md) | Creates paper metadata, ordered sections, regular files, HTML packages, interactive figures, the publication manifest, documentation, citation metadata, and a GitHub Pages-ready ZIP. |
+| [EvoSupplement Project Builder](builder/README.md) | Creates paper metadata, ordered sections, regular files, HTML packages, interactive figures, documentation, editable state ZIPs, and publication ZIPs for hosting or portable local viewing. |
 | [Protein Structure and MSA Editor](protein-viewer/README.md) | Loads PDB or mmCIF structures, associates chains with MSA references, captures residue selections or imports user-created Mol* selection components, creates compatible annotation YAML, and previews the publication scene. |
 | [Gene Neighborhood Editor](neighborhood-viewer/README.md) | Loads standard TSV or compact architecture neighborhoods, curates domain display names and colors, ranks domain frequencies, and exports YAML dictionaries plus a normalized TSV. |
 | [Phylogeny Editor](phylogeny-viewer/README.md) | Authors publication-ready Newick figures with selected support markers, saved roots, colored clade groups, three layouts, optional TSV labels, and a generated phylogeny YAML without changing the source tree. |
@@ -38,8 +38,8 @@ The Studio root does not render a paper manifest. When the Project Builder creat
 4. Enter the paper title, authors, description, journal information, and DOI.
 5. Create ordered sections and add files, HTML packages, links, placeholders, or interactive modules.
 6. Use **Save state** to keep an editable draft with all attached files. After updating the Builder, use **Load state** to resume without selecting the inputs again.
-7. Validate the project and download the generated publication ZIP.
-8. Extract the ZIP, preview its publication portal locally, and publish the extracted project with GitHub Pages or another static host.
+7. Validate the project and choose **Download project ZIP** for hosting or **Download portable ZIP** for local distribution.
+8. For a portable ZIP, choose the recipient’s platform; they extract the ZIP and open its included launcher. For a regular project ZIP, preview the publication portal locally and publish the extracted project with GitHub Pages or another static host.
 
 ## Repository organization
 
@@ -100,9 +100,14 @@ Open `builder/` from the Studio page or directly through an HTTP server. The Bui
 - packaging only the modules used by the project;
 - a generated manifest, README, deployment guide, citation file, license, and GitHub Pages workflow;
 - saving and loading editable state ZIPs, including incomplete drafts and the original uploaded file bytes;
+- portable publication ZIPs with a local launcher and bundled standard viewer dependencies;
 - reopening a previously generated ZIP through `evosupplement-project.json`.
 
 Builder 1.7.0 adds **Save state** and **Load state**. A state ZIP contains the draft settings and attachments, including uploaded ZIP packages, and can be reopened by compatible Builder versions. It can be saved without publication validation or template downloads. State manifests use `evosupplement-builder-state.json` schema 1; missing supported optional settings use current defaults, while unsupported future schemas are rejected. Save explicitly before closing or updating the Builder; there is no autosave. See the [Builder documentation](builder/README.md#save-and-restore-builder-state) for the restore workflow.
+
+Builder 1.8.0 adds **Download portable ZIP** for Windows, macOS, and Linux x64. Recipients extract the ZIP and open its launcher to view the supplement in their browser, without Python or Git hosting. Windows uses its built-in PowerShell/.NET tools, macOS requires its system Perl, and Linux Intel/AMD x64 requires system glibc 2.34+ and a desktop terminal. Keep the launcher window open while viewing. Windows and macOS execution still needs verification on those platforms. See the [portable workflow and platform requirements](builder/README.md#share-a-portable-supplement).
+
+Creating a portable ZIP may need internet access to obtain viewer libraries, which are included for local use afterward. External links and remote resources inside custom HTML or imported content may still require internet. The normal project ZIP remains available for hosting.
 
 A generated project receives the publication portal from `builder/templates/publication-portal.html`, not the Studio root page. This separation prevents authoring tools from replacing the reader-facing supplement.
 
@@ -184,6 +189,8 @@ http://localhost:8000/
 This opens EvoSupplement Studio. The Project Builder is at `/builder/`, and each module editor is under its viewer folder.
 
 For a generated paper project, run the same command from the extracted project root. Opening `/` then shows that project's manifest-driven publication portal.
+
+For a portable publication ZIP, extract the entire archive and open `Abrir-suplemento.cmd` on Windows, `Abrir-suplemento.command` on macOS, or `Abrir-suplemento` on Linux x64. The included launcher starts the local server and opens the browser.
 
 ## Deployment
 

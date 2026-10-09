@@ -4069,6 +4069,7 @@ regions:
         layoutIsExpanded: false,
         layoutShowControls: true,
         layoutShowRemoteState: false,
+        volumeStreamingDisabled: Boolean(window.EVOSUPPLEMENT_PORTABLE),
         layoutShowSequence: true,
         layoutShowLog: true,
         layoutShowLeftPanel: true,

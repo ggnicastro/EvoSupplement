@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>EvoSupplement Builder</title>
-  <link rel="stylesheet" href="./styles.css?v=1.7.0">
+  <link rel="stylesheet" href="./styles.css?v=1.8.0">
 </head>
 <body>
   <header class="app-header">
@@ -153,6 +153,21 @@
           </div>
           <p class="publication-help">Generate the validated site for publication.</p>
 
+          <section class="portable-export" aria-labelledby="portableHeading">
+            <h3 id="portableHeading">Share a portable copy</h3>
+            <p id="portableHelp">Choose the recipient’s computer. They extract the ZIP and open its launcher to view the supplement in their browser. No Python or Git hosting needed.</p>
+            <label class="field" for="portablePlatform">
+              <span>Recipient’s computer</span>
+              <select id="portablePlatform" aria-describedby="portableHelp portableOfflineHelp">
+                <option value="windows" selected>Windows — Intel/AMD or ARM64</option>
+                <option value="macos">macOS — Intel or Apple Silicon</option>
+                <option value="linux-amd64">Linux x64</option>
+              </select>
+            </label>
+            <button class="button button-secondary button-block" id="portableDownloadButton" type="button">Download portable ZIP</button>
+            <p id="portableOfflineHelp" class="portable-note">Creating the ZIP may need internet to bundle viewer libraries. Standard viewers then use local files; external links and resources in custom HTML may still need internet.</p>
+          </section>
+
           <div id="validationStatus" class="validation-status validation-neutral">
             <strong>Not validated yet</strong>
             <span>Validation runs automatically at a basic level and performs deeper file checks before packaging.</span>
@@ -194,6 +209,7 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./builder.js?v=1.7.0"></script>
+  <script src="./portable/vendor/portable-vendor.js?v=1.8.0"></script>
+  <script src="./builder.js?v=1.8.0"></script>
 </body>
 </html>

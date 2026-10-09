@@ -56,6 +56,7 @@
     layoutIsExpanded: false,
     layoutShowControls: false,
     layoutShowRemoteState: false,
+    volumeStreamingDisabled: Boolean(window.EVOSUPPLEMENT_PORTABLE),
     // Keep these UI regions available, but hidden in the compact grid.
     // Focused mode reveals them without recreating or reloading the viewer.
     layoutShowSequence: true,

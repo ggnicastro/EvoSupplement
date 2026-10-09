@@ -1,13 +1,27 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.7.0';
+  const BUILDER_VERSION = '1.8.0';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
   const STATE_SCHEMA_VERSION = 1;
   const STATE_FORMAT = 'evosupplement-builder-state';
   const STATE_MANIFEST = 'evosupplement-builder-state.json';
+  const PORTABLE_TARGETS = {
+    windows: { label: 'Windows', launcher: 'Abrir-suplemento.cmd', files: [
+      ['launcher/Abrir-suplemento.cmd', 'Abrir-suplemento.cmd'],
+      ['launcher/launcher.cs', '_portable/launcher.cs']
+    ] },
+    macos: { label: 'macOS', launcher: 'Abrir-suplemento.command', files: [
+      ['launcher/Abrir-suplemento.command', 'Abrir-suplemento.command', true],
+      ['launcher/server.pl', '_portable/server.pl']
+    ] },
+    'linux-amd64': { label: 'Linux x64', launcher: 'Abrir-suplemento', files: [
+      ['bin/linux-amd64/evosupplement', 'Abrir-suplemento', true],
+      ['launcher/launcher.c', '_portable/launcher.c']
+    ] }
+  };
   const MODULE_VERSIONS = {
     protein: '2.13.0',
     neighborhood: '3.4.0',
@@ -130,6 +144,7 @@
     validationResults: document.getElementById('validationResults'),
     openProjectInput: document.getElementById('openProjectInput'),
     loadStateInput: document.getElementById('loadStateInput'),
+    portablePlatform: document.getElementById('portablePlatform'),
     busyOverlay: document.getElementById('busyOverlay'),
     busyTitle: document.getElementById('busyTitle'),
     busyMessage: document.getElementById('busyMessage'),
@@ -147,6 +162,7 @@
     return {
       schemaVersion: PROJECT_SCHEMA_VERSION,
       builderVersion: BUILDER_VERSION,
+      exportOptions: { portablePlatform: 'windows' },
       project: {
         title: '',
         shortTitle: 'EvoSupplement',
@@ -322,7 +338,11 @@
     });
     document.getElementById('addSectionButton').addEventListener('click', addSection);
     document.getElementById('validateButton').addEventListener('click', runValidation);
-    document.getElementById('downloadButton').addEventListener('click', downloadProject);
+    document.getElementById('downloadButton').addEventListener('click', () => downloadProject());
+    document.getElementById('portableDownloadButton').addEventListener('click', () => downloadProject({ portablePlatform: els.portablePlatform.value }));
+    els.portablePlatform.addEventListener('change', () => {
+      state.exportOptions.portablePlatform = els.portablePlatform.value;
+    });
 
     const projectBindings = [
       [els.projectTitle, 'title'],
@@ -370,6 +390,7 @@
   }
 
   function syncProjectInputs() {
+    els.portablePlatform.value = state.exportOptions.portablePlatform;
     els.projectTitle.value = state.project.title || '';
     els.projectShortTitle.value = state.project.shortTitle ?? 'EvoSupplement';
     els.repositoryName.value = state.project.repositoryName ?? 'evosupplement';
@@ -1250,7 +1271,7 @@
     }
   }
 
-  async function downloadProject() {
+  async function downloadProject(options = {}) {
     setBusy(true, 'Validating project', 'Inspecting files before packaging…', 5);
     try {
       validationMessages = await validateDeep();
@@ -1260,10 +1281,10 @@
         return;
       }
 
-      setBusy(true, 'Building project', 'Preparing the portal and viewer modules…', 12);
-      const { blob, fileName } = await buildProjectZip(progress => {
-        setBusyProgress(15 + Math.round(progress * 0.85), progress < 0.25 ? 'Copying templates and uploads…' : progress < 0.9 ? 'Compressing project…' : 'Finalizing ZIP…');
-      });
+      setBusy(true, options.portablePlatform ? 'Building portable supplement' : 'Building project', 'Preparing the portal and viewer modules…', 12);
+      const { blob, fileName } = await buildProjectZip((progress, message) => {
+        setBusyProgress(15 + Math.round(progress * 85), message || (progress < 0.45 ? 'Copying templates and uploads…' : 'Compressing project…'));
+      }, options);
       triggerDownload(blob, fileName);
       setBusyProgress(100, 'Download ready.');
       showToast(`${fileName} was generated successfully.`);
@@ -1277,8 +1298,9 @@
     }
   }
 
-  async function buildProjectZip(onProgress) {
+  async function buildProjectZip(onProgress, { portablePlatform = '' } = {}) {
     if (typeof JSZip === 'undefined') throw new Error('The ZIP library did not load. Reload the Builder page.');
+    if (portablePlatform && !Object.prototype.hasOwnProperty.call(PORTABLE_TARGETS, portablePlatform)) throw new Error('Choose a supported portable platform.');
     const zip = new JSZip();
     const repositoryName = slugify(state.project.repositoryName, 'evosupplement');
     const root = zip.folder(repositoryName);
@@ -1310,7 +1332,7 @@
     for (const section of state.sections) {
       const manifestSection = { title: section.title.trim(), items: [] };
       for (const item of section.items) {
-        const manifestItem = await packageItem({ root, section, item, copiedModules, assetRecords });
+        const manifestItem = await packageItem({ root, section, item, copiedModules, assetRecords, portablePlatform });
         manifestSection.items.push(manifestItem);
         completedItems += 1;
         onProgress?.(Math.min(0.45, (completedItems / totalItems) * 0.45));
@@ -1319,7 +1341,7 @@
     }
 
     root.file('manifest.js', generateManifestJs(manifest));
-    root.file('README.md', generateReadme(manifest));
+    root.file('README.md', (portablePlatform ? `# Open this portable supplement\n\nExtract the entire ZIP and open **${PORTABLE_TARGETS[portablePlatform].launcher}**. Keep its window open while viewing. Read **OPEN-SUPPLEMENT.txt** for instructions.\n\n` : '') + generateReadme(manifest));
     root.file('DEPLOYMENT.md', generateDeploymentGuide());
     root.file('CITATION.cff', generateCitationCff());
 
@@ -1331,20 +1353,25 @@
       project: serializeState(),
       assets: assetRecords
     };
+    if (portablePlatform) {
+      recipe.portable = { version: 1, platform: portablePlatform, launcher: PORTABLE_TARGETS[portablePlatform].launcher };
+      await addPortableFiles(root, portablePlatform, onProgress);
+    }
     root.file('evosupplement-project.json', JSON.stringify(recipe, null, 2));
 
+    const compressionStart = portablePlatform ? 0.65 : 0.45;
     const blob = await zip.generateAsync({
       type: 'blob',
       compression: 'DEFLATE',
       compressionOptions: { level: 6 },
       platform: 'UNIX'
-    }, metadata => onProgress?.(0.45 + (metadata.percent / 100) * 0.55));
+    }, metadata => onProgress?.(compressionStart + (metadata.percent / 100) * (1 - compressionStart)));
 
-    return { blob, fileName: `${repositoryName}.zip` };
+    return { blob, fileName: `${repositoryName}${portablePlatform ? `-portable-${portablePlatform}` : ''}.zip` };
   }
 
   async function packageItem(context) {
-    const { root, section, item, copiedModules, assetRecords } = context;
+    const { root, section, item, copiedModules, assetRecords, portablePlatform } = context;
     const slug = slugify(item.slug || item.title, 'item');
     const common = {
       id: `${slugify(section.slug || section.title, 'section')}-${slug}`,
@@ -1400,7 +1427,8 @@
       await copyModuleAssets(root, item.kind, copiedModules);
       const module = MODULE_REGISTRY[item.kind];
       const itemBase = `${module.folder}/${slug}`;
-      root.file(`${itemBase}/index.html`, await fetchSourceText(module.template));
+      const template = await fetchSourceText(module.template);
+      root.file(`${itemBase}/index.html`, portablePlatform ? portableFigureHtml(template) : template);
       root.file(`${itemBase}/config.js`, generateModuleConfig(item));
       await addModuleInputs(root, itemBase, item, assetRecords);
       return { ...common, type: 'viewer', href: `./${itemBase}/` };
@@ -1415,6 +1443,65 @@
     for (const path of module.shared) root.file(path, await fetchSourceBytes(path), { binary: true });
     root.file(`${module.folder}/README.md`, await fetchSourceText(module.readme));
     copiedModules.add(kind);
+  }
+
+  function portableFigureHtml(source) {
+    const dependencies = window.EvoSupplementPortableVendor;
+    if (!dependencies) throw new Error('The portable export helper did not load. Reload the Builder.');
+    let html = source.replace(/\s*<link\b[^>]*\brel=["'](?:preconnect|dns-prefetch)["'][^>]*>/gi, '');
+    for (const asset of dependencies.assets) {
+      html = html.split(asset.sourceUrl).join(`../../${asset.path}`);
+    }
+    if (/<(?:script|link)\b[^>]*(?:src|href)=["'](?:https?:)?\/\//i.test(html)) {
+      throw new Error('A built-in figure has an unbundled remote script or stylesheet. Portable export stopped.');
+    }
+    return html.replace('</head>', '  <script>window.EVOSUPPLEMENT_PORTABLE = true;</script>\n</head>');
+  }
+
+  async function addPortableFiles(root, platform, onProgress) {
+    const target = PORTABLE_TARGETS[platform];
+    onProgress?.(0.46, 'Adding the local supplement launcher…');
+    for (const [source, path, executable] of target.files) {
+      const bytes = await fetchSourceBytes(`builder/portable/${source}`);
+      if (!bytes.length) throw new Error(`The portable launcher file is empty: ${source}`);
+      if (source.endsWith('/evosupplement') && !(bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46)) {
+        throw new Error('The Linux launcher is missing or invalid. Reinstall the complete Builder package.');
+      }
+      root.file(path, bytes, { binary: true, unixPermissions: executable ? 0o100755 : 0o100644 });
+    }
+    root.file('_portable/LICENSE.txt', await fetchSourceText('LICENSE'));
+    const dependencies = window.EvoSupplementPortableVendor;
+    if (!dependencies) throw new Error('The portable export helper did not load. Reload the Builder.');
+    const assets = await dependencies.collect(usedModuleKinds(), progress => {
+      onProgress?.(0.48 + (progress.completed / Math.max(1, progress.total)) * 0.16, progress.label);
+    });
+    for (const asset of assets) root.file(asset.path, asset.bytes, { binary: true });
+    root.file('OPEN-SUPPLEMENT.txt', portableInstructions(platform));
+    root.file('_portable/package.json', JSON.stringify({
+      format: 'evosupplement-portable', schemaVersion: 1, builderVersion: BUILDER_VERSION,
+      platform, launcher: target.launcher, entryPoint: 'index.html',
+      network: '127.0.0.1 only, with an automatically selected local port',
+      dependencies: assets.map(asset => asset.path)
+    }, null, 2));
+    onProgress?.(0.65, 'Compressing the portable supplement…');
+  }
+
+  function portableInstructions(platform) {
+    const target = PORTABLE_TARGETS[platform];
+    const requirements = {
+      windows: 'Windows 10/11 with its included Windows PowerShell and .NET Framework. No Python installation is needed. The launcher compiles its included C# server in memory. Managed computers may restrict PowerShell or Add-Type; follow your organization’s policy if blocked.',
+      macos: 'macOS with /usr/bin/perl and its core networking modules (provided by supported macOS installations). No Python installation is needed. The launcher checks for Perl and reports a clear error if it is unavailable. macOS may request permission to open a downloaded launcher.',
+      'linux-amd64': 'Linux on an Intel/AMD x64 processor with system glibc 2.34 or newer, a graphical desktop, a browser and a terminal application. The launcher uses the existing system library; Python is not needed. When opened from a file manager, it starts a desktop terminal. Your file manager may ask whether to execute the file. This build is not for ARM processors.'
+    };
+    return `EVOSUPPLEMENT — PORTABLE SUPPLEMENT (${target.label})\n\n` +
+      `COMO ABRIR\n1. Extraia o ZIP inteiro, mantendo todas as pastas juntas.\n2. Abra ${target.launcher}. Nao abra de dentro do ZIP.\n3. O suplemento abre no navegador. Mantenha a janela do iniciador aberta.\n4. Para encerrar, feche a janela do iniciador ou pressione Ctrl+C nela.\n\n` +
+      `HOW TO OPEN\n1. Extract the entire ZIP. Keep the files and folders together.\n2. Open ${target.launcher}; do not run it from inside the ZIP.\n3. Your browser opens the local supplement. Keep the launcher window open.\n4. Close that window or press Ctrl+C there to stop the local server. Closing a browser tab alone does not stop it.\n\n` +
+      `REQUIREMENTS\n${requirements[platform]}\n\n` +
+      `IF THE BROWSER DOES NOT OPEN\nCopy the http://127.0.0.1:... address printed in the launcher window into your browser. The address changes each time. Do not open index.html directly. Do not move or rename the _portable folder.\n\n` +
+      `OFFLINE CONTENT\nBuilt-in viewer scripts, styles, licenses and uploaded figure data are included. No Git account, publication server or internet connection is needed to read the packaged local figures. The Builder may need internet while creating this ZIP to download the pinned Mol* and YAML libraries.\n\n` +
+      `External links (including DOI/NCBI links) need internet when opened. Uploaded HTML pages may refer to remote scripts, fonts or data. MOLX snapshots must contain their data; remote-only structures, maps or other references inside a snapshot are not made local by this export. Verify your own figures offline before sharing.\n\n` +
+      `LOCAL PROCESSING\nThe launcher serves only this extracted supplement folder on 127.0.0.1 using an automatically chosen port. It does not publish the supplement or send its files to a remote service. No administrator permissions or permanent system changes are required.\n\n` +
+      `EDITING\nTo edit the supplement, reopen this ZIP with Open project ZIP in EvoSupplement Builder. Save state / Load state remain available for drafts. To distribute a different platform, select it in the Builder and export another portable ZIP.\n`;
   }
 
   async function addModuleInputs(root, itemBase, item, assetRecords) {
@@ -2132,7 +2219,7 @@
 
   function hasProjectContent() {
     const defaults = createInitialState().project;
-    return Boolean(state.sections.length || uploadFiles.size ||
+    return Boolean(state.sections.length || uploadFiles.size || state.exportOptions.portablePlatform !== 'windows' ||
       state.project.authors.some(author => author.name || author.orcid) || state.project.authors.length > 1 ||
       Object.keys(defaults).some(key => key !== 'authors' && state.project[key] !== defaults[key]));
   }
@@ -2161,6 +2248,10 @@
     const imported = JSON.parse(JSON.stringify(project));
     imported.schemaVersion = PROJECT_SCHEMA_VERSION;
     imported.builderVersion = BUILDER_VERSION;
+    imported.exportOptions = importFields(imported.exportOptions ?? {}, { portablePlatform: 'windows' }, 'export options');
+    if (!Object.prototype.hasOwnProperty.call(PORTABLE_TARGETS, imported.exportOptions.portablePlatform)) {
+      throw new Error('This saved export platform is not supported. Use a compatible Builder version.');
+    }
     // Defaults apply only to absent fields. Empty strings and false are draft data.
     // Preserve extension fields so compatible schema-1 releases can round-trip them.
     imported.project = importFields(imported.project, {
@@ -2246,9 +2337,12 @@
     if (typeof JSZip === 'undefined') {
       validationMessages = [{ level: 'error', location: 'Builder', text: 'JSZip did not load. The Builder cannot create archives.' }];
       renderValidationStatus(validationMessages, true);
-      for (const id of ['downloadButton', 'saveStateButton', 'loadStateButton', 'openProjectButton']) {
+      for (const id of ['downloadButton', 'portableDownloadButton', 'saveStateButton', 'loadStateButton', 'openProjectButton']) {
         document.getElementById(id).disabled = true;
       }
+    }
+    if (!window.EvoSupplementPortableVendor) {
+      document.getElementById('portableDownloadButton').disabled = true;
     }
     if (location.protocol === 'file:') {
       validationMessages = [{ level: 'warning', location: 'Builder', text: 'Serve the repository over HTTP. Browser security may block template loading from file://.' }];
