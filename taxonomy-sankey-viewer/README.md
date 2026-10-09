@@ -134,6 +134,10 @@ The figure supports:
 - count and percentage labels;
 - protein-ID download for the selected taxon.
 
+## SVG export
+
+The Editor includes **Export SVG**, which downloads the complete current Sankey as a standalone vector image. The export uses the full diagram bounds rather than the temporary pan/zoom viewport, preserves the current ranks, colors, labels, counts, percentages, height, and named display nodes, and omits author-only hit areas and unnamed missing-rank placeholders. The published `figureN/` page does not expose this authoring control.
+
 ## Exported files
 
 ### `taxonomy-resolved.tsv`

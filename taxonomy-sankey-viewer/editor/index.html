@@ -6,7 +6,7 @@
   <meta name="description" content="Browser-based editor for reconciling NCBI TaxIDs and preparing a publication-ready taxonomic Sankey.">
   <meta name="theme-color" content="#111827">
   <title>Taxonomy Sankey Editor</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=1.4.0">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.4.1">
 </head>
 <body>
   <header class="app-header">
@@ -203,6 +203,7 @@
             <button class="button" id="editorDownloadYaml" type="button">Curation YAML</button>
             <button class="button" id="editorDownloadColors" type="button">Color YAML</button>
             <button class="button" id="editorDownloadReport" type="button">Resolution report</button>
+            <button class="button" id="editorDownloadSvg" type="button">Export SVG</button>
             <button class="button button-primary wide" id="editorDownloadPackage" type="button">Download publication package ZIP</button>
           </div>
           <div class="warning-box">When the source remains <b>input-classification</b>, the Sankey is useful for exploration but has not yet been reconciled against an NCBI taxonomy snapshot.</div>
@@ -214,8 +215,8 @@
 
   <div class="tooltip" id="taxonomyTooltip" hidden></div>
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./config.js?v=1.4.0"></script>
-  <script src="../shared/taxonomy-sankey-viewer.js?v=1.4.0"></script>
-  <script src="./editor.js?v=1.4.0"></script>
+  <script src="./config.js?v=1.4.1"></script>
+  <script src="../shared/taxonomy-sankey-viewer.js?v=1.4.1"></script>
+  <script src="./editor.js?v=1.4.1"></script>
 </body>
 </html>

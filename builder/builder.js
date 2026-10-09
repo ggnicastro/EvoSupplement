@@ -1,14 +1,14 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.6.1';
+  const BUILDER_VERSION = '1.6.2';
   const PROJECT_SCHEMA_VERSION = 1;
   const MODULE_VERSIONS = {
     protein: '2.13.0',
     neighborhood: '3.4.0',
     phylogeny: '2.1.0',
     network: '1.2.0',
-    taxonomy: '1.4.0',
+    taxonomy: '1.4.1',
     architecture: '1.0.0',
     multistructure: '1.0.0'
   };

@@ -19,7 +19,7 @@
       collapseSingle: $('editorCollapseSingle'), hideRoot: $('editorHideRoot'), includeUnclassified: $('editorIncludeUnclassified'), showNoRank: $('editorShowNoRank'), applySettings: $('editorApplySettings'), resetSettings: $('editorResetSettings'),
       nodeEmpty: $('editorNodeEmpty'), nodeForm: $('editorNodeForm'), nodeIdentity: $('editorNodeIdentity'), nodeMeta: $('editorNodeMeta'), nodeDisplayName: $('editorNodeDisplayName'), nodeAction: $('editorNodeAction'), nodeDisplayRank: $('editorNodeDisplayRank'), moveNodeLeft: $('editorMoveNodeLeft'), moveNodeRight: $('editorMoveNodeRight'), nodeColumnStatus: $('editorNodeColumnStatus'), missingRankTools: $('editorMissingRankTools'), missingAncestor: $('editorMissingAncestor'), missingRankContext: $('editorMissingRankContext'), nodeOrder: $('editorNodeOrder'), nodeColorPicker: $('editorNodeColorPicker'), nodeColorText: $('editorNodeColorText'), saveNode: $('editorSaveNode'), resetNode: $('editorResetNode'),
       catalogBody: $('editorCatalogBody'), catalogSearch: $('editorCatalogSearch'), catalogSummary: $('editorCatalogSummary'),
-      downloadResolved: $('editorDownloadResolved'), downloadYaml: $('editorDownloadYaml'), downloadColors: $('editorDownloadColors'), downloadReport: $('editorDownloadReport'), downloadPackage: $('editorDownloadPackage'),
+      downloadResolved: $('editorDownloadResolved'), downloadYaml: $('editorDownloadYaml'), downloadColors: $('editorDownloadColors'), downloadReport: $('editorDownloadReport'), downloadSvg: $('editorDownloadSvg'), downloadPackage: $('editorDownloadPackage'),
       diagnosticsList: $('editorDiagnosticsList')
     });
   }
@@ -399,6 +399,19 @@
   function exportYaml() { window.TaxonomySankeyViewer.downloadBlob('taxonomy-sankey.yaml', window.TaxonomySankeyViewer.serializeCurationYaml(), 'text/yaml;charset=utf-8'); }
   function exportColors() { window.TaxonomySankeyViewer.downloadBlob('taxonomy-colors.yaml', window.TaxonomySankeyViewer.serializeColorYaml(), 'text/yaml;charset=utf-8'); }
   function exportReport() { window.TaxonomySankeyViewer.downloadBlob('taxonomy-resolution-report.tsv', window.TaxonomySankeyViewer.serializeResolutionReport(), 'text/tab-separated-values;charset=utf-8'); }
+  function exportSvg() {
+    const api = window.TaxonomySankeyViewer;
+    try {
+      const svg = api.serializeCurrentSvg({
+        title: window.TAXONOMY_SANKEY_CONFIG.figureTitle || 'Taxonomy Sankey',
+        background: '#ffffff'
+      });
+      api.downloadBlob(`${safeSlug(window.TAXONOMY_SANKEY_CONFIG.figureTitle)}.svg`, svg, 'image/svg+xml;charset=utf-8');
+      els.loadStatus.textContent = 'SVG exported from the current Sankey settings.';
+    } catch (error) {
+      els.loadStatus.textContent = `Could not export SVG: ${error.message}`;
+    }
+  }
 
   async function exportPackage() {
     if (!window.JSZip) return;
@@ -453,6 +466,7 @@
     els.downloadYaml.addEventListener('click', exportYaml);
     els.downloadColors.addEventListener('click', exportColors);
     els.downloadReport.addEventListener('click', exportReport);
+    els.downloadSvg.addEventListener('click', exportSvg);
     els.downloadPackage.addEventListener('click', exportPackage);
 
     document.addEventListener('taxonomy-sankey:loaded', () => { syncSettings(); renderCatalog(); renderDiagnostics(); });
