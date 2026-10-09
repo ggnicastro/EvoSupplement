@@ -42,7 +42,7 @@ class RuntimeChecks(unittest.TestCase):
         (cls.root / ".hidden").write_text("SECRET")
         (cls.root / "_portable").mkdir()
         (cls.root / "_portable/launcher.cs").write_text("CONTROL FILE")
-        (cls.root / "Abrir-suplemento.cmd").write_text("CONTROL FILE")
+        (cls.root / "Open-supplement.cmd").write_text("CONTROL FILE")
         (cls.base / "outside.txt").write_text("OUTSIDE SECRET")
         (cls.root / "outside-link.txt").symlink_to(cls.base / "outside.txt")
         (cls.root / "directory-link").symlink_to(cls.base, target_is_directory=True)
@@ -143,7 +143,7 @@ class RuntimeChecks(unittest.TestCase):
                 self.assertEqual(self.request("/listing/")[0], 404)
             with self.subTest("read only"):
                 self.assertEqual(self.request(method="POST")[0], 405)
-            for target in ["/.hidden", "/_portable/launcher.cs", "/Abrir-suplemento.cmd", "/../outside.txt", "/%2e%2e/outside.txt", "/outside-link.txt", "/directory-link/outside.txt"]:
+            for target in ["/.hidden", "/_portable/launcher.cs", "/Open-supplement.cmd", "/../outside.txt", "/%2e%2e/outside.txt", "/outside-link.txt", "/directory-link/outside.txt"]:
                 with self.subTest("confined path", target=target):
                     self.assertIn(self.request(target)[0], (400, 404))
             for target in ["/%00", "/%GG", "/..%5coutside.txt", "/C:%5cWindows", "/%"]:

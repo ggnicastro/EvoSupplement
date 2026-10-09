@@ -29,19 +29,21 @@ There is no automatic saving. Save another state ZIP after making changes and ke
 
 ## Share a portable supplement
 
-Builder 1.8.0 adds **Download portable ZIP**. Choose the **recipient’s computer**, then generate the ZIP. It contains the publication site, the appropriate launcher, and the libraries needed by the included standard EvoSupplement viewers. Recipients do not need Python, Git, or a hosted website.
+Builder 1.8.1 includes **Download portable ZIP** with English launcher names and a Windows launch icon. Choose the **recipient’s computer**, then generate the ZIP. It contains the publication site, the appropriate launcher, and the libraries needed by the included standard EvoSupplement viewers. Recipients do not need Python, Git, or a hosted website.
 
 To view the supplement:
 
 1. Extract the **entire ZIP** into a folder.
-2. Open the launcher for the selected platform, listed below.
+2. On Windows, double-click the **Open supplement** icon. On macOS or Linux, open the launcher listed below.
 3. The launcher opens the supplement in the default browser. Keep its console window open while reading; closing the window or pressing **Ctrl+C** stops the local server.
 
 | Recipient’s computer | Launcher | Runtime |
 |---|---|---|
-| Windows, Intel/AMD or ARM64 | `Abrir-suplemento.cmd` | Built-in Windows PowerShell and .NET. |
-| macOS, Intel or Apple Silicon | `Abrir-suplemento.command` | System Perl at `/usr/bin/perl`; the launcher checks for its availability. |
-| Linux Intel/AMD x64 | `Abrir-suplemento` | Bundled executable; system glibc 2.34+ and a desktop terminal. |
+| Windows, Intel/AMD or ARM64 | `Open supplement.lnk` (launch icon); `Open-supplement.cmd` as a fallback. | Built-in Windows PowerShell and .NET. |
+| macOS, Intel or Apple Silicon | `Open-supplement.command` | System Perl at `/usr/bin/perl`; the launcher checks for its availability. |
+| Linux Intel/AMD x64 | `Open-supplement` | Bundled executable; system glibc 2.34+ and a desktop terminal. |
+
+Keep the Windows shortcut, its command file, and the supporting folders together in the extracted project. The **Open supplement** icon starts the local launcher; if the shortcut cannot be opened, run `Open-supplement.cmd` instead.
 
 Run the launcher from the extracted folder, rather than opening `index.html` directly. Viewer data loading needs the local HTTP server. Windows and macOS may display their normal trust prompts for downloaded launchers. A managed computer may restrict launching scripts. The Windows and macOS launchers have not been exercised on those operating systems in this release; verify the package on the recipient’s platform before distributing it widely. The macOS option requires the system Perl runtime and does not install it if missing.
 
@@ -78,7 +80,7 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
 - Multi-Structure Comparison Viewer figures generated from the publication package ZIP exported by its editor.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.8.0 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.8.1 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
 
 ## Editors and publication figures
 

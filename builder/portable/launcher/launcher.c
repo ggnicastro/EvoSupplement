@@ -84,7 +84,7 @@ static int open_file(char *path, struct stat *st, int *directory) {
     char *state = NULL, *part = strtok_r(path, "/", &state);
     while (part) {
         if (part[0] == '.' || !strcmp(part, "_portable") ||
-            !strncasecmp(part, "Abrir-suplemento", 15)) { close(current); return -1; }
+            !strncasecmp(part, "Open-supplement", 15)) { close(current); return -1; }
         char *next = strtok_r(NULL, "/", &state);
         int child = openat(current, part, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
         close(current); current = child;
@@ -271,7 +271,7 @@ int main(int argc,char **argv) {
         execlp("konsole","konsole","--separate","-e",executable,"--console","--root",root,(char*)NULL);
         execlp("xfce4-terminal","xfce4-terminal","--disable-server","-x",executable,"--console","--root",root,(char*)NULL);
         execlp("xterm","xterm","-e",executable,"--console","--root",root,(char*)NULL);
-        fprintf(stderr,"No desktop terminal found. Open a terminal in the extracted folder and run ./Abrir-suplemento\n");
+        fprintf(stderr,"No desktop terminal found. Open a terminal in the extracted folder and run ./Open-supplement\n");
         return 1;
     }
     rootfd=open(root,O_RDONLY|O_DIRECTORY|O_CLOEXEC);

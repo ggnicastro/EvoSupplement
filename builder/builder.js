@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.8.0';
+  const BUILDER_VERSION = '1.8.1';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
@@ -9,16 +9,16 @@
   const STATE_FORMAT = 'evosupplement-builder-state';
   const STATE_MANIFEST = 'evosupplement-builder-state.json';
   const PORTABLE_TARGETS = {
-    windows: { label: 'Windows', launcher: 'Abrir-suplemento.cmd', files: [
-      ['launcher/Abrir-suplemento.cmd', 'Abrir-suplemento.cmd'],
+    windows: { label: 'Windows', launcher: 'Open supplement.lnk', fallbackLauncher: 'Open-supplement.cmd', files: [
+      ['launcher/Open-supplement.cmd', 'Open-supplement.cmd'],
       ['launcher/launcher.cs', '_portable/launcher.cs']
     ] },
-    macos: { label: 'macOS', launcher: 'Abrir-suplemento.command', files: [
-      ['launcher/Abrir-suplemento.command', 'Abrir-suplemento.command', true],
+    macos: { label: 'macOS', launcher: 'Open-supplement.command', files: [
+      ['launcher/Open-supplement.command', 'Open-supplement.command', true],
       ['launcher/server.pl', '_portable/server.pl']
     ] },
-    'linux-amd64': { label: 'Linux x64', launcher: 'Abrir-suplemento', files: [
-      ['bin/linux-amd64/evosupplement', 'Abrir-suplemento', true],
+    'linux-amd64': { label: 'Linux x64', launcher: 'Open-supplement', files: [
+      ['bin/linux-amd64/evosupplement', 'Open-supplement', true],
       ['launcher/launcher.c', '_portable/launcher.c']
     ] }
   };
@@ -1469,6 +1469,10 @@
       }
       root.file(path, bytes, { binary: true, unixPermissions: executable ? 0o100755 : 0o100644 });
     }
+    if (platform === 'windows') {
+      if (!window.EvoSupplementPortableShortcut) throw new Error('The Windows shortcut helper did not load. Reload the Builder.');
+      root.file(target.launcher, window.EvoSupplementPortableShortcut.createWindowsShortcut(), { binary: true });
+    }
     root.file('_portable/LICENSE.txt', await fetchSourceText('LICENSE'));
     const dependencies = window.EvoSupplementPortableVendor;
     if (!dependencies) throw new Error('The portable export helper did not load. Reload the Builder.');
@@ -1479,7 +1483,7 @@
     root.file('OPEN-SUPPLEMENT.txt', portableInstructions(platform));
     root.file('_portable/package.json', JSON.stringify({
       format: 'evosupplement-portable', schemaVersion: 1, builderVersion: BUILDER_VERSION,
-      platform, launcher: target.launcher, entryPoint: 'index.html',
+      platform, launcher: target.launcher, ...(target.fallbackLauncher ? { fallbackLauncher: target.fallbackLauncher } : {}), entryPoint: 'index.html',
       network: '127.0.0.1 only, with an automatically selected local port',
       dependencies: assets.map(asset => asset.path)
     }, null, 2));
@@ -1494,8 +1498,8 @@
       'linux-amd64': 'Linux on an Intel/AMD x64 processor with system glibc 2.34 or newer, a graphical desktop, a browser and a terminal application. The launcher uses the existing system library; Python is not needed. When opened from a file manager, it starts a desktop terminal. Your file manager may ask whether to execute the file. This build is not for ARM processors.'
     };
     return `EVOSUPPLEMENT — PORTABLE SUPPLEMENT (${target.label})\n\n` +
-      `COMO ABRIR\n1. Extraia o ZIP inteiro, mantendo todas as pastas juntas.\n2. Abra ${target.launcher}. Nao abra de dentro do ZIP.\n3. O suplemento abre no navegador. Mantenha a janela do iniciador aberta.\n4. Para encerrar, feche a janela do iniciador ou pressione Ctrl+C nela.\n\n` +
       `HOW TO OPEN\n1. Extract the entire ZIP. Keep the files and folders together.\n2. Open ${target.launcher}; do not run it from inside the ZIP.\n3. Your browser opens the local supplement. Keep the launcher window open.\n4. Close that window or press Ctrl+C there to stop the local server. Closing a browser tab alone does not stop it.\n\n` +
+      (target.fallbackLauncher ? `WINDOWS SHORTCUT\nOpen supplement is a Windows shortcut with a built-in Windows icon. Its target is relative to this folder. Keep it beside ${target.fallbackLauncher}. If the shortcut does not open, double-click ${target.fallbackLauncher} directly.\n\n` : '') +
       `REQUIREMENTS\n${requirements[platform]}\n\n` +
       `IF THE BROWSER DOES NOT OPEN\nCopy the http://127.0.0.1:... address printed in the launcher window into your browser. The address changes each time. Do not open index.html directly. Do not move or rename the _portable folder.\n\n` +
       `OFFLINE CONTENT\nBuilt-in viewer scripts, styles, licenses and uploaded figure data are included. No Git account, publication server or internet connection is needed to read the packaged local figures. The Builder may need internet while creating this ZIP to download the pinned Mol* and YAML libraries.\n\n` +

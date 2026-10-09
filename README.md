@@ -107,6 +107,8 @@ Builder 1.7.0 adds **Save state** and **Load state**. A state ZIP contains the d
 
 Builder 1.8.0 adds **Download portable ZIP** for Windows, macOS, and Linux x64. Recipients extract the ZIP and open its launcher to view the supplement in their browser, without Python or Git hosting. Windows uses its built-in PowerShell/.NET tools, macOS requires its system Perl, and Linux Intel/AMD x64 requires system glibc 2.34+ and a desktop terminal. Keep the launcher window open while viewing. Windows and macOS execution still needs verification on those platforms. See the [portable workflow and platform requirements](builder/README.md#share-a-portable-supplement).
 
+Builder 1.8.1 uses English launcher names and adds an **Open supplement** icon to Windows portable exports. The shortcut starts the included command launcher; `Open-supplement.cmd` remains available as a fallback.
+
 Creating a portable ZIP may need internet access to obtain viewer libraries, which are included for local use afterward. External links and remote resources inside custom HTML or imported content may still require internet. The normal project ZIP remains available for hosting.
 
 A generated project receives the publication portal from `builder/templates/publication-portal.html`, not the Studio root page. This separation prevents authoring tools from replacing the reader-facing supplement.
@@ -190,7 +192,7 @@ This opens EvoSupplement Studio. The Project Builder is at `/builder/`, and each
 
 For a generated paper project, run the same command from the extracted project root. Opening `/` then shows that project's manifest-driven publication portal.
 
-For a portable publication ZIP, extract the entire archive and open `Abrir-suplemento.cmd` on Windows, `Abrir-suplemento.command` on macOS, or `Abrir-suplemento` on Linux x64. The included launcher starts the local server and opens the browser.
+For a portable publication ZIP, extract the entire archive and double-click the **Open supplement** icon (`Open supplement.lnk`) on Windows, `Open-supplement.command` on macOS, or `Open-supplement` on Linux x64. On Windows, `Open-supplement.cmd` also starts the supplement directly. Keep the launchers and supporting folders together. The included launcher starts the local server and opens the browser.
 
 ## Deployment
 

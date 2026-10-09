@@ -32,7 +32,7 @@ public static class EvoSupplementPortable
         if (root.Length > Path.GetPathRoot(root).Length)
             root = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!Directory.Exists(root) || IsReparse(root) || !File.Exists(Path.Combine(root, "index.html")))
-            throw new IOException("Extraia o ZIP completo antes de abrir o suplemento. index.html deve estar ao lado do iniciador.");
+            throw new IOException("Extract the entire ZIP before opening the supplement. index.html must be beside the launcher.");
 
         Server server = new Server();
         server.Root = root;
@@ -53,16 +53,16 @@ public static class EvoSupplementPortable
         Console.CancelKeyPress += cancel;
         try
         {
-            Console.WriteLine("EvoSupplement aberto somente neste computador.");
-            Console.WriteLine("Endereco: " + server.Origin + "/");
-            Console.WriteLine("Mantenha esta janela aberta. Feche-a ou pressione Ctrl+C para encerrar.");
+            Console.WriteLine("EvoSupplement is running on this computer only.");
+            Console.WriteLine("Address: " + server.Origin + "/");
+            Console.WriteLine("Keep this window open. Close it or press Ctrl+C to stop.");
             try
             {
                 Process.Start(new ProcessStartInfo(server.Origin + "/") { UseShellExecute = true });
             }
             catch (Exception)
             {
-                Console.WriteLine("Abra o endereco acima no seu navegador.");
+                Console.WriteLine("Open the address above in your browser.");
             }
 
             while (!server.Stopping)
@@ -266,7 +266,7 @@ public static class EvoSupplementPortable
     private static bool IsControlFile(string name)
     {
         // Scientific supplementary scripts are ordinary downloads, never executed.
-        return name.StartsWith("Abrir-suplemento", StringComparison.OrdinalIgnoreCase);
+        return name.StartsWith("Open-supplement", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsDeviceName(string name)

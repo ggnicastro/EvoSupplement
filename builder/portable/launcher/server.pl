@@ -68,7 +68,7 @@ sub serve {
   my $file=$root;
   for my $part (split('/',$path)) {
     next if $part eq '';
-    if($part=~/\A\./ || lc($part) eq '_portable' || $part=~/\AAbrir-suplemento/i) {respond($socket,404,'Not Found',$head);return;}
+    if($part=~/\A\./ || lc($part) eq '_portable' || $part=~/\AOpen-supplement/i) {respond($socket,404,'Not Found',$head);return;}
     $file.='/'.$part;
     if(-l $file) {respond($socket,404,'Not Found',$head);return;}
   }
