@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.9.0';
+  const BUILDER_VERSION = '1.10.0';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
@@ -27,7 +27,7 @@
   };
   const MODULE_VERSIONS = {
     protein: '2.13.0',
-    neighborhood: '3.4.0',
+    neighborhood: '3.5.0',
     phylogeny: '2.1.0',
     network: '1.2.0',
     taxonomy: '1.4.1',
@@ -213,7 +213,7 @@
       case 'protein':
         return { defaultLayout: 'canvas' };
       case 'neighborhood':
-        return { inputFormat: 'auto', defaultScaleMode: 'fixed', defaultAlignQuery: false, defaultFlipNegativeQueries: true, defaultShowLabels: true, defaultZoom: 1 };
+        return { inputFormat: 'auto', defaultScaleMode: 'fixed', defaultAlignQuery: false, defaultFlipNegativeQueries: true, defaultShowLabels: true, defaultZoom: 1, defaultSameDirectionOnly: false, defaultMaxIntergenicDistance: 20 };
       case 'phylogeny':
         return {
           idColumn: 'id',
@@ -552,6 +552,10 @@
     if (target.dataset.configField) {
       const item = findItem(target.dataset.sectionId, target.dataset.itemId);
       if (!item) return;
+      if (target.dataset.valueType === 'nullable-number' && target.validity?.badInput) {
+        updateReview();
+        return;
+      }
       item.config[target.dataset.configField] = coerceInputValue(target);
       updateReview();
     }
@@ -581,6 +585,10 @@
     if (target.dataset.configField) {
       const item = findItem(target.dataset.sectionId, target.dataset.itemId);
       if (!item) return;
+      if (target.dataset.valueType === 'nullable-number' && target.validity?.badInput) {
+        updateReview();
+        return;
+      }
       item.config[target.dataset.configField] = coerceInputValue(target);
       const requiresRerender = ['mode'].includes(target.dataset.configField);
       if (requiresRerender) renderSections();
@@ -590,6 +598,9 @@
 
   function coerceInputValue(input) {
     if (input.type === 'checkbox') return input.checked;
+    if (input.dataset.valueType === 'nullable-number') {
+      return input.value.trim() === '' ? null : Number(input.value);
+    }
     if (input.dataset.valueType === 'number') {
       const value = Number(input.value);
       return Number.isFinite(value) ? value : 0;
@@ -854,6 +865,8 @@
             </label>
             <label class="checkbox-field"><input type="checkbox" ${attrs} data-config-field="defaultAlignQuery" ${item.config.defaultAlignQuery ? 'checked' : ''}> Align query genes initially</label>
             <label class="checkbox-field"><input type="checkbox" ${attrs} data-config-field="defaultShowLabels" ${item.config.defaultShowLabels ? 'checked' : ''}> Show domain labels initially</label>
+            <label class="checkbox-field"><input type="checkbox" ${attrs} data-config-field="defaultSameDirectionOnly" ${item.config.defaultSameDirectionOnly ? 'checked' : ''}> Same direction as query</label>
+            <label class="field"><span>Intergenic distance (bp)</span><input type="number" min="0" max="9007199254740991" step="1" value="${escapeAttribute(item.config.defaultMaxIntergenicDistance ?? '')}" ${attrs} data-config-field="defaultMaxIntergenicDistance" data-value-type="nullable-number" placeholder="Off"><small class="field-help">Initial maximum genomic gap between adjacent genes. Default: 20 bp. Leave blank to disable this filter; 0 is a valid limit.</small></label>
           </div>`;
       case 'phylogeny':
         return `
@@ -1029,6 +1042,12 @@
     if (!state.sections.length) error('Add at least one section.', 'Sections');
     const cover = getUpload(PROJECT_UPLOAD_ID, 'cover');
     if (cover && coverValidationError(cover)) error(coverValidationError(cover), 'Cover image');
+    for (const input of els.sectionsHost.querySelectorAll('input[data-value-type="nullable-number"]')) {
+      if (!input.validity?.badInput) continue;
+      const section = findSection(input.dataset.sectionId);
+      const item = findItem(input.dataset.sectionId, input.dataset.itemId);
+      error('Finish entering a valid intergenic distance, or clear the field to disable its filter.', `${section?.title || 'Section'} / ${item?.title || 'Item'}`);
+    }
 
     const paths = new Map();
     for (const section of state.sections) {
@@ -1049,6 +1068,9 @@
           } catch {
             error('Enter a valid http(s) URL.', location);
           }
+        }
+        if (item.kind === 'neighborhood' && !isValidIntergenicDistance(item.config.defaultMaxIntergenicDistance)) {
+          error('Intergenic distance must be a nonnegative safe integer in bp, or blank to disable the filter.', location);
         }
 
         const href = generatedHref(section, item);
@@ -1793,6 +1815,8 @@
         defaultFlipNegativeQueries: item.config.defaultFlipNegativeQueries !== false,
         defaultShowLabels: item.config.defaultShowLabels !== false,
         defaultZoom: Number(item.config.defaultZoom) || 1,
+        defaultSameDirectionOnly: Boolean(item.config.defaultSameDirectionOnly),
+        defaultMaxIntergenicDistance: item.config.defaultMaxIntergenicDistance === undefined ? 20 : item.config.defaultMaxIntergenicDistance,
         fixedDomainWidth: 64,
         fixedDomainWidths: {},
         fixedGeneGap: 10,
@@ -2341,11 +2365,18 @@
     return value;
   }
 
-  function importFields(value, defaults, label) {
+  function isValidIntergenicDistance(value) {
+    return value === null || (Number.isSafeInteger(value) && value >= 0);
+  }
+
+  function importFields(value, defaults, label, fieldValidators = {}) {
     requireObject(value, label);
     const result = { ...defaults, ...value };
     for (const [key, fallback] of Object.entries(defaults)) {
-      if (typeof result[key] !== typeof fallback || (typeof fallback === 'number' && !Number.isFinite(result[key]))) {
+      const valid = Object.prototype.hasOwnProperty.call(fieldValidators, key)
+        ? fieldValidators[key](result[key])
+        : typeof result[key] === typeof fallback && (typeof fallback !== 'number' || Number.isFinite(result[key]));
+      if (!valid) {
         throw new Error(`The ${label} field “${key}” is invalid.`);
       }
     }
@@ -2400,7 +2431,11 @@
           title: '', description: '', slug: slugify(item.title, 'item'), slugTouched: true
         }, 'item');
         normalizedItem.id = importId(item.id, 'item');
-        normalizedItem.config = importFields(item.config ?? {}, defaultConfig(item.kind), 'item configuration');
+        // Restore unfinished numeric edits unchanged; publication validation
+        // enforces nonnegative safe integers before a site can be generated.
+        normalizedItem.config = importFields(item.config ?? {}, defaultConfig(item.kind), 'item configuration', item.kind === 'neighborhood'
+          ? { defaultMaxIntergenicDistance: value => value === null || (typeof value === 'number' && Number.isFinite(value)) }
+          : {});
         return normalizedItem;
       });
       return normalized;

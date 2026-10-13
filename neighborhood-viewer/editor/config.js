@@ -27,6 +27,9 @@ window.NEIGHBORHOOD_VIEWER_CONFIG = {
   defaultScaleMode: 'fixed',
   defaultAlignQuery: false,
   defaultFlipNegativeQueries: true,
+  defaultSameDirectionOnly: false,
+  // Maximum gap between consecutive genes; null disables the distance filter.
+  defaultMaxIntergenicDistance: 20,
   defaultShowLabels: true,
   defaultZoom: 1,
 

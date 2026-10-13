@@ -14,6 +14,7 @@ The viewer reads either the canonical row-per-domain TSV or a compact architectu
 - Applies publication-specific domain colors through a separate YAML dictionary.
 - Highlights one or more query genes in each neighborhood.
 - Filters large datasets by domain, PFAM, organism, taxonomy, accession, product, assembly, or neighborhood identifier.
+- Retains query-connected segments using optional strand continuity and a maximum intergenic gap, with separate rows for disconnected queries.
 - Supports fixed-width schematic domain layouts and genomic-coordinate-based layouts.
 - Can align neighborhoods around their query genes.
 - Can orient negative-strand queries in a common direction.
@@ -112,6 +113,8 @@ All relative paths are interpreted from the figure's `index.html`.
 | `defaultScaleMode` | Initial layout mode: fixed-width schematic domains or genomic-coordinate fit. |
 | `defaultAlignQuery` | Initially aligns query-gene centers when enabled. |
 | `defaultFlipNegativeQueries` | Initially mirrors neighborhoods whose query is on the reverse strand. |
+| `defaultSameDirectionOnly` | Initially keeps query-connected genes on the same strand as the query. Default: `false`. |
+| `defaultMaxIntergenicDistance` | Maximum gap between consecutive genes in base pairs. Default: `20`; `null` disables the distance filter. Synthetic compact coordinates do not use this limit. |
 | `defaultShowLabels` | Initially displays domain labels when space permits. |
 | `defaultZoom` | Initial visual zoom level. |
 
@@ -168,6 +171,7 @@ The viewer stops with an error when any required column is missing.
 |---|---|
 | `blockp` | Secondary ordering value for domain records. |
 | `domain_start`, `domain_end` | Optional residue coordinates retained in domain tooltips and normalized compact-format exports. |
+| `coordinate_source` | `synthetic` marks schematic compact-format coordinates so they are not used as biological intergenic distances. |
 | `feature_order` | Stable ordering support for genes. |
 | `assembly` | Display and filtering by assembly accession. |
 | `organism` | Organism label and filtering. |
@@ -199,7 +203,7 @@ The detailed field uses entries such as `PID__start..end&domain,start..end&domai
 
 Compact files are schematic. They contain protein-domain coordinates but not genomic coordinates or intergenic distances. The viewer therefore synthesizes stable display coordinates, keeps true domain spans in tooltips, and links known PIDs to NCBI Protein instead of Nucleotide. Use fixed-width mode for the intended presentation.
 
-The editor can export `neighborhoods.normalized.tsv`, a canonical standard-format representation of the reconstructed neighborhoods. Review the visualization and any parser warnings before using that normalized file in a publication project.
+The editor can export `neighborhoods.normalized.tsv`, a canonical standard-format representation of the reconstructed neighborhoods. Compact exports include `coordinate_source=synthetic`; the viewer also recognizes legacy normalized compact output. This preserves the distinction between display coordinates and measured genomic distances when a normalized file is reloaded. Review the visualization and any parser warnings before using that normalized file in a publication project. Normalized exports contain the full reconstructed input, not only the currently visible segments.
 
 
 ## Neighborhood coordinates
@@ -296,10 +300,30 @@ This control is useful for comparing conserved context upstream and downstream o
 
 ## Filters
 
-The viewer has separate include and exclude filters.
+### Query continuity
 
-- Every include term must match a neighborhood.
-- A neighborhood is removed when any exclude term matches.
+Neighborhood Viewer 3.5.0 adds the same controls to both the editor and publication pages:
+
+| Control | Behavior |
+|---|---|
+| **Same direction as query** | Keeps consecutive genes on the query’s strand. Off by default. |
+| **Intergenic distance (bp)** | Maximum allowed gap between consecutive genes, initially **20 bp**. Clear the field to disable this rule. A value of `0` remains an active limit. |
+
+Starting at each query, the viewer follows adjacent genes to the left and right. It stops on each side at the first gene or gap that fails an enabled rule; it does not skip a failing gene and resume farther away. Query genes remain visible. Queries connected under the enabled rules share one row; disconnected query segments appear in separate rows even when they came from the same original neighborhood.
+
+Coordinates are treated as inclusive: the gap is `max(0, next.start - previous.end - 1)`. A gene ending at 100 and the next starting at 121 have a 20 bp gap and remain connected at the default limit. Touching or overlapping genes have a zero gap. The limit applies to each consecutive pair, independently of the total distance from the query.
+
+The distance limit uses genomic coordinates, independently of the schematic spacing shown in fixed-width mode. Fully synthetic compact input disables the distance field because it has no measured intergenic distances; the same-direction control remains available. Runtime notes below the controls explain synthetic coordinates or neighborhoods without a query marker.
+
+These controls change only the view. Clear the distance field and uncheck **Same direction as query** to restore the full neighborhoods before text filtering. The original selected files are unchanged. The editor’s normalized TSV and package exports retain the full source dataset, not just the filtered view. Status counts distinguish original neighborhoods, displayed rows, and visible genes.
+
+### Include and exclude text
+
+The viewer applies separate include and exclude filters to the segments retained by the continuity controls.
+
+- Every include term must match a retained segment.
+- A retained segment is removed when any exclude term matches.
+- Gene and domain searches use the genes still present in that segment; a removed gene does not satisfy or exclude a match.
 - Plain text searches across all indexed fields.
 - Quotation marks preserve phrases containing spaces.
 - Field-specific terms use a field name followed by a colon.

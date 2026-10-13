@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_VERSION = '3.4.0';
+  const VIEWER_VERSION = '3.5.0';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const XLINK_NS = 'http://www.w3.org/1999/xlink';
   const FIELD_ALIASES = Object.freeze({
@@ -55,6 +55,12 @@
   function normalizeStrand(value) {
     const normalized = clean(value);
     return normalized === '-1' || normalized === '-' ? '-' : '+';
+  }
+
+  function normalizeMaxIntergenicDistance(value, fallback = 20) {
+    if (value === null || value === '') return null;
+    const distance = Number(value);
+    return Number.isSafeInteger(distance) && distance >= 0 ? distance : fallback;
   }
 
   function normalizeConfig(raw = {}) {
@@ -111,6 +117,8 @@
       defaultAlignQuery,
       defaultFlipNegativeQueries: raw.defaultFlipNegativeQueries !== false,
       defaultShowLabels: raw.defaultShowLabels !== false,
+      defaultSameDirectionOnly: raw.defaultSameDirectionOnly === true,
+      defaultMaxIntergenicDistance: normalizeMaxIntergenicDistance(raw.defaultMaxIntergenicDistance),
       defaultZoom: zoom,
       fixedDomainWidth: Math.min(300, Math.max(16, finiteNumber(raw.fixedDomainWidth, 64))),
       fixedDomainWidths,
@@ -491,7 +499,7 @@
     return detailDomains[index];
   }
 
-  function finalizeCompactEntry(entry, config) {
+  function finalizeNeighborhoodEntry(entry) {
     entry.queryGenes = entry.genes.filter(gene => gene.query);
     const anchors = entry.queryGenes.length ? entry.queryGenes : [entry.genes[Math.floor(entry.genes.length / 2)]];
     entry.anchorCenter = anchors.reduce((sum, gene) => sum + (gene.start + gene.end) / 2, 0) / Math.max(1, anchors.length);
@@ -622,7 +630,7 @@
         }
       }
 
-      const entry = finalizeCompactEntry({
+      const entry = finalizeNeighborhoodEntry({
         id: `compact:${String(validRows + 1).padStart(5, '0')}:${queryPid}`,
         nucleotide: '',
         assembly: '',
@@ -634,8 +642,9 @@
         sourceArchitecture: architectureText,
         compactDetailOrder: chosenOrder.name,
         inputFormat: 'compact',
+        coordinateSource: 'synthetic',
         genes
-      }, config);
+      });
       entries.push(entry);
       validRows += 1;
       totalGenes += genes.length;
@@ -664,7 +673,7 @@
     const headers = [
       'block_id', 'pid', 'nucleotide', 'start', 'end', 'strand', 'query', 'plen',
       'dom', 'domp', 'domain_start', 'domain_end', 'blockp', 'feature_order', 'organism', 'taxid', 'lineage',
-      'classification', 'assembly', 'product', 'locus', 'arch', 'profiledb', 'pfam'
+      'classification', 'assembly', 'product', 'locus', 'arch', 'profiledb', 'pfam', 'coordinate_source'
     ];
     const lines = [headers.join('\t')];
     for (const entry of entries) {
@@ -695,7 +704,8 @@
             locus: gene.locus,
             arch: gene.arch,
             profiledb: gene.profiledb,
-            pfam: gene.pfam
+            pfam: gene.pfam,
+            coordinate_source: hasGenomicCoordinates(entry) ? 'genomic' : 'synthetic'
           };
           lines.push(headers.map(header => tsvCell(row[header])).join('\t'));
         });
@@ -754,6 +764,11 @@
       }
       validRows += 1;
 
+      const coordinateSource = clean(valueAt(values, 'coordinate_source')).toLowerCase();
+      if (coordinateSource && !['genomic', 'synthetic'].includes(coordinateSource)) {
+        throw new Error(`TSV line ${lineIndex + 1}: coordinate_source must be genomic or synthetic.`);
+      }
+
       let entry = entriesById.get(blockId);
       if (!entry) {
         entry = {
@@ -764,6 +779,8 @@
           organism: clean(valueAt(values, 'organism')),
           lineage: clean(valueAt(values, 'lineage')),
           classification: clean(valueAt(values, 'classification')),
+          // Older normalized compact files predate coordinate_source.
+          coordinateSource: coordinateSource || (blockId.startsWith('compact:') && !clean(valueAt(values, 'nucleotide')) ? 'synthetic' : 'genomic'),
           geneMap: new Map(),
           sourceOrder: entriesById.size
         };
@@ -775,6 +792,7 @@
         entry.organism = firstNonEmpty(entry.organism, valueAt(values, 'organism'));
         entry.lineage = firstNonEmpty(entry.lineage, valueAt(values, 'lineage'));
         entry.classification = firstNonEmpty(entry.classification, valueAt(values, 'classification'));
+        if (coordinateSource === 'synthetic') entry.coordinateSource = 'synthetic';
       }
 
       const lo = Math.min(start, end);
@@ -891,6 +909,61 @@
     }
 
     return { entries, stats: { neighborhoods: entries.length, genes: totalGenes, domains: totalDomains, markers: totalMarkers, rows: validRows } };
+  }
+
+  function hasGenomicCoordinates(entry) {
+    if (entry.coordinateSource) return entry.coordinateSource === 'genomic';
+    return entry.inputFormat !== 'compact' && !(entry.id.startsWith('compact:') && !entry.nucleotide);
+  }
+
+  // An edge connects consecutive genes only when every enabled rule passes.
+  // Query-containing components are exactly the union of walks from each query,
+  // stopping at the first failed edge on each side. This is linear in gene count.
+  function buildContinuitySegments(entries, { sameDirectionOnly = false, maxIntergenicDistance = 20 } = {}) {
+    const maximum = normalizeMaxIntergenicDistance(maxIntergenicDistance);
+    const result = [];
+    for (const entry of entries) {
+      const distance = hasGenomicCoordinates(entry) ? maximum : null;
+      if ((!sameDirectionOnly && distance === null) || !entry.genes.some(gene => gene.query)) {
+        result.push(entry);
+        continue;
+      }
+      // Parsers already establish genomic (or compact schematic) order.
+      const genes = entry.genes;
+      const components = [];
+      let first = 0;
+      let containsQuery = Boolean(genes[0]?.query);
+      for (let index = 1; index <= genes.length; index += 1) {
+        const previous = genes[index - 1];
+        const next = genes[index];
+        const gap = next ? Math.max(0, next.start - previous.end - 1) : 0;
+        const boundary = !next || (sameDirectionOnly && previous.strand !== next.strand) ||
+          (distance !== null && gap > distance);
+        if (boundary) {
+          if (containsQuery) components.push(genes.slice(first, index));
+          first = index;
+          containsQuery = Boolean(next?.query);
+        } else if (next.query) containsQuery = true;
+      }
+      if (components.length === 1 && components[0].length === genes.length) {
+        result.push(entry);
+        continue;
+      }
+      components.forEach((component, index) => {
+        result.push(finalizeNeighborhoodEntry({
+          ...entry,
+          // Keep the original block ID for searching, labels and provenance.
+          // Rendering/layout maps are keyed by each distinct entry object.
+          sourceId: entry.sourceId || entry.id,
+          sourceRegionStart: entry.regionStart,
+          sourceRegionEnd: entry.regionEnd,
+          segmentIndex: index + 1,
+          segmentCount: components.length,
+          genes: component
+        }));
+      });
+    }
+    return result;
   }
 
   function tokenizeFilter(input) {
@@ -1412,7 +1485,7 @@
       addField(list, 'Organism', gene.organism || entry.organism);
       addField(list, 'Taxonomy', gene.classification || entry.classification || gene.lineage || entry.lineage);
       addField(list, 'Product', gene.product);
-      if (entry.nucleotide) {
+      if (entry.nucleotide && hasGenomicCoordinates(entry)) {
         addField(list, 'Region', `${entry.nucleotide}:${formatInt(gene.start)}–${formatInt(gene.end)} (${gene.strand})`);
       } else {
         addField(list, 'Orientation', gene.strand === '-' ? 'Reverse' : 'Forward');
@@ -1424,7 +1497,7 @@
 
       const foot = document.createElement('div');
       foot.className = 'nbh-tooltip-foot';
-      foot.textContent = entry.nucleotide
+      foot.textContent = entry.nucleotide && hasGenomicCoordinates(entry)
         ? 'Click the arrow to open this region at NCBI ↗'
         : (ncbiProteinUrl(gene.pid) ? 'Click the arrow to open this protein at NCBI ↗' : 'Schematic gene; no external accession is available.');
       element.appendChild(foot);
@@ -1532,7 +1605,7 @@
       clipPath.appendChild(createSvgElement('polygon', { points }));
       defs.appendChild(clipPath);
 
-      const href = entry.nucleotide
+      const href = entry.nucleotide && hasGenomicCoordinates(entry)
         ? ncbiUrl(entry.nucleotide, gene.start, gene.end, gene.strand)
         : ncbiProteinUrl(gene.pid);
       const link = createSvgElement('a', {
@@ -1665,7 +1738,7 @@
   function createRowLabel(entry) {
     const label = document.createElement('div');
     label.className = 'nbh-row-label';
-    label.title = entry.classification || entry.lineage || entry.organism || entry.id;
+    label.title = `${entry.sourceId || entry.id}\n${entry.classification || entry.lineage || entry.organism || ''}`;
 
     const primary = document.createElement('strong');
     primary.textContent = entry.queryPids.length ? entry.queryPids.join(', ') : entry.id;
@@ -1675,18 +1748,29 @@
       count.textContent = `${entry.queryPids.length} queries`;
       primary.appendChild(count);
     }
+    if (entry.segmentCount > 1) {
+      const segment = document.createElement('span');
+      segment.className = 'query-count';
+      segment.textContent = `segment ${entry.segmentIndex}/${entry.segmentCount}`;
+      segment.title = `Original neighborhood: ${entry.sourceId}`;
+      primary.appendChild(segment);
+    }
 
-    const region = document.createElement(entry.nucleotide ? 'a' : 'span');
+    const genomic = hasGenomicCoordinates(entry);
+    const region = document.createElement(entry.nucleotide && genomic ? 'a' : 'span');
     region.className = 'nbh-region-label';
-    if (entry.nucleotide) {
+    if (entry.nucleotide && genomic) {
       region.textContent = `${entry.nucleotide}:${formatInt(entry.regionStart)}–${formatInt(entry.regionEnd)} ↗`;
       region.href = ncbiUrl(entry.nucleotide, entry.regionStart, entry.regionEnd);
       region.target = '_blank';
       region.rel = 'noopener noreferrer';
       region.title = 'Open the neighborhood at NCBI';
-    } else {
+    } else if (!genomic) {
       region.textContent = `${numberText(entry.genes.length)} genes · schematic`;
       region.title = 'Schematic neighborhood reconstructed from compact architecture input';
+    } else {
+      region.textContent = `${formatInt(entry.regionStart)}–${formatInt(entry.regionEnd)} · ${numberText(entry.genes.length)} genes`;
+      region.title = 'Genomic coordinates; nucleotide accession not provided';
     }
 
     const organism = document.createElement('em');
@@ -1704,6 +1788,7 @@
     function renderRow(entry, index) {
       const row = document.createElement('div');
       row.className = index % 2 ? 'nbh-row is-alt' : 'nbh-row';
+      row.dataset.blockId = entry.sourceId || entry.id;
       row.style.top = `${index * DEFAULTS.rowHeight}px`;
       row.style.width = `${layout.rowWidth}px`;
       row.appendChild(createRowLabel(entry));
@@ -1812,13 +1897,19 @@
       flipNegative: config.defaultFlipNegativeQueries,
       showLabels: config.defaultShowLabels,
       zoom: config.defaultZoom,
+      sameDirectionOnly: config.defaultSameDirectionOnly,
+      maxIntergenicDistance: config.defaultMaxIntergenicDistance,
+      distanceError: '',
       globalExtent: { min: -1, max: 1 },
       fixedExtent: { min: 0, max: 0 },
       fixedMaxWidth: 0,
       fixedLayouts: new Map(),
       fixedDomainWidthLookup: makeCaseInsensitiveLookup(config.fixedDomainWidths),
       allEntries: [],
+      continuityEntries: [],
+      continuityDirty: true,
       filteredEntries: [],
+      visibleStats: { neighborhoods: 0, rows: 0, genes: 0, domains: 0, markers: 0 },
       stats: { neighborhoods: 0, genes: 0, domains: 0, markers: 0, rows: 0 },
       rawTsvText: '',
       inputFormat: '',
@@ -1845,6 +1936,8 @@
     if (elements.labelsCheckbox) elements.labelsCheckbox.checked = state.showLabels;
     if (elements.zoomInput) elements.zoomInput.value = String(state.zoom);
     if (elements.zoomValue) elements.zoomValue.textContent = `${Math.round(state.zoom * 100)}%`;
+    if (elements.sameDirectionCheckbox) elements.sameDirectionCheckbox.checked = state.sameDirectionOnly;
+    if (elements.maxIntergenicDistanceInput) elements.maxIntergenicDistanceInput.value = state.maxIntergenicDistance === null ? '' : String(state.maxIntergenicDistance);
 
     const tooltip = createTooltip(elements.tooltipHost || document.body);
     const virtualList = createVirtualList({
@@ -1875,8 +1968,11 @@
 
     function collectDomainStats(entries) {
       const stats = new Map();
+      const seenByNeighborhood = new Map();
       for (const entry of entries) {
-        const neighborhoodSeen = new Set();
+        const sourceId = entry.sourceId || entry.id;
+        if (!seenByNeighborhood.has(sourceId)) seenByNeighborhood.set(sourceId, new Set());
+        const neighborhoodSeen = seenByNeighborhood.get(sourceId);
         for (const gene of entry.genes) {
           const geneSeen = new Set();
           for (const domain of gene.domains) {
@@ -1932,7 +2028,7 @@
     }
 
     function recomputeFixedLayouts() {
-      const computed = computeFixedLayouts(state.allEntries, state);
+      const computed = computeFixedLayouts(state.filteredEntries, state);
       state.fixedLayouts = computed.rows;
       state.fixedExtent = computed.extent;
       state.fixedMaxWidth = computed.maxWidth;
@@ -1949,7 +2045,7 @@
       elements.viewport.scrollLeft = Math.max(0, anchorAbsoluteX - desiredScreenX);
     }
 
-    function updateLayout(preserve = true) {
+    function updateLayout(preserve = true, refresh = true) {
       const available = Math.max(0, elements.viewport.clientWidth - DEFAULTS.labelWidth - DEFAULTS.trackPadding);
       const baseWidth = Math.max(DEFAULTS.minTrackWidth, available);
 
@@ -1975,13 +2071,40 @@
 
       layout.rowWidth = DEFAULTS.labelWidth + layout.trackWidth + DEFAULTS.trackPadding;
       if (elements.zoomValue) elements.zoomValue.textContent = `${Math.round(state.zoom * 100)}%`;
-      virtualList.refresh();
+      if (refresh) virtualList.refresh();
       if (!preserve) setDefaultHorizontalPosition();
+    }
+
+    function computeVisibleStats(entries) {
+      const counts = { neighborhoods: new Set(entries.map(entry => entry.sourceId || entry.id)).size, rows: entries.length, genes: 0, domains: 0, markers: 0 };
+      for (const entry of entries) {
+        counts.genes += entry.genes.length;
+        for (const gene of entry.genes) for (const domain of gene.domains) {
+          if (domain.marker) counts.markers += 1;
+          else counts.domains += 1;
+        }
+      }
+      return counts;
+    }
+
+    function updateContinuityHelp() {
+      const synthetic = state.allEntries.filter(entry => !hasGenomicCoordinates(entry)).length;
+      const noQuery = state.allEntries.filter(entry => !entry.queryGenes.length).length;
+      const notes = [];
+      if (state.distanceError) notes.push(state.distanceError);
+      if (synthetic) notes.push(`${numberText(synthetic)} schematic neighborhood${synthetic === 1 ? '' : 's'}: genomic distances are unavailable, so the distance limit is ignored for these rows. The direction filter remains available.`);
+      if (noQuery && (state.sameDirectionOnly || state.maxIntergenicDistance !== null)) {
+        notes.push(`${numberText(noQuery)} neighborhood${noQuery === 1 ? '' : 's'} without a marked query ${noQuery === 1 ? 'is' : 'are'} shown unchanged.`);
+      }
+      if (elements.maxIntergenicDistanceInput) {
+        elements.maxIntergenicDistanceInput.disabled = state.allEntries.length > 0 && synthetic === state.allEntries.length;
+      }
+      if (elements.continuityHelp) elements.continuityHelp.textContent = notes.join(' ');
     }
 
     function updateStatus() {
       if (!elements.statusText) return;
-      const filtered = state.filteredEntries.length;
+      const filtered = state.visibleStats.neighborhoods;
       const total = state.allEntries.length;
       const neighborhoodWord = total === 1 ? 'neighborhood' : 'neighborhoods';
       const percentage = total ? (filtered / total) * 100 : 0;
@@ -1989,10 +2112,14 @@
       const prefix = filtered === total
         ? `${numberText(total)} ${neighborhoodWord}`
         : `${numberText(filtered)} of ${numberText(total)} ${neighborhoodWord}`;
-      elements.statusText.textContent = `${prefix} (${percentageText}%) · ${numberText(state.stats.genes)} genes · ${numberText(state.stats.domains)} domains`;
+      elements.statusText.textContent = `${prefix} (${percentageText}%) · ${numberText(state.visibleStats.rows)} rows · ${numberText(state.visibleStats.genes)} genes · ${numberText(state.visibleStats.domains)} domains`;
     }
 
     function applyFilter(resetScroll = true) {
+      if (state.continuityDirty) {
+        state.continuityEntries = buildContinuitySegments(state.allEntries, state);
+        state.continuityDirty = false;
+      }
       const includeQuery = elements.includeInput ? elements.includeInput.value : '';
       const excludeQuery = elements.excludeInput ? elements.excludeInput.value : '';
       const terms = [
@@ -2000,14 +2127,23 @@
         ...compileFilter(excludeQuery, true)
       ];
       state.filteredEntries = terms.length
-        ? state.allEntries.filter(entry => entryMatches(entry, terms))
-        : state.allEntries;
+        ? state.continuityEntries.filter(entry => entryMatches(entry, terms))
+        : state.continuityEntries;
+      state.visibleStats = computeVisibleStats(state.filteredEntries);
+      state.globalExtent = computeGlobalExtent(state.filteredEntries, state.flipNegative);
+      recomputeFixedLayouts();
+      updateLayout(!resetScroll, false);
       if (elements.includeClearButton) elements.includeClearButton.hidden = !includeQuery;
       if (elements.excludeClearButton) elements.excludeClearButton.hidden = !excludeQuery;
       virtualList.setItems(state.filteredEntries, resetScroll);
+      tooltip.hide();
+      updateContinuityHelp();
       updateStatus();
       notifyHandlers(state.visibleChangeHandlers, {
-        visibleNeighborhoods: state.filteredEntries.length,
+        visibleNeighborhoods: state.visibleStats.neighborhoods,
+        visibleRows: state.visibleStats.rows,
+        visibleGenes: state.visibleStats.genes,
+        visibleDomains: state.visibleStats.domains,
         totalNeighborhoods: state.allEntries.length,
         domainStats: getDomainStats({ scope: 'visible' })
       });
@@ -2021,6 +2157,28 @@
 
     if (elements.includeInput) elements.includeInput.addEventListener('input', scheduleFilter);
     if (elements.excludeInput) elements.excludeInput.addEventListener('input', scheduleFilter);
+    if (elements.sameDirectionCheckbox) {
+      elements.sameDirectionCheckbox.addEventListener('change', event => {
+        state.sameDirectionOnly = event.target.checked;
+        state.continuityDirty = true;
+        applyFilter(true);
+      });
+    }
+    if (elements.maxIntergenicDistanceInput) {
+      elements.maxIntergenicDistanceInput.addEventListener('input', event => {
+        const input = event.target;
+        const value = input.value.trim();
+        const distance = value === '' ? null : Number(value);
+        const valid = !input.validity.badInput && (distance === null || (Number.isSafeInteger(distance) && distance >= 0));
+        state.distanceError = valid ? '' : 'Enter a whole number of zero or more, or clear the field to disable the distance limit. The previous valid limit remains active.';
+        input.setCustomValidity(state.distanceError);
+        input.setAttribute('aria-invalid', String(!valid));
+        if (!valid) { updateContinuityHelp(); return; }
+        state.maxIntergenicDistance = distance;
+        state.continuityDirty = true;
+        scheduleFilter();
+      });
+    }
 
     if (elements.includeClearButton) {
       elements.includeClearButton.addEventListener('click', () => {
@@ -2053,7 +2211,7 @@
     if (elements.flipCheckbox) {
       elements.flipCheckbox.addEventListener('change', event => {
         state.flipNegative = event.target.checked;
-        state.globalExtent = computeGlobalExtent(state.allEntries, state.flipNegative);
+        state.globalExtent = computeGlobalExtent(state.filteredEntries, state.flipNegative);
         recomputeFixedLayouts();
         updateLayout(!(state.scaleMode === 'fixed' && state.alignQuery));
       });
@@ -2092,14 +2250,20 @@
       const resetFilters = options.resetFilters !== false;
       const resetScroll = options.resetScroll !== false;
       state.allEntries = parsed.entries;
-      state.filteredEntries = parsed.entries;
+      state.continuityDirty = true;
       state.stats = parsed.stats;
-      state.globalExtent = computeGlobalExtent(state.allEntries, state.flipNegative);
-      recomputeFixedLayouts();
-      updateLayout(!resetScroll);
       if (resetFilters) {
         if (elements.includeInput) elements.includeInput.value = '';
         if (elements.excludeInput) elements.excludeInput.value = '';
+        state.sameDirectionOnly = config.defaultSameDirectionOnly;
+        state.maxIntergenicDistance = config.defaultMaxIntergenicDistance;
+        state.distanceError = '';
+        if (elements.sameDirectionCheckbox) elements.sameDirectionCheckbox.checked = state.sameDirectionOnly;
+        if (elements.maxIntergenicDistanceInput) {
+          elements.maxIntergenicDistanceInput.value = state.maxIntergenicDistance === null ? '' : String(state.maxIntergenicDistance);
+          elements.maxIntergenicDistanceInput.setCustomValidity('');
+          elements.maxIntergenicDistanceInput.setAttribute('aria-invalid', 'false');
+        }
       }
       applyFilter(resetScroll);
       notifyHandlers(state.dataChangeHandlers, {
@@ -2170,7 +2334,10 @@
       getDomainStats,
       getSummary: () => ({
         stats: { ...state.stats },
-        visibleNeighborhoods: state.filteredEntries.length,
+        visibleNeighborhoods: state.visibleStats.neighborhoods,
+        visibleRows: state.visibleStats.rows,
+        visibleGenes: state.visibleStats.genes,
+        visibleDomains: state.visibleStats.domains,
         totalNeighborhoods: state.allEntries.length,
         inputFormat: state.inputFormat,
         warnings: state.parseWarnings.slice()

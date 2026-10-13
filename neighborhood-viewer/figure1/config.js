@@ -28,6 +28,10 @@ window.NEIGHBORHOOD_VIEWER_CONFIG = {
   // every row begins near the left label.
   defaultAlignQuery: false,
   defaultFlipNegativeQueries: true,
+  // Continuity filters retain query-connected segments. Same-direction filtering
+  // is optional; a null distance disables the maximum intergenic gap.
+  defaultSameDirectionOnly: false,
+  defaultMaxIntergenicDistance: 20,
   defaultShowLabels: true,
   defaultZoom: 1,
 

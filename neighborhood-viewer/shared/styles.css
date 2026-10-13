@@ -212,6 +212,15 @@ a { color: inherit; }
   background: white;
 }
 
+.continuity-controls { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); }
+.nbh-distance-field input { width: 85px; min-height: 34px; padding: 5px 8px; border: 1px solid #c7cfdb; border-radius: 8px; color: var(--ink); background: white; font: inherit; font-variant-numeric: tabular-nums; }
+.nbh-distance-field input:focus-visible { outline: 3px solid rgb(37 99 235 / 24%); outline-offset: 1px; }
+.nbh-distance-field input:disabled { color: #7a8698; background: #f1f5f9; cursor: not-allowed; }
+.nbh-continuity-hint, .nbh-continuity-rules, .nbh-continuity-note { color: #64748b; font-size: 11px; line-height: 1.55; }
+.nbh-continuity-rules { margin: 9px 0 0; }
+.nbh-continuity-note { margin: 7px 0 0; padding: 7px 9px; border-radius: 7px; background: #f1f5f9; color: #465166; }
+.nbh-continuity-note:empty { display: none; }
+
 .check-field {
   display: inline-flex;
   align-items: center;

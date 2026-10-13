@@ -79,7 +79,7 @@ Editors and publication figures intentionally have different interfaces. Editors
 | Module | Status | Current capabilities |
 |---|---|---|
 | Protein Structure and MSA Viewer | Available | PDB/mmCIF rendering, YAML regions, linked MSA, bidirectional multi-selection, visual annotation editing, native Mol* selection-component import, and chain-to-reference suggestions. |
-| Gene Neighborhood Viewer | Available | Oriented neighborhoods, domain architectures, filtering, query alignment, taxonomy information, domain-frequency curation, rename YAML, and color YAML. |
+| Gene Neighborhood Viewer | Available | Oriented neighborhoods, query-connected segments with optional strand continuity and intergenic gap limits, domain architectures, text filtering, query alignment, taxonomy information, domain-frequency curation, rename YAML, and color YAML. |
 | Phylogeny Viewer | Available | Unrooted, curved radial, and rectangular views; mouse-wheel zoom and drag panning; optional branch lengths; selected support circles or numbers; saved midpoint roots; nested clade groups; dynamic TSV labels and hover fields; filtering; and publication YAML generation. |
 | Network Viewer | Available | Undirected aggregation, edge-count filtering, alternative layouts, dragging, YAML functions, Louvain/Leiden detection on the visible graph, and YAML generation. |
 | Taxonomy Sankey Viewer | Available | TaxID reconciliation, input-classification fallback, online or snapshot resolution, strict canonical-rank columns, invisible missing-rank spacers, author-named display parents, adjustable vertical density, borderless labels, collapsed synthetic Other groups, reader-controlled rank expansion, node curation, standalone SVG export from the Editor, frozen resolved TSV export, and an offline hierarchy-aware Sankey. |
@@ -111,6 +111,8 @@ Builder 1.8.0 adds **Download portable ZIP** for Windows, macOS, and Linux x64. 
 Builder 1.8.1 uses English launcher names and adds an **Open supplement** icon to Windows portable exports. The shortcut starts the included command launcher; `Open-supplement.cmd` remains available as a fallback.
 
 Builder 1.9.0 adds an optional uploaded cover image above the publication sections. PNG, JPEG, WebP, GIF, and SVG are supported. The complete image keeps its aspect ratio, with optional accessibility text and a caption. The image and its settings are saved in Builder states and packed locally in both publication export formats. Older states and projects without a cover retain their existing layout.
+
+Builder 1.10.0 includes Gene Neighborhood Viewer 3.5.0 with **Same direction as query** and **Intergenic distance (bp)** controls. The distance limit starts at 20 bp and can be cleared; strand continuity is off by default. Connected queries share a row, while disconnected segments have separate rows. Compact synthetic coordinates do not use biological distance filtering. These reversible view filters preserve the source data and full normalized exports; see the [neighborhood filter documentation](neighborhood-viewer/README.md#filters).
 
 Creating a portable ZIP may need internet access to obtain viewer libraries, which are included for local use afterward. External links and remote resources inside custom HTML or imported content may still require internet. The normal project ZIP remains available for hosting.
 

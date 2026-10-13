@@ -86,7 +86,13 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
 - Multi-Structure Comparison Viewer figures generated from the publication package ZIP exported by its editor.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.9.0 includes all seven interactive modules, including the Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.10.0 includes all seven interactive modules, including the Gene Neighborhood Viewer 3.5.0, Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
+
+## Neighborhood filter defaults
+
+Each Gene Neighborhood item includes **Same direction as query** (off by default) and **Intergenic distance (bp)** (20 by default). The distance is a maximum genomic gap between adjacent genes, not the visual spacing between drawn arrows. Enter a nonnegative whole number; **0** is a valid limit. Leave the distance blank to disable its filter.
+
+These settings become the initial controls in the generated neighborhood viewer and are preserved by **Save state**, **Load state**, and **Open project ZIP**. Both regular and portable exports write `defaultSameDirectionOnly` and `defaultMaxIntergenicDistance` into the figure's `config.js`; an empty distance is saved as `null`, distinct from `0`. Older states without these fields receive the defaults: same-direction filtering off and distance 20 bp. Existing attached files do not need to be selected again.
 
 ## Editors and publication figures
 
