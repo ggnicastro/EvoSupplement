@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.10.1';
+  const BUILDER_VERSION = '1.10.2';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
@@ -27,7 +27,7 @@
   };
   const MODULE_VERSIONS = {
     protein: '2.13.0',
-    neighborhood: '3.5.0',
+    neighborhood: '3.5.1',
     phylogeny: '2.1.0',
     network: '1.2.0',
     taxonomy: '1.4.1',

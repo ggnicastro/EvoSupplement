@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_VERSION = '3.5.0';
+  const VIEWER_VERSION = '3.5.1';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const XLINK_NS = 'http://www.w3.org/1999/xlink';
   const FIELD_ALIASES = Object.freeze({
@@ -1482,6 +1482,7 @@
       list.className = 'nbh-tooltip-grid';
       addField(list, 'Protein', gene.pid);
       addField(list, 'PFAM', gene.pfam);
+      addField(list, 'ProfileDB', gene.profiledb);
       addField(list, 'Organism', gene.organism || entry.organism);
       addField(list, 'Taxonomy', gene.classification || entry.classification || gene.lineage || entry.lineage);
       addField(list, 'Product', gene.product);

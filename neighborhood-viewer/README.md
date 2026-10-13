@@ -185,6 +185,7 @@ The viewer stops with an error when any required column is missing.
 | `arch` | Domain architecture text included in domain searches. |
 | `profiledb` | Profile annotation text included in domain searches. |
 | `pfam` | PFAM annotation used by the PFAM filter. |
+| `profiledb` | Auxiliary profile annotation included in domain/general searches and shown as **ProfileDB** in gene/domain tooltips. |
 
 Additional TSV columns are tolerated and remain available in the source data even when the current interface does not display them.
 
@@ -346,6 +347,8 @@ Supported filter fields are:
 Representative searches include a domain plus an organism, a PFAM plus a taxonomic group, removal of transmembrane-containing neighborhoods, or exclusion of hypothetical proteins. Test manuscript-relevant searches before publication and document any filters used to derive static conclusions.
 
 ## Labels, tooltips, and links
+
+Viewer 3.5.1 displays the gene's `profiledb` annotation in the tooltip, alongside PFAM and the other gene information. For example, a gene drawn with `HsdM_N` and `N6_Mtase` can have `MTase+HAD` in **ProfileDB**; that annotation explains why it matches a search for `HAD`. Search behavior is unchanged. Empty values and `-` are omitted from the tooltip.
 
 - Domain labels appear when enabled and when sufficient width is available.
 - Hovering over a domain or gene reveals its protein identifier, organism, product, coordinates, and other available metadata.
