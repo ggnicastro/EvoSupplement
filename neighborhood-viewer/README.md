@@ -399,7 +399,11 @@ The editor computes three frequency measures for every canonical domain identifi
 - **Occurrences** — every domain segment in the TSV;
 - **Distinct neighborhoods** — the number of neighborhood blocks containing the domain.
 
-Frequency can be calculated from the full loaded dataset or from the neighborhoods currently retained by the Include/Exclude filters. Special markers such as TM, SIG, and SIF remain visible in the table but are excluded from automatic Top-N color suggestions.
+Editor 1.2.0 defaults **Frequency scope** to **Filtered view**. Counts, ranks, the summary, and Top-N color suggestions use only the genes retained after the direction, intergenic-distance, Include, and Exclude filters. They update automatically whenever those filters change, across the entire filtered dataset, including rows outside the scrolling viewport. Domains with no remaining occurrences are hidden from this scope. **All loaded data** remains available for comparing the original dataset.
+
+The neighborhood frequency counts distinct original neighborhoods: two displayed segments from one source neighborhood contribute at most one neighborhood for a given domain. Occurrences count domain instances, while Genes counts each retained gene containing that domain once. The domain-name search only narrows the table; it does not change these counts or the statistical scope used by Top-N suggestions.
+
+Filtering preserves all domain name and color edits. If the selected domain leaves the filtered view, the editor displays a note and restores its form when it returns. YAML and normalized TSV exports retain the complete curated data. Special markers such as TM, SIG, and SIF appear when present in the selected scope but remain excluded from automatic Top-N color suggestions.
 
 Choose Top 10, 15, 20, or a custom number and use **Suggest colors** to assign a deterministic high-contrast palette. Existing selected colors can be preserved. Selecting a row, or clicking a domain block while editor mode is enabled, opens controls for:
 

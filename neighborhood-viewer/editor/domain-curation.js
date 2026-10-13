@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const EDITOR_VERSION = '1.1.0';
+  const EDITOR_VERSION = '1.2.0';
   const DEFAULT_COLOR = '#d7dce2';
   const PALETTE = [
     '#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F',
@@ -189,13 +189,24 @@
       return scope === 'visible' ? state.visibleStats : state.allStats;
     }
 
+    function currentScope() {
+      return elements.scope?.value === 'all' ? 'all' : 'visible';
+    }
+
+    function scopedRecords() {
+      const records = Array.from(state.records.values());
+      return currentScope() === 'visible'
+        ? records.filter(record => (state.visibleStats.get(record.rawName)?.occurrences || 0) > 0)
+        : records;
+    }
+
     function metricValue(record, metric, scope) {
       const stats = statsMap(scope).get(record.rawName);
       return stats ? Number(stats[metric] || 0) : 0;
     }
 
     function currentStats(record) {
-      const scope = elements.scope?.value === 'visible' ? 'visible' : 'all';
+      const scope = currentScope();
       return statsMap(scope).get(record.rawName) || {
         occurrences: 0,
         genes: 0,
@@ -203,9 +214,9 @@
       };
     }
 
-    function duplicateDisplayCount() {
+    function duplicateDisplayCount(records) {
       const counts = new Map();
-      for (const record of state.records.values()) {
+      for (const record of records) {
         const name = clean(record.displayName) || record.rawName;
         const key = lower(name);
         counts.set(key, (counts.get(key) || 0) + 1);
@@ -217,19 +228,21 @@
 
     function updateSummary() {
       if (!elements.summary) return;
-      const colored = Array.from(state.records.values()).filter(record => record.colorIncluded).length;
-      const renamed = Array.from(state.records.values()).filter(record => clean(record.displayName) && record.displayName !== record.rawName).length;
-      const duplicates = duplicateDisplayCount();
-      elements.summary.textContent = `${numberText(state.records.size)} domains · ${numberText(colored)} colored · ${numberText(renamed)} renamed${duplicates ? ` · ${duplicates} duplicate names` : ''}`;
+      const records = scopedRecords();
+      const colored = records.filter(record => record.colorIncluded).length;
+      const renamed = records.filter(record => clean(record.displayName) && record.displayName !== record.rawName).length;
+      const duplicates = duplicateDisplayCount(records);
+      const scopeLabel = currentScope() === 'visible' ? 'filtered view' : 'all loaded data';
+      elements.summary.textContent = `${numberText(records.length)} domains in ${scopeLabel} · ${numberText(colored)} colored · ${numberText(renamed)} renamed${duplicates ? ` · ${duplicates} duplicate names` : ''}`;
     }
 
     function sortedRecords() {
       const metric = ['occurrences', 'genes', 'neighborhoods'].includes(elements.metric?.value)
         ? elements.metric.value
         : 'genes';
-      const scope = elements.scope?.value === 'visible' ? 'visible' : 'all';
+      const scope = currentScope();
       const query = lower(elements.search?.value);
-      return Array.from(state.records.values())
+      return scopedRecords()
         .filter(record => !query || lower(`${record.rawName} ${record.displayName}`).includes(query))
         .sort((a, b) => {
           const countDiff = metricValue(b, metric, scope) - metricValue(a, metric, scope);
@@ -300,14 +313,28 @@
         fragment.appendChild(row);
       });
       elements.tableBody.replaceChildren(fragment);
-      if (elements.emptyRows) elements.emptyRows.hidden = records.length > 0;
+      if (elements.emptyRows) {
+        elements.emptyRows.hidden = records.length > 0;
+        elements.emptyRows.textContent = currentScope() === 'visible'
+          ? 'No domains match the current neighborhood filters and domain search.'
+          : 'No domains match this search.';
+      }
       updateSummary();
     }
 
     function renderSelectedEditor() {
       const record = state.records.get(state.selectedRawName);
-      if (!record) {
-        if (elements.editorEmpty) elements.editorEmpty.hidden = false;
+      const outsideView = record && currentScope() === 'visible' && !state.visibleStats.has(record.rawName);
+      if (!record || outsideView) {
+        for (const element of [elements.countOccurrences, elements.countGenes, elements.countNeighborhoods]) {
+          if (element) element.textContent = '0';
+        }
+        if (elements.editorEmpty) {
+          elements.editorEmpty.hidden = false;
+          elements.editorEmpty.textContent = outsideView
+            ? 'The selected domain is outside the filtered view. Change the filters, select another domain, or choose All loaded data. Its name and color edits are preserved.'
+            : 'Select a domain from the table or click a domain block in the viewer.';
+        }
         if (elements.editorForm) elements.editorForm.hidden = true;
         return;
       }
@@ -434,6 +461,7 @@
       renderTable();
       const first = sortedRecords()[0];
       if (first) selectDomain(first.rawName, false);
+      else renderSelectedEditor();
       const summary = viewer.getSummary();
       const formatLabel = summary.inputFormat === 'compact' ? 'compact architecture' : 'standard TSV';
       const warningText = summary.warnings?.length ? ` ${numberText(summary.warnings.length)} parser warning${summary.warnings.length === 1 ? '' : 's'} recorded.` : '';
@@ -452,7 +480,7 @@
       const metric = ['occurrences', 'genes', 'neighborhoods'].includes(elements.metric?.value)
         ? elements.metric.value
         : 'genes';
-      const scope = elements.scope?.value === 'visible' ? 'visible' : 'all';
+      const scope = currentScope();
       const requested = Math.max(1, Math.min(250, Number(elements.topCount?.value) || 10));
       const candidates = Array.from(state.records.values())
         .filter(record => !record.marker && metricValue(record, metric, scope) > 0)
@@ -467,7 +495,7 @@
       renderTable();
       renderSelectedEditor();
       scheduleApply();
-      showMessage(`Suggested distinct colors for the top ${candidates.length} non-marker domains ranked by ${metric} in the ${scope === 'all' ? 'full dataset' : 'visible neighborhoods'}.`);
+      showMessage(`Suggested distinct colors for the top ${candidates.length} non-marker domains ranked by ${metric} in the ${scope === 'all' ? 'full dataset' : 'filtered view'}.`);
     }
 
     function exportRenameObject() {
@@ -488,7 +516,7 @@
 
     function exportHeader() {
       const metric = elements.metric?.value || 'genes';
-      const scope = elements.scope?.value === 'visible' ? 'visible neighborhoods' : 'all loaded neighborhoods';
+      const scope = currentScope() === 'visible' ? 'filtered view (retained genes after continuity and text filters)' : 'all loaded neighborhoods';
       return [
         `Frequency ranking: ${metric}`,
         `Ranking scope: ${scope}`,
@@ -627,7 +655,7 @@
     viewer.onDomainSelect(payload => selectDomain(payload.rawName, true));
     viewer.onVisibleChange(payload => {
       state.visibleStats = new Map((payload.domainStats || []).map(record => [record.rawName, record]));
-      if (elements.scope?.value === 'visible') {
+      if (currentScope() === 'visible') {
         renderTable();
         renderSelectedEditor();
       }

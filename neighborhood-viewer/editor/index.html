@@ -85,9 +85,10 @@
           <label class="nbh-editor-field">
             <span>Frequency scope</span>
             <select id="domainRankScope">
-              <option value="all" selected>All loaded data</option>
-              <option value="visible">Visible neighborhoods</option>
+              <option value="visible" selected>Filtered view</option>
+              <option value="all">All loaded data</option>
             </select>
+            <small>Counts and ranking follow the direction, distance, Include and Exclude filters. Split rows count once per original neighborhood.</small>
           </label>
           <label class="nbh-editor-field">
             <span>Top domains</span>
@@ -271,7 +272,7 @@
   <script src="./vendor/jszip.min.js"></script>
   <script src="./config.js?v=3.5.0"></script>
   <script src="../shared/neighborhood-viewer.js?v=3.5.0"></script>
-  <script src="./domain-curation.js?v=1.1.0"></script>
+  <script src="./domain-curation.js?v=1.2.0"></script>
   <script>
     (async () => {
       await window.NeighborhoodViewer.init({
