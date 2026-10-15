@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.11.0';
+  const BUILDER_VERSION = '1.12.0';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
@@ -31,7 +31,7 @@
     phylogeny: '2.1.0',
     network: '1.2.0',
     taxonomy: '1.4.1',
-    architecture: '1.0.0',
+    architecture: '1.1.0',
     multistructure: '1.0.0'
   };
 
@@ -1050,6 +1050,8 @@
           <div class="specific-grid">
             <div class="field"><span>Domain TSV <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'architectureData', 'Choose domain TSV', '.tsv,.txt,text/tab-separated-values')}<small class="field-help">One row per domain or feature; required columns are pid, domain, start, end, and plen.</small></div>
             <div class="field"><span>Architecture YAML <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'architectureYaml', 'Choose architecture YAML', '.yaml,.yml,text/yaml')}<small class="field-help">Create colors, shapes, compact layouts, labels, sorting, and hover fields in the Domain Architecture Editor.</small></div>
+            <div class="field"><span>Color YAML <small>optional</small></span>${renderFilePicker(item, 'architectureColors', 'Choose color YAML', '.yaml,.yml,text/yaml')}<small class="field-help">Apply colors by the final domain name after renaming. Listed entries override the architecture styles.</small></div>
+            <div class="field"><span>Shape YAML <small>optional</small></span>${renderFilePicker(item, 'architectureShapes', 'Choose shape YAML', '.yaml,.yml,text/yaml')}<small class="field-help">Apply shapes by the final domain name after renaming.</small></div>
           </div>`;
       case 'multistructure':
         return `
@@ -1448,7 +1450,7 @@
       case 'phylogeny': return ['annotations'];
       case 'network': return ['nodes', 'colors'];
       case 'taxonomy': return ['taxonomyColors', 'taxonomyInput'];
-      case 'architecture': return [];
+      case 'architecture': return ['architectureColors', 'architectureShapes'];
       case 'multistructure': return [];
       default: return [];
     }
@@ -1458,7 +1460,7 @@
     return ({
       figure: 'figure image', file: 'uploaded', html: 'HTML', structure: 'structure', annotations: 'annotation', msa: 'alignment',
       neighborhoods: 'neighborhood input', rename: 'rename YAML', colors: 'color YAML', tree: 'tree', phylogenyYaml: 'phylogeny YAML',
-      edges: 'edge TSV', nodes: 'node YAML', taxonomyResolved: 'resolved taxonomy TSV', taxonomyYaml: 'taxonomy curation YAML', taxonomyColors: 'taxonomy color YAML', taxonomyInput: 'original taxonomy TSV', architectureData: 'domain TSV', architectureYaml: 'architecture YAML', multiStructurePackage: 'multi-structure publication package ZIP'
+      edges: 'edge TSV', nodes: 'node YAML', taxonomyResolved: 'resolved taxonomy TSV', taxonomyYaml: 'taxonomy curation YAML', taxonomyColors: 'taxonomy color YAML', taxonomyInput: 'original taxonomy TSV', architectureData: 'domain TSV', architectureYaml: 'architecture YAML', architectureColors: 'architecture color YAML', architectureShapes: 'architecture shape YAML', multiStructurePackage: 'multi-structure publication package ZIP'
     })[role] || role;
   }
 
@@ -1920,6 +1922,13 @@
       root.file(yamlPath, yaml);
       assetRecords.push(assetRecord(item, 'architectureData', tablePath, table));
       assetRecords.push(assetRecord(item, 'architectureYaml', yamlPath, yaml));
+      for (const [role, filename] of [['architectureColors', 'color_dic.yaml'], ['architectureShapes', 'shape_dic.yaml']]) {
+        const file = getUpload(item.id, role);
+        if (!file) continue;
+        const path = `${itemBase}/data/${filename}`;
+        root.file(path, file);
+        assetRecords.push(assetRecord(item, role, path, file));
+      }
       return;
     }
 
@@ -2124,6 +2133,8 @@
         autoLoad: true,
         dataUrl: './data/domain.tsv',
         yamlUrl: './data/domain-architecture.yaml',
+        colorUrl: getUpload(item.id, 'architectureColors') ? './data/color_dic.yaml' : '',
+        shapeUrl: getUpload(item.id, 'architectureShapes') ? './data/shape_dic.yaml' : '',
         fitOnLoad: true,
         maxFileBytes: 67108864,
         maxRows: 500000,

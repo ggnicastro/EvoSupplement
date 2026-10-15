@@ -4,6 +4,14 @@ EvoSupplement Builder is a browser-based project generator for creating publicat
 
 Open `builder/` through an HTTP server, enter the paper metadata, create sections and items, attach the required files, and validate the project. Download a project ZIP for hosting or a portable ZIP that recipients can open locally without Python or Git hosting.
 
+## Unify figure colors and shapes
+
+Builder 1.12.0 links to the **Project Style Manager**, which opens in a separate tab. First use **Save state**, then load that ZIP in the Style Manager. Select the module layers that should share a palette (for example, Neighborhood and Architecture), review names after renaming and resolve conflicting colors. Apply the group and download an updated state, then return to **Load state** in the Builder. All instances in the selected layers receive the group palette; unselected layers retain their attachments and configuration.
+
+Architecture items also accept optional **Color YAML** and **Shape YAML** attachments. The final renamed domain name takes precedence over its original identifier when resolving these dictionaries. Listed entries override the corresponding architecture style, while other curation fields and fixed SIG/TM/LIPO conventions are preserved. Both attachments are retained in saved states and included in regular and portable publication exports. Use the current Builder when publishing a state with these inputs.
+
+The Style Manager operates on saved Builder state ZIPs. For a publication ZIP, use **Open project ZIP** followed by **Save state** first. See the [Style Manager workflow](../style-manager/README.md) for color-category semantics and conflict handling.
+
 ## Organize a long supplement
 
 Builder 1.11.0 lets you collapse individual sections and items while editing. Use **Collapse all** to reduce the form to its headings, then expand the section or item you want to work on. **Expand all** opens everything again.

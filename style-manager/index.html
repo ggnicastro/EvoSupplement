@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Project Style Manager · EvoSupplement</title>
+  <link rel="stylesheet" href="./styles.css?v=1.0.0">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="../" aria-label="EvoSupplement Studio home">
+      <span class="brand-mark" aria-hidden="true">ES</span>
+      <span><strong>Project Style Manager</strong><small>EvoSupplement Studio</small></span>
+    </a>
+    <div class="header-actions">
+      <span class="local-badge">Local browser processing</span>
+      <a class="button button-ghost" href="../builder/" target="_blank" rel="noopener noreferrer">Open Builder</a>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="hero" aria-labelledby="pageHeading">
+      <p class="eyebrow">One project, consistent styles</p>
+      <h1 id="pageHeading">Unify colors after renaming.</h1>
+      <p>Choose which module layers share a palette. Review their final display names, resolve conflicting styles, and save an updated Builder state.</p>
+      <ol class="workflow" aria-label="Workflow">
+        <li><span>1</span> Load state</li>
+        <li><span>2</span> Choose layers</li>
+        <li><span>3</span> Review styles</li>
+        <li><span>4</span> Download state</li>
+      </ol>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    <div id="error" class="status status-error" role="alert" hidden></div>
+
+    <div class="top-grid">
+      <section class="panel" aria-labelledby="loadHeading">
+        <p class="panel-kicker">Step 1</p>
+        <h2 id="loadHeading">Load a saved project</h2>
+        <p class="help">In the Builder, use <strong>Save state</strong>, then select that ZIP here. Uploaded data, page content, and settings travel with the state.</p>
+        <label class="field" for="stateFile">
+          <span>Builder state ZIP</span>
+          <input id="stateFile" type="file" accept=".zip,application/zip">
+        </label>
+        <div id="projectInfo" class="project-info" hidden>
+          <strong id="projectTitle"></strong>
+          <span id="projectFile"></span>
+          <span id="projectCounts"></span>
+        </div>
+        <p id="loadHint" class="small-help">Changes stay in this session until you download the updated state.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="layersHeading">
+        <div class="panel-heading">
+          <div><p class="panel-kicker">Step 2</p><h2 id="layersHeading">Choose a palette group</h2></div>
+          <button id="newGroupButton" class="button button-ghost button-small" type="button" hidden>New group</button>
+        </div>
+        <p class="help">All instances of the selected layers will share colors by final display name. Unselected layers keep their current styles.</p>
+        <fieldset id="layerFields" class="layers" disabled>
+          <legend class="sr-only">Module layers to unify</legend>
+          <label class="layer-option"><input type="checkbox" name="layer" value="taxonomy"><span>Taxonomy<small id="count-taxonomy">Load a state first</small></span></label>
+          <label class="layer-option"><input type="checkbox" name="layer" value="neighborhood" checked><span>Neighborhood<small id="count-neighborhood">Load a state first</small></span></label>
+          <label class="layer-option"><input type="checkbox" name="layer" value="architecture" checked><span>Architecture<small id="count-architecture">Load a state first</small></span></label>
+          <label class="layer-option"><input type="checkbox" name="layer" value="network"><span>Network<small id="count-network">Load a state first</small></span></label>
+        </fieldset>
+        <label class="field" for="groupName"><span>Group name <small>optional</small></span><input id="groupName" type="text" maxlength="120" placeholder="For example, domain colors" disabled></label>
+        <label class="checkbox-field"><input id="includeShapes" type="checkbox" checked disabled><span>Also unify architecture shapes</span></label>
+        <p id="layerHint" class="small-help">Names are matched exactly after each module's renaming rules. Network uses Function categories; taxonomy retains its coloring mode.</p>
+        <button id="analyzeButton" class="button button-primary" type="button" disabled>Review selected layers</button>
+      </section>
+    </div>
+
+    <section id="reviewPanel" class="panel review-panel" aria-labelledby="reviewHeading" hidden>
+      <div class="panel-heading">
+        <div><p class="panel-kicker">Step 3</p><h2 id="reviewHeading">Review the shared palette</h2><p id="reviewSummary" class="help"></p></div>
+        <span id="conflictBadge" class="badge"></span>
+      </div>
+      <p class="help">Each row is a final display name. Open its sources to inspect original identifiers and module instances. Choose a color for every conflict before applying the group.</p>
+      <div id="warningsBox" class="warnings" hidden><strong>Review notes</strong><ul id="warningsList"></ul></div>
+      <div class="review-toolbar">
+        <label class="search-field"><span class="sr-only">Search final names or sources</span><input id="searchInput" type="search" placeholder="Search names, original IDs, or module titles…"></label>
+        <label class="checkbox-field"><input id="conflictsOnly" type="checkbox"><span>Unresolved only</span></label>
+        <span id="filteredCount" class="small-help"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="palette-table">
+          <caption class="sr-only">Shared styles by final display name</caption>
+          <thead><tr><th scope="col">Final display name</th><th scope="col">Shared color</th><th scope="col" id="shapeColumnHeading">Architecture shape</th><th scope="col">Sources</th></tr></thead>
+          <tbody id="paletteBody"></tbody>
+        </table>
+      </div>
+      <p id="emptyReview" class="empty-state" hidden>No matching names.</p>
+      <div class="pagination"><button id="previousPage" class="button button-ghost button-small" type="button">Previous</button><span id="pageInfo"></span><button id="nextPage" class="button button-ghost button-small" type="button">Next</button></div>
+      <div class="apply-bar">
+        <p id="applyHint" class="help"></p>
+        <button id="applyButton" class="button button-primary" type="button" disabled>Apply shared palette</button>
+      </div>
+    </section>
+
+    <section id="downloadPanel" class="panel" aria-labelledby="downloadHeading" hidden>
+      <div class="panel-heading"><div><p class="panel-kicker">Step 4</p><h2 id="downloadHeading">Save the updated project</h2></div><button id="exportStateButton" class="button button-primary" type="button" disabled>Download updated state ZIP</button></div>
+      <p class="help">Open the downloaded ZIP with <strong>Load state</strong> in the Builder, then export your supplement as usual. Downloads include applied groups. You can also add another palette group here.</p>
+      <h3>Applied groups</h3>
+      <div id="groupsList" class="groups-list"></div>
+      <div class="palette-downloads">
+        <label class="field" for="exportGroup"><span>Download a group's dictionaries</span><select id="exportGroup"></select></label>
+        <button id="exportColorsButton" class="button button-secondary" type="button" disabled>Download color YAML</button>
+        <button id="exportShapesButton" class="button button-secondary" type="button" disabled>Download shape YAML</button>
+      </div>
+    </section>
+
+    <footer>Files are processed in your browser. Keep your original state ZIP if you want to restore its earlier styles.</footer>
+  </main>
+  <script src="../builder/vendor/jszip.min.js"></script>
+  <script src="../neighborhood-viewer/shared/neighborhood-viewer.js"></script>
+  <script src="./core.js?v=1.0.0"></script>
+  <script src="./app.js?v=1.0.0"></script>
+</body>
+</html>

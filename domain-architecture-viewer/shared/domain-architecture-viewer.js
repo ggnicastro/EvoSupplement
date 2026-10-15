@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const REQUIRED_COLUMNS = ['pid', 'domain', 'start', 'end', 'plen'];
   const SPECIAL_FEATURES = Object.freeze({
     TM: { color: '#4b5563', stroke: '#1f2937', shape: 'tm', label: 'TM' },
@@ -55,12 +55,16 @@
     domainMetadataColumns: [],
     allExtraColumns: [],
     settings: { ...DEFAULT_SETTINGS },
-    styles: {},
+    styles: Object.create(null),
     originalYaml: null,
     warnings: [],
     errors: [],
     sourceName: '',
     yamlName: '',
+    colorName: '',
+    shapeName: '',
+    colorDictionary: Object.create(null),
+    shapeDictionary: Object.create(null),
     search: '',
     selectedDomain: '',
     displayItems: [],
@@ -304,11 +308,11 @@
     if (source.startsWith('{')) {
       try { return JSON.parse(source); } catch { /* continue */ }
     }
-    const root = {};
+    const root = Object.create(null);
     const stack = [{ indent: -1, value: root }];
     for (const original of source.replace(/^\uFEFF/, '').split(/\r?\n/)) {
       const line = stripYamlComment(original).replace(/\s+$/, '');
-      if (!line.trim()) continue;
+      if (!line.trim() || ['---', '...'].includes(line.trim())) continue;
       const indent = line.match(/^\s*/)[0].replace(/\t/g, '  ').length;
       const content = line.trim();
       while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
@@ -320,13 +324,109 @@
       const [rawKey, rawValue] = yamlKeyValue(content);
       const key = String(parseYamlScalar(rawKey));
       if (!rawValue) {
-        const next = {};
+        const next = Object.create(null);
         parent[key] = next;
         stack.push({ indent, value: next });
       } else parent[key] = parseYamlScalar(rawValue);
     }
     return root;
   }
+
+
+  function parseStyleDictionary(text, property) {
+    const label = property === 'color' ? 'Color' : 'Shape';
+    const source = String(text || '').replace(/^\uFEFF/, '').trim();
+    const output = Object.create(null);
+    if (!source) return output;
+    let entries;
+    if (source.startsWith('{')) {
+      let parsed;
+      try { parsed = JSON.parse(source); }
+      catch { throw new Error(`${label} YAML must be a flat name-to-${property} mapping or JSON object.`); }
+      entries = Object.entries(parsed);
+    } else {
+      entries = [];
+      for (const [index, original] of source.split(/\r?\n/).entries()) {
+        const line = stripYamlComment(original).trim();
+        if (!line || line === '---' || line === '...') continue;
+        const [key, value] = yamlKeyValue(line);
+        if (!key || !value || /^\s/.test(original) || line.startsWith('- ')) {
+          throw new Error(`${label} YAML line ${index + 1}: expected a flat name: value entry. Quote hexadecimal colors, for example HAD: "#4f8fd9".`);
+        }
+        entries.push([String(parseYamlScalar(key)), parseYamlScalar(value)]);
+      }
+    }
+    for (const [name, value] of entries) {
+      if (typeof value !== 'string' || !name) throw new Error(`${label} YAML has an invalid value for "${name}".`);
+      const normalized = property === 'color' ? normalizeColor(value, '') : value.trim();
+      if (!normalized || (property === 'shape' && !SHAPES.includes(normalized))) {
+        throw new Error(property === 'color'
+          ? `Color YAML: "${name}" must use a quoted hexadecimal color (#RGB or #RRGGBB).`
+          : `Shape YAML: "${name}" must use one of ${SHAPES.join(', ')}.`);
+      }
+      if (Object.prototype.hasOwnProperty.call(output, name)) throw new Error(`${label} YAML contains duplicate name "${name}".`);
+      output[name] = normalized;
+    }
+    return output;
+  }
+
+  function domainGroups() {
+    const groups = new Map();
+    const ids = [...new Set([...state.domains.keys(), ...Object.keys(state.styles)])].sort(naturalCompare);
+    for (const id of ids) {
+      if (specialKey(id)) continue;
+      const name = getStyle(id).display_name || id;
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(id);
+    }
+    return groups;
+  }
+
+  function applyStyleDictionaries(payload = {}, render = true) {
+    // Parse both before applying either, so a malformed second file cannot partly change the figure.
+    const colors = payload.colorText !== undefined ? parseStyleDictionary(payload.colorText, 'color') : null;
+    const shapes = payload.shapeText !== undefined ? parseStyleDictionary(payload.shapeText, 'shape') : null;
+    const groups = domainGroups();
+    for (const [property, dictionary] of [['color', colors], ['shape', shapes]]) {
+      if (!dictionary) continue;
+      Object.assign(state[`${property}Dictionary`], dictionary);
+      for (const [name, ids] of groups) {
+        const keys = Object.prototype.hasOwnProperty.call(dictionary, name) ? [name] : ids.filter(id => !groups.has(id) && Object.prototype.hasOwnProperty.call(dictionary, id));
+        if (!keys.length) continue;
+        const value = dictionary[keys[0]];
+        if (new Set(keys.map(key => dictionary[key])).size > 1) {
+          state.warnings.push(`Different legacy ${property} entries resolve to "${name}". Used "${keys[0]}"; use the final name in the dictionary to select one shared value.`);
+        }
+        state[`${property}Dictionary`][name] = value;
+        for (const id of ids) state.styles[id] = normalizeStyle(id, { ...getStyle(id), [property]: value, explicit: true });
+      }
+    }
+    if (payload.colorName !== undefined) state.colorName = String(payload.colorName);
+    if (payload.shapeName !== undefined) state.shapeName = String(payload.shapeName);
+    for (const protein of state.proteins) protein.layoutCache.clear();
+    if (render) {
+      scheduleRender(false);
+      emit('style-changed', { dictionaries: true, domains: getDomainStats() });
+    }
+    return getSnapshot();
+  }
+
+  function serializeStyleDictionary(property) {
+    const dictionary = { ...state[`${property}Dictionary`] };
+    const groups = domainGroups();
+    for (const [name, ids] of groups) {
+      const values = [...new Set(ids.map(id => getStyle(id)[property]))];
+      if (values.length > 1) throw new Error(`"${name}" has different ${property} values. Apply a shared ${property} YAML or edit that domain's style before exporting its dictionary.`);
+      // Remove legacy aliases in favor of the final name, while retaining unused shared entries.
+      for (const id of ids) if (id !== name && !groups.has(id)) delete dictionary[id];
+      Object.defineProperty(dictionary, name, { value: values[0], enumerable: true, configurable: true, writable: true });
+    }
+    for (const key of Object.keys(dictionary)) if (specialKey(key) && state.domains.has(key) && !groups.has(key)) delete dictionary[key];
+    return Object.entries(dictionary).sort(([a], [b]) => naturalCompare(a, b)).map(([name, value]) => `${quoteYaml(name)}: ${quoteYaml(value)}`).join('\n') + '\n';
+  }
+
+  function serializeColorYaml() { return serializeStyleDictionary('color'); }
+  function serializeShapeYaml() { return serializeStyleDictionary('shape'); }
 
   function normalizeSettings(input = {}) {
     const output = { ...DEFAULT_SETTINGS, ...(input || {}) };
@@ -352,6 +452,7 @@
     const special = specialKey(domain);
     if (special) return { ...SPECIAL_FEATURES[special], display_name: SPECIAL_FEATURES[special].label, visible: true, explicit: false, special };
     return {
+      ...input,
       display_name: String(input.display_name ?? input.label ?? domain),
       color: normalizeColor(input.color, '#cbd5e1'),
       shape: SHAPES.includes(String(input.shape)) ? String(input.shape) : 'rounded',
@@ -374,7 +475,7 @@
       sort_secondary: sort.secondary ?? layout.sort_secondary ?? state.settings.sort_secondary,
       sort_secondary_direction: sort.secondary_direction ?? layout.sort_secondary_direction ?? state.settings.sort_secondary_direction
     });
-    state.styles = {};
+    state.styles = Object.create(null);
     const styles = parsed.styles && typeof parsed.styles === 'object' ? parsed.styles : {};
     for (const [domain, style] of Object.entries(styles)) state.styles[domain] = normalizeStyle(domain, style && typeof style === 'object' ? style : {});
     state.originalYaml = parsed;
@@ -432,7 +533,27 @@
         lines.push(`    visible: ${style.visible !== false}`);
       }
     }
-    return `${lines.join('\n')}\n`;
+    const result = parseSimpleYaml(lines.join('\n'));
+    const original = state.originalYaml || {};
+    const merged = {
+      ...original,
+      ...result,
+      layout: { ...(original.layout || {}), ...result.layout, zoom: settings.zoom, normalized_width: settings.normalized_width, pixels_per_aa: settings.pixels_per_aa },
+      metadata: { ...(original.metadata || {}), ...result.metadata },
+      styles: Object.create(null)
+    };
+    merged.layout.sort = { ...(original.layout?.sort || {}), ...result.layout.sort };
+    for (const [id, style] of entries) {
+      const { explicit, special, ...savedStyle } = style;
+      merged.styles[id] = { ...(original.styles?.[id] || {}), ...savedStyle, ...result.styles[id] };
+    }
+    // JSON values are valid YAML flow values, preserving extension fields without a remote parser.
+    return Object.entries(merged).map(([key, value]) => {
+      if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length) {
+        return `${quoteYaml(key)}:\n${Object.entries(value).map(([child, entry]) => `  ${quoteYaml(child)}: ${JSON.stringify(entry)}`).join('\n')}`;
+      }
+      return `${quoteYaml(key)}: ${JSON.stringify(value)}`;
+    }).join('\n') + '\n';
   }
 
   function templateValue(template, protein) {
@@ -1117,8 +1238,28 @@
   function setDomainStyle(domain, patch) {
     if (!state.domains.has(domain) || specialKey(domain)) return;
     const existing = getStyle(domain);
-    state.styles[domain] = normalizeStyle(domain, { ...existing, ...patch, explicit: true });
+    const next = { ...existing, ...patch, explicit: true };
+    const finalName = String(next.display_name || domain);
+    if (finalName !== (existing.display_name || domain)) {
+      // Renaming resolves the active shared palette before later manual color/shape edits.
+      for (const property of ['color', 'shape']) {
+        const dictionary = state[`${property}Dictionary`];
+        if (Object.prototype.hasOwnProperty.call(dictionary, finalName)) next[property] = dictionary[finalName];
+        else {
+          const peer = (domainGroups().get(finalName) || []).find(id => id !== domain);
+          if (peer) next[property] = getStyle(peer)[property];
+        }
+      }
+    }
+    state.styles[domain] = normalizeStyle(domain, next);
     state.styles[domain].explicit = true;
+    const updated = state.styles[domain];
+    state.colorDictionary[finalName] = updated.color;
+    state.shapeDictionary[finalName] = updated.shape;
+    for (const [name, ids] of domainGroups()) {
+      if (name !== finalName) continue;
+      for (const id of ids) state.styles[id] = normalizeStyle(id, { ...getStyle(id), color: updated.color, shape: updated.shape, explicit: true });
+    }
     for (const protein of state.proteins) protein.layoutCache.clear();
     state.selectedDomain = domain;
     scheduleRender(false);
@@ -1138,16 +1279,19 @@
       const bv = metric === 'occurrences' ? b.occurrences : metric === 'residues' ? b.residues : b.proteins;
       return bv - av || naturalCompare(a.id, b.id);
     }).slice(0, Math.max(0, Number(count) || 0));
+    const groups = domainGroups();
+    const assigned = new Set();
     sorted.forEach((stats, index) => {
-      if (preserve && state.styles[stats.id]?.explicit) return;
-      state.styles[stats.id] = normalizeStyle(stats.id, {
-        display_name: state.styles[stats.id]?.display_name || stats.id,
-        color: PALETTE[index % PALETTE.length],
-        shape: SHAPES[index % SHAPES.length],
-        visible: true,
-        explicit: true
-      });
-      state.styles[stats.id].explicit = true;
+      const name = getStyle(stats.id).display_name || stats.id;
+      if (assigned.has(name)) return;
+      assigned.add(name);
+      const ids = groups.get(name) || [stats.id];
+      if (preserve && ids.some(id => state.styles[id]?.explicit)) return;
+      const color = PALETTE[index % PALETTE.length];
+      const shape = SHAPES[index % SHAPES.length];
+      for (const id of ids) state.styles[id] = normalizeStyle(id, { ...getStyle(id), color, shape, explicit: true });
+      state.colorDictionary[name] = color;
+      state.shapeDictionary[name] = shape;
     });
     for (const protein of state.proteins) protein.layoutCache.clear();
     scheduleRender(false);
@@ -1183,6 +1327,12 @@
     try {
       const tsvText = payload.tsvText ?? await readUrl(payload.dataUrl || state.config.dataUrl);
       const yamlText = payload.yamlText !== undefined ? payload.yamlText : ((payload.yamlUrl || state.config.yamlUrl) ? await readUrl(payload.yamlUrl || state.config.yamlUrl) : '');
+      const colorUrl = payload.colorUrl !== undefined ? payload.colorUrl : state.config.colorUrl;
+      const shapeUrl = payload.shapeUrl !== undefined ? payload.shapeUrl : state.config.shapeUrl;
+      const colorText = payload.colorText !== undefined ? payload.colorText : (colorUrl ? await readUrl(colorUrl) : '');
+      const shapeText = payload.shapeText !== undefined ? payload.shapeText : (shapeUrl ? await readUrl(shapeUrl) : '');
+      parseStyleDictionary(colorText, 'color');
+      parseStyleDictionary(shapeText, 'shape');
       const parsed = parseTSV(tsvText, payload.tsvName || payload.dataUrl || state.config.dataUrl || 'domain.tsv');
       state.headers = parsed.headers;
       state.rows = parsed.rows;
@@ -1196,10 +1346,16 @@
       state.errors = [];
       state.sourceName = parsed.sourceName;
       state.settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...(state.config.defaults || {}) });
-      state.styles = {};
+      state.styles = Object.create(null);
       state.originalYaml = null;
+      state.yamlName = '';
+      state.colorName = '';
+      state.shapeName = '';
+      state.colorDictionary = Object.create(null);
+      state.shapeDictionary = Object.create(null);
       state.selectedDomain = '';
       if (yamlText && String(yamlText).trim()) applyYaml(yamlText, payload.yamlName || payload.yamlUrl || state.config.yamlUrl || '');
+      applyStyleDictionaries({ colorText, shapeText, colorName: payload.colorName || colorUrl || '', shapeName: payload.shapeName || shapeUrl || '' }, false);
       for (const protein of state.proteins) protein.layoutCache.clear();
       syncDynamicControls();
       rebuildDisplayItems();
@@ -1228,6 +1384,8 @@
       version: VERSION,
       sourceName: state.sourceName,
       yamlName: state.yamlName,
+      colorName: state.colorName,
+      shapeName: state.shapeName,
       headers: [...state.headers],
       proteinCount: state.proteins.length,
       rowCount: state.rows.length,
@@ -1342,6 +1500,10 @@
     parseTSV,
     parseSimpleYaml,
     serializeYaml,
+    parseStyleDictionary,
+    applyStyleDictionaries,
+    serializeColorYaml,
+    serializeShapeYaml,
     getSnapshot,
     getSettings,
     updateSettings,
