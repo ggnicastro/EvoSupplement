@@ -10,6 +10,11 @@
   const layerInputs = Array.from(document.querySelectorAll('input[name="layer"]'));
   let session = null;
   let analysis = null;
+  let baseAnalysis = null;
+  let renameEdits = new Map();
+  let previewedRenames = Object.create(null);
+  let renameStale = false;
+  let renamePage = 0;
   let choices = new Map();
   let reviewLayers = [];
   let reviewShapes = true;
@@ -74,7 +79,6 @@
         if (control.isConnected) control.disabled = wasDisabled;
       });
       busyControls.clear();
-      document.querySelectorAll('#paletteBody input,#paletteBody select').forEach(control => { control.disabled = false; });
       updateControls();
     }
   }
@@ -115,7 +119,7 @@
 
   function entryResolved(entry) {
     const choice = choices.get(entryName(entry));
-    return Boolean(choice && validColor(choice.color) && (!shapeApplies(entry) || core.SHAPES.includes(choice.shape)));
+    return Boolean(choice && (entry.colorEditable === false || validColor(choice.color)) && (!shapeApplies(entry) || core.SHAPES.includes(choice.shape)));
   }
 
   function unresolvedCount() {
@@ -139,16 +143,25 @@
     $('analyzeButton').disabled = busy || !session || !selected.length;
     $('newGroupButton').hidden = !editingGroupId;
     $('newGroupButton').disabled = busy;
-    $('searchInput').disabled = busy || !analysis;
-    $('conflictsOnly').disabled = busy || !analysis;
-    $('applyButton').disabled = busy || !analysis || !analysis.entries.length || unresolvedCount() > 0;
+    $('searchInput').disabled = busy || !analysis || renameStale;
+    $('conflictsOnly').disabled = busy || !analysis || renameStale;
+    $('applyButton').disabled = busy || !analysis || renameStale || !analysis.entries.length || unresolvedCount() > 0;
     $('applyButton').textContent = editingGroupId ? 'Update shared palette' : 'Apply shared palette';
     $('exportStateButton').disabled = busy || !groups().length;
     $('exportGroup').disabled = busy || !groups().length;
     document.querySelectorAll('#groupsList button').forEach(button => { button.disabled = busy; });
+    document.querySelectorAll('#paletteBody input,#paletteBody select').forEach(control => { control.disabled = busy || renameStale; });
+    document.querySelectorAll('#renameBody input').forEach(control => { control.disabled = busy; });
+    $('renameSearchInput').disabled = busy || !baseAnalysis;
+    $('renameFile').disabled = busy || !baseAnalysis;
+    $('previewRenamesButton').disabled = busy || !baseAnalysis || invalidRenameCount() > 0;
+    $('resetRenamesButton').disabled = busy || !baseAnalysis || !renameEdits.size;
+    $('renameStaleNotice').hidden = !renameStale;
     updatePaletteDownloads();
     updateReviewStatus();
     updatePagination();
+    updateRenamePagination();
+    updateRenameHint();
     if (editingGroupId) {
       $('layerHint').textContent = 'Editing an applied group. Its layer membership is fixed; use New group for unassigned layers. To regroup layers, reload your original state ZIP.';
     } else {
@@ -158,11 +171,16 @@
 
   function invalidateReview() {
     analysis = null;
+    baseAnalysis = null;
+    renameEdits = new Map();
+    previewedRenames = Object.create(null);
+    renameStale = false;
     choices = new Map();
     reviewLayers = [];
     hasReviewEdits = false;
     $('reviewPanel').hidden = true;
     $('paletteBody').replaceChildren();
+    $('renameBody').replaceChildren();
     updateControls();
   }
 
@@ -207,20 +225,20 @@
       const next = await core.analyze(session, layers);
       reviewLayers = layers;
       reviewShapes = includeShapes;
-      analysis = next;
-      choices = new Map();
-      analysis.entries.forEach(entry => {
-        const color = entry.colorConflict ? '' : (entry.suggestedColor || entry.colors[0] || '');
-        const shape = entry.shapeConflict ? '' : (entry.suggestedShape || entry.shapes[0] || 'rounded');
-        choices.set(entryName(entry), { color, colorText: color, shape });
-      });
+      baseAnalysis = next;
+      renameEdits = new Map();
+      previewedRenames = Object.create(null);
+      renameStale = false;
+      setAnalysis(next);
       hasReviewEdits = false;
       page = 0;
+      renamePage = 0;
       $('searchInput').value = '';
+      $('renameSearchInput').value = '';
       $('conflictsOnly').checked = false;
       $('reviewPanel').hidden = false;
       $('shapeColumnHeading').textContent = reviewShapes ? 'Architecture shape' : 'Shape';
-      $('reviewSummary').textContent = `${layers.map(layer => LABELS[layer]).join(' + ')} · ${analysis.instances.length} module ${analysis.instances.length === 1 ? 'instance' : 'instances'} · ${analysis.entries.length} final ${analysis.entries.length === 1 ? 'name' : 'names'}`;
+      renderRenameTable();
       renderWarnings();
       renderTable();
       const remaining = unresolvedCount();
@@ -229,6 +247,140 @@
       $('reviewHeading').focus({ preventScroll: true });
       $('reviewPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
+  }
+
+  function sourceSignature(entry) {
+    return JSON.stringify([entry.colorEditable !== false, (entry.sources || []).map(source =>
+      [source.layer, source.itemId, source.originalId]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+  }
+
+  function setAnalysis(next, preserveChoices = false) {
+    const previous = new Map();
+    if (preserveChoices && analysis) analysis.entries.forEach(entry => previous.set(sourceSignature(entry), choices.get(entryName(entry))));
+    analysis = next;
+    choices = new Map();
+    analysis.entries.forEach(entry => {
+      const existing = previous.get(sourceSignature(entry));
+      const color = entry.colorConflict ? '' : (entry.suggestedColor || entry.colors[0] || '');
+      const shape = entry.shapeConflict ? '' : (entry.suggestedShape || entry.shapes[0] || 'rounded');
+      choices.set(entryName(entry), existing ? { ...existing } : { color, colorText: color, shape });
+    });
+    $('reviewSummary').textContent = `${reviewLayers.map(layer => LABELS[layer]).join(' + ')} · ${analysis.instances.length} module ${analysis.instances.length === 1 ? 'instance' : 'instances'} · ${analysis.entries.length} final ${analysis.entries.length === 1 ? 'name' : 'names'}`;
+  }
+
+  function renamePlan() {
+    const plan = Object.create(null);
+    renameEdits.forEach((value, name) => { if (value.trim() !== name) plan[name] = value.trim(); });
+    return plan;
+  }
+
+  function invalidRenameCount() {
+    return Array.from(renameEdits.values()).filter(value => !value.trim() || /[\u0000-\u001f\u007f]/.test(value)).length;
+  }
+
+  function sameRenamePlan(left, right) {
+    const keys = Object.keys(left).sort();
+    return JSON.stringify(keys.map(key => [key, left[key]])) === JSON.stringify(Object.keys(right).sort().map(key => [key, right[key]]));
+  }
+
+  function nameEdited() {
+    renameStale = invalidRenameCount() > 0 || !sameRenamePlan(renamePlan(), previewedRenames);
+    hasReviewEdits = true;
+    updateControls();
+  }
+
+  function filteredRenameEntries() {
+    if (!baseAnalysis) return [];
+    const query = $('renameSearchInput').value.trim().toLocaleLowerCase();
+    return baseAnalysis.entries.filter(entry => !query || [entryName(entry), renameEdits.get(entryName(entry)),
+      ...(entry.sources || []).flatMap(source => [source.originalId, source.title, source.sectionTitle, LABELS[source.layer]])]
+      .some(value => String(value || '').toLocaleLowerCase().includes(query)));
+  }
+
+  function updateRenamePagination() {
+    const count = filteredRenameEntries().length;
+    const pages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+    renamePage = Math.max(0, Math.min(renamePage, pages - 1));
+    $('previousRenamePage').disabled = busy || !baseAnalysis || renamePage === 0;
+    $('nextRenamePage').disabled = busy || !baseAnalysis || renamePage >= pages - 1;
+    $('renamePageInfo').textContent = `Page ${renamePage + 1} of ${pages}`;
+    $('renameFilteredCount').textContent = `${count} ${count === 1 ? 'name' : 'names'} shown`;
+  }
+
+  function updateRenameHint() {
+    const count = Object.keys(renamePlan()).length;
+    const invalid = invalidRenameCount();
+    $('renameHint').textContent = invalid ? `${invalid} ${invalid === 1 ? 'name is' : 'names are'} invalid. Use nonempty text without control characters.`
+      : count ? `${count} ${count === 1 ? 'name change' : 'name changes'} ${renameStale ? 'to preview' : 'previewed'}. Changes are saved only when you apply the group.`
+        : 'Keep a name as it is, or enter its replacement. Renames are applied simultaneously, without following rename chains.';
+  }
+
+  function renderRenameTable() {
+    updateRenamePagination();
+    const entries = filteredRenameEntries();
+    const body = $('renameBody');
+    body.replaceChildren();
+    entries.slice(renamePage * PAGE_SIZE, (renamePage + 1) * PAGE_SIZE).forEach(entry => {
+      const name = entryName(entry), row = element('tr'), current = element('td'), target = element('td');
+      current.append(element('strong', name, 'rename-current-name'));
+      const input = element('input');
+      input.type = 'text';
+      input.value = renameEdits.has(name) ? renameEdits.get(name) : name;
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.setAttribute('aria-label', `New display name for ${name}`);
+      input.disabled = busy;
+      const validate = () => {
+        const invalid = !input.value.trim() || /[\u0000-\u001f\u007f]/.test(input.value);
+        input.classList.toggle('invalid-input', invalid);
+        input.setAttribute('aria-invalid', String(invalid));
+      };
+      validate();
+      input.addEventListener('input', () => {
+        if (input.value === name) renameEdits.delete(name); else renameEdits.set(name, input.value);
+        validate();
+        nameEdited();
+      });
+      target.append(input);
+      row.append(current, target, sourcesCell(entry));
+      body.append(row);
+    });
+    $('emptyRenames').hidden = entries.length > 0;
+    updateRenameHint();
+  }
+
+  async function previewRenames() {
+    if (!baseAnalysis || invalidRenameCount()) return;
+    const plan = renamePlan();
+    await perform('Previewing renamed entries and their combined styles…', async () => {
+      const next = await core.analyze(session, reviewLayers, { renames: plan });
+      setAnalysis(next, true);
+      previewedRenames = plan;
+      renameStale = false;
+      page = 0;
+      renderWarnings();
+      renderTable();
+      const remaining = unresolvedCount();
+      notify(remaining ? `Rename preview ready. Resolve styles for ${remaining} ${remaining === 1 ? 'name' : 'names'} before applying.` : 'Rename preview ready. Apply the group to save its names and styles.', !remaining);
+    });
+  }
+
+  async function importRenames(file) {
+    if (!file || !baseAnalysis) return;
+    await perform('Reading the rename plan YAML…', async () => {
+      const plan = core.parseRenameYaml(await file.text());
+      const names = new Set(baseAnalysis.entries.map(entryName));
+      const unknown = Object.keys(plan).filter(name => !names.has(name));
+      if (unknown.length) throw new Error(`Rename plan contains names absent from the selected layers: ${unknown.slice(0, 5).join(', ')}. Use current display names as keys.`);
+      // Validate all targets before replacing any pending edits.
+      await core.analyze(session, reviewLayers, { renames: plan });
+      renameEdits = new Map(Object.entries(plan).filter(([name, value]) => name !== value));
+      renamePage = 0;
+      renderRenameTable();
+      nameEdited();
+      notify('Rename plan imported. Preview the renamed palette, then resolve any style conflicts.');
+    });
+    $('renameFile').value = '';
   }
 
   function renderWarnings() {
@@ -256,20 +408,20 @@
   function updateReviewStatus() {
     if (!analysis) return;
     const remaining = unresolvedCount();
-    $('conflictBadge').textContent = remaining ? `${remaining} unresolved` : 'Ready to apply';
-    $('conflictBadge').className = remaining ? 'badge badge-warning' : 'badge';
-    $('applyHint').textContent = !analysis.entries.length ? 'No configurable styles were found in these layers.' : remaining
+    $('conflictBadge').textContent = renameStale ? 'Preview name edits' : remaining ? `${remaining} unresolved` : 'Ready to apply';
+    $('conflictBadge').className = renameStale || remaining ? 'badge badge-warning' : 'badge';
+    $('applyHint').textContent = renameStale ? 'Preview the name edits to refresh the palette before applying.' : !analysis.entries.length ? 'No configurable names or styles were found in these layers.' : remaining
       ? `Choose the missing colors${reviewShapes ? ' or shapes' : ''} for ${remaining} ${remaining === 1 ? 'name' : 'names'}. Conflicting values are never selected automatically.`
-      : `Apply this palette to all ${analysis.instances.length} selected module ${analysis.instances.length === 1 ? 'instance' : 'instances'}. Original identifiers and renaming rules are preserved.`;
-    $('applyButton').disabled = busy || !analysis.entries.length || remaining > 0;
+      : `Apply the previewed names and palette to all ${analysis.instances.length} selected module ${analysis.instances.length === 1 ? 'instance' : 'instances'}. Original identifiers are preserved.`;
+    $('applyButton').disabled = busy || renameStale || !analysis.entries.length || remaining > 0;
   }
 
   function updatePagination() {
     const count = filteredEntries().length;
     const pages = Math.max(1, Math.ceil(count / PAGE_SIZE));
     page = Math.max(0, Math.min(page, pages - 1));
-    $('previousPage').disabled = busy || !analysis || page === 0;
-    $('nextPage').disabled = busy || !analysis || page >= pages - 1;
+    $('previousPage').disabled = busy || !analysis || renameStale || page === 0;
+    $('nextPage').disabled = busy || !analysis || renameStale || page >= pages - 1;
     $('pageInfo').textContent = `Page ${page + 1} of ${pages}`;
     $('filteredCount').textContent = `${count} ${count === 1 ? 'name' : 'names'} shown`;
   }
@@ -280,7 +432,7 @@
     const status = row.querySelector('.entry-status');
     status.className = resolved ? 'entry-status' : 'entry-status unresolved';
     const choice = choices.get(entryName(entry));
-    if (!validColor(choice.color)) status.textContent = 'Choose a color';
+    if (entry.colorEditable !== false && !validColor(choice.color)) status.textContent = 'Choose a color';
     else if (shapeApplies(entry) && !core.SHAPES.includes(choice.shape)) status.textContent = 'Choose a shape';
     else status.textContent = entry.colorConflict || (shapeApplies(entry) && entry.shapeConflict) ? 'Conflict resolved' : 'Ready';
   }
@@ -293,6 +445,10 @@
 
   function colorCell(row, entry) {
     const cell = element('td');
+    if (entry.colorEditable === false) {
+      cell.append(element('small', 'Preserve taxonomy coloring mode', 'cell-note'));
+      return cell;
+    }
     const name = entryName(entry);
     const choice = choices.get(name);
     const controls = element('div', null, 'color-controls');
@@ -336,7 +492,7 @@
     picker.addEventListener('input', () => { candidates.value = ''; setColor(picker.value, false); });
     text.addEventListener('input', () => { candidates.value = ''; setColor(text.value, true); });
     candidates.addEventListener('change', () => { if (candidates.value) setColor(candidates.value, false); });
-    [picker, text, candidates].forEach(control => { control.disabled = busy; });
+    [picker, text, candidates].forEach(control => { control.disabled = busy || renameStale; });
     return cell;
   }
 
@@ -362,7 +518,7 @@
       select.append(option);
     });
     select.value = choice.shape;
-    select.disabled = busy;
+    select.disabled = busy || renameStale;
     select.addEventListener('change', () => { choice.shape = select.value; choiceChanged(row, entry); });
     cell.append(select);
     if (entry.shapeConflict) cell.append(element('small', 'Different shapes found in architecture sources.', 'cell-note'));
@@ -382,6 +538,7 @@
       item.append(element('strong', `${LABELS[source.layer] || source.layer} · ${source.title || source.itemId}`));
       if (source.sectionTitle) item.append(element('small', source.sectionTitle));
       item.append(element('code', String(source.originalId || source.name || entryName(entry))));
+      if (source.previousName && source.previousName !== entryName(entry)) item.append(element('small', `Previous name: ${source.previousName}`));
       const style = element('small', null, 'source-style');
       if (source.color) {
         const swatch = element('span', null, 'color-swatch');
@@ -417,24 +574,39 @@
   }
 
   async function applyPalette() {
-    if (!analysis || unresolvedCount()) return;
-    await perform('Applying the shared palette to every selected module instance…', async () => {
+    if (!analysis || renameStale || unresolvedCount()) return;
+    await perform('Applying names and the shared palette to every selected module instance…', async () => {
       const resolved = new Map();
       analysis.entries.forEach(entry => {
         const choice = choices.get(entryName(entry));
-        const value = { color: choice.color };
+        const value = {};
+        if (entry.colorEditable !== false) value.color = choice.color;
         if (shapeApplies(entry)) value.shape = choice.shape;
         resolved.set(entryName(entry), value);
       });
       const group = await core.applyGroup(session, reviewLayers, resolved, {
         name: $('groupName').value.trim() || reviewLayers.map(layer => LABELS[layer]).join(' + '),
         id: editingGroupId || undefined,
-        includeShapes: reviewShapes
+        includeShapes: reviewShapes,
+        renames: previewedRenames
       });
       editingGroupId = group.id;
       $('groupName').value = group.name;
       pendingDownload = true;
       hasReviewEdits = false;
+      // Start the next edit from committed names. An applied plan must not run twice.
+      const next = await core.analyze(session, reviewLayers);
+      baseAnalysis = next;
+      renameEdits = new Map();
+      previewedRenames = Object.create(null);
+      renameStale = false;
+      renamePage = 0;
+      page = 0;
+      $('renameSearchInput').value = '';
+      setAnalysis(next);
+      renderRenameTable();
+      renderWarnings();
+      renderTable();
       renderGroups(group.id);
       notify(`Applied “${group.name}” to ${group.instanceCount} module ${group.instanceCount === 1 ? 'instance' : 'instances'}. Download the updated state to keep these changes.`, true);
       $('downloadPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -463,11 +635,12 @@
       copy.append(element('strong', group.name));
       const colors = Object.keys(group.colors || {}).length;
       const shapes = Object.keys(group.shapes || {}).length;
-      copy.append(element('p', `${group.layers.map(layer => LABELS[layer] || layer).join(' + ')} · ${group.instanceCount} instances · ${colors} colors${shapes ? ` · ${shapes} shapes` : ''}`));
-      const edit = element('button', 'Edit palette', 'button button-ghost button-small');
+      const renames = Object.keys(group.renames || {}).length;
+      copy.append(element('p', `${group.layers.map(layer => LABELS[layer] || layer).join(' + ')} · ${group.instanceCount} instances · ${colors} colors${shapes ? ` · ${shapes} shapes` : ''}${renames ? ` · ${renames} latest name changes` : ''}`));
+      const edit = element('button', 'Edit names and styles', 'button button-ghost button-small');
       edit.type = 'button';
       edit.disabled = busy;
-      edit.setAttribute('aria-label', `Edit palette for ${group.name}`);
+      edit.setAttribute('aria-label', `Edit names and styles for ${group.name}`);
       edit.addEventListener('click', () => editGroup(group));
       card.append(copy, edit);
       list.append(card);
@@ -489,6 +662,8 @@
     $('exportColorsButton').disabled = busy || !group || !Object.keys(group.colors || {}).length;
     $('exportShapesButton').disabled = busy || !group || !Object.keys(group.shapes || {}).length;
     $('exportShapesButton').title = group && Object.keys(group.shapes || {}).length ? '' : 'This group has no unified architecture shapes.';
+    $('exportRenamesButton').disabled = busy || !group || !Object.keys(group.renames || {}).length || typeof group.renameYaml !== 'string';
+    $('exportRenamesButton').title = group && Object.keys(group.renames || {}).length ? '' : 'This group has no applied rename plan.';
   }
 
   function safeFilename(name, fallback) {
@@ -522,12 +697,12 @@
   function exportPalette(type) {
     const group = chosenExportGroup();
     if (!group) return;
-    const content = type === 'color' ? group.colorYaml : group.shapeYaml;
+    const content = type === 'color' ? group.colorYaml : type === 'shape' ? group.shapeYaml : group.renameYaml;
     if (typeof content !== 'string') {
       reportError(new Error('This palette is not available. Review and apply the group again.'));
       return;
     }
-    download(new Blob([content], { type: 'application/yaml;charset=utf-8' }), `${safeFilename(group.name, 'shared')}-${type === 'color' ? 'colors' : 'shapes'}.yaml`);
+    download(new Blob([content], { type: 'application/yaml;charset=utf-8' }), `${safeFilename(group.name, 'shared')}-${type === 'color' ? 'colors' : type === 'shape' ? 'shapes' : 'rename-plan'}.yaml`);
     notify(`Downloaded the ${type} YAML for “${group.name}”.`, true);
   }
 
@@ -536,6 +711,12 @@
   $('includeShapes').addEventListener('change', invalidateReview);
   $('newGroupButton').addEventListener('click', () => { startNewGroup(); clearError(); notify('Choose unassigned layers for another independent palette group.'); });
   $('analyzeButton').addEventListener('click', analyzeSelection);
+  $('renameSearchInput').addEventListener('input', () => { renamePage = 0; renderRenameTable(); });
+  $('previousRenamePage').addEventListener('click', () => { renamePage--; renderRenameTable(); });
+  $('nextRenamePage').addEventListener('click', () => { renamePage++; renderRenameTable(); });
+  $('renameFile').addEventListener('change', event => importRenames(event.target.files && event.target.files[0]));
+  $('previewRenamesButton').addEventListener('click', previewRenames);
+  $('resetRenamesButton').addEventListener('click', () => { renameEdits = new Map(); nameEdited(); renderRenameTable(); });
   $('applyButton').addEventListener('click', applyPalette);
   $('searchInput').addEventListener('input', () => { page = 0; renderTable(); });
   $('conflictsOnly').addEventListener('change', () => { page = 0; renderTable(); });
@@ -545,6 +726,7 @@
   $('exportStateButton').addEventListener('click', exportState);
   $('exportColorsButton').addEventListener('click', () => exportPalette('color'));
   $('exportShapesButton').addEventListener('click', () => exportPalette('shape'));
+  $('exportRenamesButton').addEventListener('click', () => exportPalette('rename'));
   window.addEventListener('beforeunload', event => {
     if (!pendingDownload && !hasReviewEdits) return;
     event.preventDefault();

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Project Style Manager · EvoSupplement</title>
-  <link rel="stylesheet" href="./styles.css?v=1.0.0">
+  <link rel="stylesheet" href="./styles.css?v=1.1.0">
 </head>
 <body>
   <header class="app-header">
@@ -22,12 +22,12 @@
   <main class="workspace">
     <section class="hero" aria-labelledby="pageHeading">
       <p class="eyebrow">One project, consistent styles</p>
-      <h1 id="pageHeading">Unify colors after renaming.</h1>
-      <p>Choose which module layers share a palette. Review their final display names, resolve conflicting styles, and save an updated Builder state.</p>
+      <h1 id="pageHeading">Unify names, colors, and shapes.</h1>
+      <p>Choose which module layers share a palette. Edit their display names, preview the combined entries, and save an updated Builder state.</p>
       <ol class="workflow" aria-label="Workflow">
         <li><span>1</span> Load state</li>
         <li><span>2</span> Choose layers</li>
-        <li><span>3</span> Review styles</li>
+        <li><span>3</span> Rename and style</li>
         <li><span>4</span> Download state</li>
       </ol>
     </section>
@@ -57,7 +57,7 @@
           <div><p class="panel-kicker">Step 2</p><h2 id="layersHeading">Choose a palette group</h2></div>
           <button id="newGroupButton" class="button button-ghost button-small" type="button" hidden>New group</button>
         </div>
-        <p class="help">All instances of the selected layers will share colors by final display name. Unselected layers keep their current styles.</p>
+        <p class="help">Edit names and share colors across all instances of the selected layers. Unselected layers keep their current names and styles.</p>
         <fieldset id="layerFields" class="layers" disabled>
           <legend class="sr-only">Module layers to unify</legend>
           <label class="layer-option"><input type="checkbox" name="layer" value="taxonomy"><span>Taxonomy<small id="count-taxonomy">Load a state first</small></span></label>
@@ -77,7 +77,32 @@
         <div><p class="panel-kicker">Step 3</p><h2 id="reviewHeading">Review the shared palette</h2><p id="reviewSummary" class="help"></p></div>
         <span id="conflictBadge" class="badge"></span>
       </div>
-      <p class="help">Each row is a final display name. Open its sources to inspect original identifiers and module instances. Choose a color for every conflict before applying the group.</p>
+      <div class="rename-panel" aria-labelledby="renameHeading">
+        <h3 id="renameHeading">1. Edit display names</h3>
+        <p class="help">A name change affects every matching entry in the selected layers. Entries given the same new name will share one palette row after preview. Original identifiers stay in the data. Network names are Function categories.</p>
+        <div class="review-toolbar">
+          <label class="search-field"><span class="sr-only">Search current names or sources</span><input id="renameSearchInput" type="search" placeholder="Search current names, original IDs, or module titles…"></label>
+          <span id="renameFilteredCount" class="small-help"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="palette-table rename-table">
+            <caption class="sr-only">Rename the current display names before unifying styles</caption>
+            <thead><tr><th scope="col">Current display name</th><th scope="col">New display name</th><th scope="col">Sources</th></tr></thead>
+            <tbody id="renameBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyRenames" class="empty-state" hidden>No matching names.</p>
+        <div class="pagination"><button id="previousRenamePage" class="button button-ghost button-small" type="button">Previous names</button><span id="renamePageInfo"></span><button id="nextRenamePage" class="button button-ghost button-small" type="button">Next names</button></div>
+        <div class="rename-actions">
+          <label class="field" for="renameFile"><span>Import rename plan YAML <small>optional</small></span><input id="renameFile" type="file" accept=".yaml,.yml,application/yaml,text/yaml"><small>Maps current display names to new names; replaces this review's rename plan.</small></label>
+          <button id="resetRenamesButton" class="button button-ghost" type="button">Reset name edits</button>
+          <button id="previewRenamesButton" class="button button-secondary" type="button">Preview renamed palette</button>
+        </div>
+        <p id="renameHint" class="small-help"></p>
+      </div>
+      <h3>2. Review colors and shapes</h3>
+      <p class="help">Each row is a final display name after the previewed renames. Open its sources to inspect original identifiers and module instances. Choose a color for every conflict before applying the group.</p>
+      <p id="renameStaleNotice" class="status" role="status" hidden>Name edits have changed. Preview the renamed palette before choosing styles or applying the group.</p>
       <div id="warningsBox" class="warnings" hidden><strong>Review notes</strong><ul id="warningsList"></ul></div>
       <div class="review-toolbar">
         <label class="search-field"><span class="sr-only">Search final names or sources</span><input id="searchInput" type="search" placeholder="Search names, original IDs, or module titles…"></label>
@@ -108,14 +133,16 @@
         <label class="field" for="exportGroup"><span>Download a group's dictionaries</span><select id="exportGroup"></select></label>
         <button id="exportColorsButton" class="button button-secondary" type="button" disabled>Download color YAML</button>
         <button id="exportShapesButton" class="button button-secondary" type="button" disabled>Download shape YAML</button>
+        <button id="exportRenamesButton" class="button button-secondary" type="button" disabled>Download rename plan YAML</button>
       </div>
+      <p class="small-help">A rename plan maps the current display names used before application to the chosen names. Module-specific rename files are included in the updated state.</p>
     </section>
 
     <footer>Files are processed in your browser. Keep your original state ZIP if you want to restore its earlier styles.</footer>
   </main>
   <script src="../builder/vendor/jszip.min.js"></script>
   <script src="../neighborhood-viewer/shared/neighborhood-viewer.js"></script>
-  <script src="./core.js?v=1.0.0"></script>
-  <script src="./app.js?v=1.0.0"></script>
+  <script src="./core.js?v=1.1.0"></script>
+  <script src="./app.js?v=1.1.0"></script>
 </body>
 </html>

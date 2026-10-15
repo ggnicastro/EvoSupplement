@@ -6,7 +6,7 @@
   root.EvoStyleCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
   'use strict';
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const LAYERS = ['taxonomy', 'neighborhood', 'architecture', 'network'];
   const SHAPES = ['rounded', 'rectangle', 'capsule', 'ellipse', 'hexagon', 'chevron', 'arrow', 'diamond'];
   const MANIFEST = 'evosupplement-builder-state.json';
@@ -136,7 +136,23 @@
     }
     return out;
   }
-  function lookup(mapping, name, insensitive = false) { if (own(mapping, name)) return mapping[name]; if (insensitive) { const key = Object.keys(mapping).find(k => k.toLocaleLowerCase() === name.toLocaleLowerCase()); if (key !== undefined) return mapping[key]; } return undefined; }
+  function renamePlan(input = {}) {
+    checkObject(input, 'Rename plan');
+    const out = map();
+    for (const [name, raw] of Object.entries(input)) {
+      if (typeof raw !== 'string' && typeof raw !== 'number') fail(`Rename “${name}”: the new name must be text.`);
+      const target = clean(raw);
+      if (!name || name !== clean(name) || /[\x00-\x1f\x7f]/.test(name)) fail('Rename source names must be nonempty current labels without surrounding whitespace or control characters.');
+      if (!target || /[\x00-\x1f\x7f]/.test(String(raw))) fail(`Rename “${name}”: the new name must be nonempty text without control characters.`);
+      if (target !== name) out[name] = target;
+    }
+    return out;
+  }
+  function parseRenameYaml(text) {
+    const parsed = parseYaml(text, 'Rename plan YAML');
+    return renamePlan(object(parsed.renames) ? parsed.renames : parsed);
+  }
+  function lookup(mapping, name, insensitive = false) { if (own(mapping, name)) return mapping[name]; if (insensitive) { const key = Object.keys(mapping).reverse().find(k => k.toLocaleLowerCase() === name.toLocaleLowerCase()); if (key !== undefined) return mapping[key]; } return undefined; }
   function safePath(path) { return typeof path === 'string' && !!path && !/[\\\x00-\x1f]/.test(path) && !path.startsWith('/') && !/^[a-z]:/i.test(path) && !path.split('/').some(part => !part || part === '.' || part === '..'); }
   function zipLibrary() { const lib = root.JSZip || root.window?.JSZip; if (!lib) fail('The local ZIP library did not load. Reload the page.'); return lib; }
   async function loadArchive(input, options = {}) {
@@ -219,11 +235,11 @@
     } else warnings.push(`${instance.title}: no neighborhood table attached; inventory uses YAML entries only.`);
     const resolve = id => clean(lookup(renames, id, true)) || id;
     const finalNames = new Set([...ids].map(resolve));
-    const resolvePaletteKey = key => finalNames.has(key) ? key : resolve(key);
+    const resolvePaletteKey = key => finalNames.has(key) ? key : [...finalNames].find(name => name.toLocaleLowerCase() === key.toLocaleLowerCase()) || resolve(key);
     const records = [...ids].filter(id => !markerIds.has(id) && !marker(id) && !marker(resolve(id))).map(id => { const name = resolve(id); return source(instance, id, name, lookup(colors, name, true) || lookup(colors, id, true) || '#d7dce2', '', 'domain'); });
     for (const [key, value] of Object.entries(colors)) if (!markerIds.has(key) && !marker(key) && !marker(resolvePaletteKey(key))) records.push(source(instance, key, resolvePaletteKey(key), value, '', 'color dictionary'));
     warnings.push(`${instance.title}: TM, SIG and SIF retain the Neighborhood viewer’s fixed marker colors.`);
-    return { instance, records };
+    return { instance, records, renames, ids, resolve, markerIds, marker };
   }
   function architecture(session, instance, warnings) {
     const text = textOf(session, instance.itemId, 'architectureYaml');
@@ -282,6 +298,9 @@
       const value = override?.color || colors[name] || colors[node.name] || colors[node.id] || automaticColor(name);
       records.push(source(instance, node.id, name, color(value, `${instance.title}, ${name}`), '', 'taxon color category'));
     }
+    // Names below the selected color rank are still editable. They must not
+    // acquire a new palette entry or override inherited ancestor colors.
+    for (const node of catalog.values()) if (!records.some(rec => rec.originalId === node.id && !rec.dictionary)) records.push(source(instance, node.id, final(node), '', '', 'taxon label'));
     if (by.startsWith('depth:')) warnings.push(`${instance.title}: depth-based automatic colors depend on the displayed tree. Existing dictionary colors and explicit overrides are included; new automatic depth categories are not inferred.`);
     return { instance, records, curation, overrides, catalog, final };
   }
@@ -289,23 +308,31 @@
     const text = textOf(session, instance.itemId, 'nodes');
     const nodes = text.trim() ? parseYaml(text, `${instance.title} / network nodes`) : map();
     const colors = readPalette(session, instance, 'colors'), groups = new Set();
+    const groupFor = raw => { const value = clean(raw.Function); return !value || /^(?:\.?(?:nan)|null|none|undefined|~)$/i.test(value) ? 'Unassigned' : value; };
     const normalizeGroup = value => clean(value).replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
     const normalizedColors = new Map(Object.entries(colors).map(([key, value]) => [normalizeGroup(key), value]));
-    for (const [id, raw] of Object.entries(nodes)) { checkObject(raw, `${instance.title}, node ${id}`); const group = clean(raw.Function); groups.add(!group || /^(?:\.?(?:nan)|null|none|undefined|~)$/i.test(group) ? 'Unassigned' : group); }
-    if (!groups.size && textOf(session, instance.itemId, 'edges').trim()) groups.add('Unassigned');
+    const annotated = new Set();
+    for (const [id, raw] of Object.entries(nodes)) { checkObject(raw, `${instance.title}, node ${id}`); groups.add(groupFor(raw)); annotated.add(normalizeGroup(id)); annotated.add(normalizeGroup(clean(raw.Display_name) || id)); }
+    const unannotated = new Set();
+    for (const row of table(textOf(session, instance.itemId, 'edges'), instance.title)) for (const key of ['source', 'target']) if (clean(row[key]) && !annotated.has(normalizeGroup(row[key]))) unannotated.add(clean(row[key]));
+    if (unannotated.size) groups.add('Unassigned');
     const records = []; let index = 0;
     for (const group of [...groups].sort((a, b) => a.localeCompare(b))) {
       const supplied = normalizedColors.get(normalizeGroup(group));
       const value = supplied || NETWORK_HINTS[group] || NETWORK_PALETTE[index++ % NETWORK_PALETTE.length];
       records.push(source(instance, group, group, value, '', 'network Function group'));
     }
-    for (const [group, value] of Object.entries(colors)) records.push(source(instance, group, group, value, '', 'network group dictionary'));
+    for (const [group, value] of Object.entries(colors)) {
+      const matches = groups.has(group) ? [group] : [...groups].filter(name => normalizeGroup(name) === normalizeGroup(group));
+      for (const name of matches.length ? matches : [group]) records.push(source(instance, group, name, value, '', 'network group dictionary'));
+    }
     warnings.push(`${instance.title}: Network colors refer to Function groups. Renamed node labels and computed community colors are separate; the configured coloring mode is preserved.`);
     if ([...groups].some(group => !normalizedColors.has(normalizeGroup(group)))) warnings.push(`${instance.title}: groups without a saved color use suggested defaults. Automatic colors can depend on the currently included network nodes.`);
-    return { instance, records };
+    return { instance, records, nodes, groupFor, unannotated };
   }
   const ADAPTERS = { neighborhood, architecture, taxonomy, network };
-  async function analyze(session, layers) {
+  async function analyze(session, layers, options = {}) {
+    const renames = renamePlan(options.renames || {});
     const selected = selectedLayers(layers), warnings = [], models = [], entries = new Map();
     const instances = session.instances.filter(instance => selected.includes(instance.layer));
     for (const instance of instances) {
@@ -329,27 +356,46 @@
           rec.shape = lookup(model.shapes, rec.name) || (!finalNames.has(rec.originalId) ? lookup(model.shapes, rec.originalId) : undefined) || style.shape || 'rounded';
         }
       }
+    }
+    const originalNames = new Set(models.flatMap(model => model.records.map(rec => rec.name)));
+    for (const [name, target] of Object.entries(renames)) {
+      if (!originalNames.has(name)) fail(`Rename “${name}”: this is not a current final name in the selected layers. Import a plan for the current labels, not original data IDs.`);
+      for (const model of models.filter(model => model.records.some(rec => rec.name === name))) {
+        if (model.instance.layer === 'neighborhood' && (model.marker(target) || target === '?' || target === '-')) fail(`Rename “${name}”: “${target}” is a reserved Neighborhood marker or unknown-domain label.`);
+        if (model.instance.layer === 'architecture' && special(target)) fail(`Rename “${name}”: “${target}” is a reserved Architecture feature label.`);
+        if (model.instance.layer === 'network' && /^(?:\.?(?:nan)|null|none|undefined|~)$/i.test(target)) fail(`Rename “${name}”: Network treats “${target}” as an empty Function group.`);
+        if (model.instance.layer === 'network' && name === 'Unassigned' && model.unannotated.size) fail(`${model.instance.title}: annotate the unassigned edge endpoints in the Network editor before renaming their Function group. Original edge data will be preserved.`);
+      }
+    }
+    // Apply the plan once to the current vocabulary. A→B and B→C means two
+    // simultaneous renames; it never sends A transitively to C.
+    for (const model of models) {
       for (const rec of model.records) {
         if (!clean(rec.name)) continue;
+        rec.previousName = rec.name;
+        rec.name = own(renames, rec.name) ? renames[rec.name] : rec.name;
         let entry = entries.get(rec.name);
-        if (!entry) { entry = { name: rec.name, key: rec.name, label: rec.name, colors: [], shapes: [], sources: [] }; entries.set(rec.name, entry); }
+        if (!entry) { entry = { name: rec.name, key: rec.name, label: rec.name, colors: [], shapes: [], sources: [], previousNames: [] }; entries.set(rec.name, entry); }
+        if (!entry.previousNames.includes(rec.previousName)) entry.previousNames.push(rec.previousName);
         if (rec.color && !entry.colors.includes(rec.color)) entry.colors.push(rec.color);
         if (rec.shape && !entry.shapes.includes(rec.shape)) entry.shapes.push(rec.shape);
         if (!entry.sources.some(s => s.itemId === rec.itemId && s.originalId === rec.originalId && s.color === rec.color && s.shape === rec.shape && s.kind === rec.kind)) entry.sources.push(rec);
       }
     }
     const result = [...entries.values()].sort((a, b) => a.name.localeCompare(b.name));
-    for (const entry of result) { entry.colorConflict = entry.colors.length > 1; entry.shapeConflict = entry.shapes.length > 1; entry.suggestedColor = entry.colors[0] || automaticColor(entry.name); entry.suggestedShape = entry.shapes[0] || ''; }
+    for (const entry of result) { entry.colorEditable = entry.sources.some(rec => rec.kind !== 'taxon label'); entry.colorConflict = entry.colors.length > 1; entry.shapeConflict = entry.shapes.length > 1; entry.suggestedColor = entry.colorEditable ? entry.colors[0] || automaticColor(entry.name) : ''; entry.suggestedShape = entry.shapes[0] || ''; }
     if (!instances.length) warnings.push('This state has no instances of the selected layers.');
-    return { entries: result, warnings: [...new Set(warnings)], instances, layers: selected, models };
+    return { entries: result, warnings: [...new Set(warnings)], instances, layers: selected, models, renames };
   }
   function ensureChoices(analysis, choices, includeShapes) {
     const colors = map(), shapes = map();
     for (const entry of analysis.entries) {
       const decision = choices instanceof Map ? choices.get(entry.name) : own(choices, entry.name) ? choices[entry.name] : undefined;
       const selected = typeof decision === 'string' ? { color: decision } : decision || {};
-      if (!selected.color && entry.colorConflict) fail(`Choose a color for “${entry.name}” before applying the group.`);
-      colors[entry.name] = color(selected.color || entry.suggestedColor, entry.name);
+      if (entry.colorEditable !== false) {
+        if (!selected.color && entry.colorConflict) fail(`Choose a color for “${entry.name}” before applying the group.`);
+        colors[entry.name] = color(selected.color || entry.suggestedColor, entry.name);
+      }
       if (includeShapes && entry.shapes.length) {
         if (!selected.shape && entry.shapeConflict) fail(`Choose a shape for “${entry.name}” before applying the group.`);
         const shape = selected.shape || entry.suggestedShape;
@@ -376,8 +422,10 @@
     const previous = session.groups.find(group => group.id === id);
     if (previous && JSON.stringify(selectedLayers(previous.layers)) !== JSON.stringify(selected)) fail('To change a group’s layers, reload the original state and create new groups.');
     for (const group of session.groups) if (group.id !== id && group.layers.some(layer => selected.includes(layer))) fail(`A selected layer already belongs to “${group.name}”. Edit that group or choose unassigned layers.`);
-    const analysis = await analyze(session, selected);
-    if (!analysis.instances.length || !analysis.entries.length) fail('There are no color entries to unify in the selected layers.');
+    const analysis = await analyze(session, selected, { renames: options.renames || {} });
+    if (!analysis.instances.length || !analysis.entries.length) fail('There are no names or styles to unify in the selected layers.');
+    const renames = analysis.renames;
+    const renamed = name => own(renames, name) ? renames[name] : name;
     const includeShapes = options.includeShapes !== false;
     const palette = ensureChoices(analysis, choices, includeShapes);
     const colorYaml = flatYaml(palette.colors), shapeYaml = flatYaml(palette.shapes), staged = new Map();
@@ -389,29 +437,83 @@
     for (const model of analysis.models) {
       const { instance } = model;
       stage(instance, COLOR_ROLES[instance.layer], colorYaml, 'unified-colors.yaml');
+      if (instance.layer === 'neighborhood') {
+        const mapping = Object.assign(map(), model.renames); let changed = false;
+        for (const originalId of model.ids) {
+          const name = model.resolve(originalId);
+          if (model.markerIds.has(originalId) || model.marker(originalId) || model.marker(name) || !own(renames, name)) continue;
+          mapping[originalId] = renamed(name); changed = true;
+        }
+        if (changed) stage(instance, 'rename', flatYaml(mapping), 'domain-rename.yaml');
+      }
       if (instance.layer === 'architecture') {
         const curation = clone(model.curation); curation.styles = curation.styles || {};
+        const domainRecords = model.records.filter(rec => rec.kind === 'domain');
+        const byId = new Map(domainRecords.map(rec => [rec.originalId, rec]));
+        const changedNames = model.records.some(rec => rec.name !== rec.previousName);
         for (const originalId of model.ids) {
           if (special(originalId)) continue;
-          const name = model.resolve(originalId);
-          const style = curation.styles[originalId] || {};
+          const previousName = model.resolve(originalId), name = renamed(previousName);
+          const style = own(curation.styles, originalId) ? curation.styles[originalId] : {};
+          if (name !== previousName) style.display_name = name;
           if (own(palette.colors, name)) style.color = palette.colors[name];
           if (includeShapes && own(palette.shapes, name)) style.shape = palette.shapes[name];
+          else if (!includeShapes && changedNames && byId.has(originalId)) style.shape = byId.get(originalId).shape;
           Object.defineProperty(curation.styles, originalId, { value: style, enumerable: true, configurable: true, writable: true });
         }
         stage(instance, 'architectureYaml', dumpYaml(curation), 'domain-architecture.yaml');
         if (includeShapes && Object.keys(palette.shapes).length) stage(instance, 'architectureShapes', shapeYaml, 'unified-shapes.yaml');
+        else if (!includeShapes && changedNames && attachment(session, instance.itemId, 'architectureShapes')) {
+          // Preserve effective per-domain shapes while moving dictionary keys.
+          // If a rename merges differently shaped domains, their embedded styles
+          // retain those shapes and the now-ambiguous shared key is omitted.
+          const dictionary = map(), candidates = new Map();
+          for (const [name, value] of Object.entries(model.shapes)) if (special(name)) dictionary[name] = value;
+          for (const rec of model.records.filter(rec => rec.kind === 'shape dictionary')) {
+            if (!candidates.has(rec.name)) candidates.set(rec.name, new Set());
+            candidates.get(rec.name).add(rec.shape);
+          }
+          for (const [name, values] of candidates) if (values.size === 1) dictionary[name] = [...values][0];
+          const grouped = new Map();
+          for (const rec of domainRecords) { if (!grouped.has(rec.name)) grouped.set(rec.name, new Set()); grouped.get(rec.name).add(rec.shape); }
+          for (const [name, values] of grouped) {
+            if (values.size === 1) dictionary[name] = [...values][0];
+            else delete dictionary[name];
+          }
+          for (const rec of domainRecords) if (grouped.get(rec.name).size > 1 && !grouped.has(rec.originalId)) delete dictionary[rec.originalId];
+          stage(instance, 'architectureShapes', flatYaml(dictionary), 'architecture-shapes.yaml');
+        }
       }
       if (instance.layer === 'taxonomy') {
         const curation = clone(model.curation); let changed = false;
+        for (const node of model.catalog.values()) {
+          const name = model.final(node);
+          if (!own(renames, name)) continue;
+          curation.overrides = curation.overrides || {};
+          const override = own(curation.overrides, node.id) ? curation.overrides[node.id] : {};
+          override.display_name = renamed(name);
+          Object.defineProperty(curation.overrides, node.id, { value: override, enumerable: true, configurable: true, writable: true });
+          changed = true;
+        }
         for (const [taxid, override] of Object.entries(curation.overrides || {})) {
-          const name = model.final(model.catalog.get(taxid));
+          const name = renamed(model.final(model.catalog.get(taxid)));
           if (override.color && own(palette.colors, name)) { override.color = palette.colors[name]; changed = true; }
         }
         if (changed) stage(instance, 'taxonomyYaml', dumpYaml(curation), 'taxonomy-sankey.yaml');
       }
+      if (instance.layer === 'network') {
+        const nodes = clone(model.nodes); let changed = false;
+        for (const raw of Object.values(nodes)) { const name = model.groupFor(raw); if (own(renames, name)) { raw.Function = renamed(name); changed = true; } }
+        if (changed) stage(instance, 'nodes', dumpYaml(nodes), 'network-nodes.yaml');
+      }
     }
-    const group = { id, name: clean(options.name) || previous?.name || selected.join(' + '), layers: selected, ...palette, colorYaml, shapeYaml, includeShapes, instanceCount: analysis.instances.length, updatedAt: new Date().toISOString() };
+    const updatedAt = new Date().toISOString();
+    const renameHistory = Array.isArray(previous?.renameHistory) ? clone(previous.renameHistory) : [];
+    if (Object.keys(renames).length) renameHistory.push({ appliedAt: updatedAt, renames: clone(renames) });
+    // This is an exportable record of the last rename operation, never a
+    // pending plan. Applying palette edits does not replay or erase it.
+    const lastRenames = Object.keys(renames).length ? renames : previous?.renames || map();
+    const group = { id, name: clean(options.name) || previous?.name || selected.join(' + '), layers: selected, ...palette, renames: clone(lastRenames), renameYaml: flatYaml(lastRenames), renameHistory, colorYaml, shapeYaml, includeShapes, instanceCount: analysis.instances.length, updatedAt };
     // Commit only after every adapter, decision and serialized payload succeeded.
     for (const [key, value] of staged) session.updates.set(key, value);
     session.groups = session.groups.filter(group => group.id !== id).concat([group]);
@@ -441,5 +543,5 @@
     zip.file(session.manifestPath, JSON.stringify(recipe, null, 2));
     return zip.generateAsync({ type: options.type || 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 }, platform: 'UNIX' });
   }
-  return Object.freeze({ VERSION, LAYERS: Object.freeze(LAYERS), SHAPES: Object.freeze(SHAPES), loadArchive, analyze, applyGroup, exportState, parseYaml, dumpYaml, flatYaml });
+  return Object.freeze({ VERSION, LAYERS: Object.freeze(LAYERS), SHAPES: Object.freeze(SHAPES), loadArchive, analyze, applyGroup, exportState, parseYaml, parseRenameYaml, dumpYaml, flatYaml });
 });

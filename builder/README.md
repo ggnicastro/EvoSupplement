@@ -8,6 +8,8 @@ Builder 1.12.1 fixes Architecture YAML validation for quoted mapping keys and th
 
 ## Unify figure colors and shapes
 
+Builder 1.13.0 includes shared renaming in the **Project Style Manager**. After selecting layers, edit their current display names, preview the renames, and resolve colors and shapes for the resulting names. Different names that become identical share a palette entry. Original domain IDs, TaxIDs, network node IDs and input tables remain unchanged. Network renaming applies to Function groups. Apply the reviewed changes, download the updated state, and reopen it with **Load state**. Existing saved groups remain compatible; previously applied renames are not replayed when a state is reopened.
+
 Builder 1.12.0 links to the **Project Style Manager**, which opens in a separate tab. First use **Save state**, then load that ZIP in the Style Manager. Select the module layers that should share a palette (for example, Neighborhood and Architecture), review names after renaming and resolve conflicting colors. Apply the group and download an updated state, then return to **Load state** in the Builder. All instances in the selected layers receive the group palette; unselected layers retain their attachments and configuration.
 
 Architecture items also accept optional **Color YAML** and **Shape YAML** attachments. The final renamed domain name takes precedence over its original identifier when resolving these dictionaries. Listed entries override the corresponding architecture style, while other curation fields and fixed SIG/TM/LIPO conventions are preserved. Both attachments are retained in saved states and included in regular and portable publication exports. Use the current Builder when publishing a state with these inputs.
