@@ -6,8 +6,9 @@
   <meta name="description" content="Author workspace for loading, curating, and exporting Gene Neighborhood Viewer inputs.">
   <meta name="theme-color" content="#172033">
   <title>Gene Neighborhood Editor</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=3.5.1">
+  <link rel="stylesheet" href="../shared/styles.css?v=3.6.0">
   <link rel="stylesheet" href="./editor.css?v=1.1.0">
+  <link rel="stylesheet" href="./analysis.css?v=1.0.0">
 </head>
 <body>
   <header class="app-header">
@@ -249,6 +250,84 @@
       </div>
     </section>
 
+    <details class="nbh-curation-card analysis-card" id="analysisCard">
+      <summary><span>Analyze neighborhoods</span><span class="nbh-curation-summary" id="analysisSummary">Load data to explore similarity, order and alternatives</span></summary>
+      <div class="analysis-content">
+        <p class="analysis-intro">Compare query-centered neighborhoods, inspect conserved gene order, and find candidate alternative domains. Analyses run locally when you choose <strong>Run analysis</strong>.</p>
+        <fieldset class="analysis-setup" id="analysisSetup">
+          <legend>1. Choose what to compare</legend>
+          <div class="analysis-fields">
+            <label class="nbh-editor-field"><span>Neighborhoods</span><select id="analysisScope"><option value="visible">Current filtered view</option><option value="all">All loaded neighborhoods</option></select><small>Both use the current direction and distance rules. “All” ignores Include / Exclude.</small></label>
+            <label class="nbh-editor-field"><span>Domain identity</span><select id="analysisRepresentation"><option value="raw">Original domain IDs</option><option value="display">Renamed domain groups</option></select><small>Renamed groups merge identical display names. Original IDs remain in exports.</small></label>
+            <label class="nbh-editor-field"><span>Similarity</span><select id="analysisMetric"><option value="jaccard">Jaccard · presence / absence</option><option value="weighted">Count-weighted Jaccard · domain occurrences</option></select><small>Order is measured separately from composition.</small></label>
+            <label class="nbh-editor-field"><span>Minimum shared similarity</span><input id="analysisThreshold" type="number" min="0" max="1" step="0.05" value="0.5"><small>Keep links at or above this score, from 0 to 1.</small></label>
+          </div>
+          <label class="analysis-check"><input id="analysisExcludeQuery" type="checkbox" checked> Exclude query genes from composition and alternative-domain tests</label>
+          <p class="analysis-note">Query genes stay in order patterns. Every segment counts once even when it contains multiple queries; the first query after orienting the neighborhood anchors its positions. Opposing query directions are flagged.</p>
+          <details class="analysis-advanced"><summary>Advanced settings</summary>
+            <div class="analysis-fields">
+              <label class="nbh-editor-field"><span>Minimum distinct domains</span><input id="analysisMinDomains" type="number" min="1" max="10000" step="1" value="1"></label>
+              <label class="nbh-editor-field"><span>Maximum neighbors per node</span><input id="analysisTopK" type="number" min="1" max="100" step="1" value="10"><small>Union of each node’s strongest links; final degree can exceed this value.</small></label>
+              <label class="nbh-editor-field"><span>Group method</span><select id="analysisGrouping"><option value="components">Connected components</option><option value="label-propagation">Deterministic label propagation</option></select></label>
+              <label class="nbh-editor-field"><span>Overlapping regions</span><select id="analysisOverlap"><option value="representative">Use one representative per overlap group</option><option value="keep">Keep separate overlapping observations</option></select></label>
+              <label class="nbh-editor-field"><span>Genes on each side of query</span><input id="analysisWindow" type="number" min="1" max="20" step="1" value="2"><small>Window size for query-centered order patterns.</small></label>
+            </div>
+            <label class="analysis-check"><input id="analysisAlternativesEnabled" type="checkbox" checked> Analyze candidate alternative domains</label>
+            <div class="analysis-fields">
+              <label class="nbh-editor-field"><span>Minimum neighborhoods per domain</span><input id="analysisMinSupport" type="number" min="1" max="1000000" step="1" value="5"></label>
+              <label class="nbh-editor-field"><span>Minimum expected coexistence</span><input id="analysisMinExpected" type="number" min="0" max="1000000" step="0.5" value="1"></label>
+              <label class="nbh-editor-field"><span>Maximum coexistence fraction</span><input id="analysisMaxBoth" type="number" min="0" max="1" step="0.05" value="0.2"><small>Both / the less frequent domain. Allows occasional coexistence.</small></label>
+              <label class="nbh-editor-field"><span>Maximum adjusted p-value (q)</span><input id="analysisMaxQ" type="number" min="0" max="1" step="0.01" value="1"><small>1 shows exploratory candidates; use 0.05 for a stricter screen.</small></label>
+              <label class="nbh-editor-field"><span>Restrict tests to metadata field</span><input id="analysisStratumField" type="text" list="analysisMetadataFields" placeholder="All observations"><datalist id="analysisMetadataFields"></datalist><small>For example taxid, organism, lineage, or an input metadata column.</small></label>
+              <label class="nbh-editor-field"><span>Exact metadata value</span><input id="analysisStratumValue" type="text" placeholder="Required when a field is set"><small>Restriction applies to alternative-domain tests only.</small></label>
+            </div>
+            <details class="analysis-advanced"><summary>Work limits for large projects</summary>
+              <p class="analysis-note">Limits stop a run with an explanation instead of silently dropping comparisons. Larger values require more time and memory. Context assessment retains statistics for every candidate but assesses the strongest candidates first.</p>
+              <div class="analysis-fields">
+                <label class="nbh-editor-field"><span>Maximum similarity comparisons</span><input id="analysisMaxPairs" type="number" min="1" max="25000000" step="1" value="2000000"></label>
+                <label class="nbh-editor-field"><span>Maximum retained links</span><input id="analysisMaxEdges" type="number" min="1" max="250000" step="1" value="25000"></label>
+                <label class="nbh-editor-field"><span>Maximum alternative-domain tests</span><input id="analysisAlternativePairs" type="number" min="1" max="1000000" step="1" value="250000"></label>
+                <label class="nbh-editor-field"><span>Maximum candidate context assessments</span><input id="analysisContextLimit" type="number" min="1" max="5000" step="1" value="500"></label>
+              </div>
+            </details>
+          </details>
+        </fieldset>
+        <div class="analysis-run-row">
+          <button class="nbh-editor-button is-primary" id="analysisRun" type="button" disabled>Run analysis</button>
+          <button class="nbh-editor-button" id="analysisCancel" type="button" hidden>Cancel</button>
+          <progress id="analysisProgress" max="100" value="0" hidden aria-label="Analysis progress"></progress>
+          <span id="analysisStatus" role="status" aria-live="polite">Load neighborhood data above to begin.</span>
+          <button class="nbh-editor-button" id="analysisLoad" type="button">Load analysis JSON</button>
+        </div>
+        <p class="analysis-stale" id="analysisStale" role="status" hidden>These results use earlier data or settings. Run the analysis again before selecting neighborhoods.</p>
+        <section id="analysisResults" hidden aria-label="Neighborhood analysis results">
+          <div class="analysis-result-head"><h2>2. Explore results</h2><div class="analysis-actions"><button class="nbh-editor-button" id="analysisClearFocus" type="button" disabled>Clear selection</button><button class="nbh-editor-button" id="analysisSave" type="button">Save analysis JSON</button><button class="nbh-editor-button" id="analysisExport" type="button">Export results ZIP</button></div></div>
+          <p class="analysis-selection" id="analysisSelection" aria-live="polite"></p>
+          <div class="analysis-tabs" id="analysisTabs" role="tablist" aria-label="Analysis views">
+            <button type="button" id="analysisTabOverview" role="tab" aria-controls="analysisPanel" aria-selected="true" data-analysis-tab="overview">Overview</button>
+            <button type="button" id="analysisTabNetwork" role="tab" aria-controls="analysisPanel" aria-selected="false" tabindex="-1" data-analysis-tab="network">Similarity network</button>
+            <button type="button" id="analysisTabOrders" role="tab" aria-controls="analysisPanel" aria-selected="false" tabindex="-1" data-analysis-tab="orders">Order patterns</button>
+            <button type="button" id="analysisTabAlternatives" role="tab" aria-controls="analysisPanel" aria-selected="false" tabindex="-1" data-analysis-tab="alternatives">Alternative domains</button>
+          </div>
+          <section id="analysisPanel" role="tabpanel" aria-labelledby="analysisTabOverview" tabindex="0">
+            <div id="analysisOverview"></div>
+            <div id="analysisNetwork" hidden><div class="analysis-network-tools"><label class="nbh-editor-field"><span>Draw group</span><select id="analysisNetworkGroup"><option value="">All groups</option></select></label><p id="analysisNetworkNote" class="analysis-note"></p></div><div id="analysisGraph" class="analysis-graph" aria-label="Similarity network"></div></div>
+            <p id="analysisTabDescription" class="analysis-note"></p>
+            <div class="analysis-table-controls">
+              <label class="nbh-editor-field"><span>Find in results</span><input id="analysisSearch" type="search" placeholder="Find a name, domain or neighborhood…"></label>
+              <label class="nbh-editor-field" id="analysisViewField"><span>Show</span><select id="analysisView"></select></label>
+              <label class="nbh-editor-field"><span>Sort</span><select id="analysisSort"></select></label>
+              <span id="analysisRowCount" class="analysis-note"></span>
+            </div>
+            <div class="analysis-table-wrap"><table class="analysis-table"><thead id="analysisTableHead"></thead><tbody id="analysisTableBody"></tbody></table><p class="analysis-empty" id="analysisEmpty" hidden>No results match these settings.</p></div>
+            <div class="analysis-pagination"><button class="nbh-editor-button" id="analysisPrev" type="button">Previous</button><span id="analysisPageInfo" aria-live="polite"></span><button class="nbh-editor-button" id="analysisNext" type="button">Next</button></div>
+            <section id="analysisDetail" class="analysis-detail" hidden aria-label="Selected result details"></section>
+          </section>
+          <details class="analysis-methods"><summary>Methods, limits and provenance</summary><div id="analysisProvenance"></div><p>These exploratory associations identify candidate alternatives, not a direction of evolutionary replacement or proof of functional equivalence. A missing annotation is not evidence of biological absence. Related strains and overlapping samples can inflate support; inspect metadata and independent lineages.</p><p>Network links use Jaccard intersection / union, or weighted Jaccard from domain occurrence counts. Grouping uses the retained sparse graph. The circular drawing shows group membership; distance between nodes has no biological meaning. Order patterns preserve gene boundaries, strand relative to the query, and unknown genes. Compact inputs provide order, not measured genomic distance.</p><p>Alternative-domain tests use one-sided Fisher depletion and Benjamini–Hochberg adjustment across the eligible tested pairs. Context evidence compares query-relative positions and neighboring gene architectures separately from statistical association.</p></details>
+        </section>
+      </div>
+    </details>
+
     <section class="nbh-panel" aria-label="Gene neighborhoods">
       <div class="nbh-viewport" id="nbhViewport" tabindex="0">
         <div class="nbh-spacer" id="nbhSpacer"><div class="nbh-row-layer" id="nbhRowLayer"></div></div>
@@ -265,14 +344,16 @@
     <span>Publication figure pages do not include curation controls.</span>
   </footer>
 
+  <input id="analysisLoadInput" type="file" accept=".json,application/json" hidden>
   <input id="tsvFileInput" type="file" hidden>
   <input id="renameFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
   <input id="colorFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
 
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./config.js?v=3.5.1"></script>
-  <script src="../shared/neighborhood-viewer.js?v=3.5.1"></script>
-  <script src="./domain-curation.js?v=1.2.0"></script>
+  <script src="./config.js?v=3.6.0"></script>
+  <script src="../shared/neighborhood-viewer.js?v=3.6.0"></script>
+  <script src="./domain-curation.js?v=1.3.0"></script>
+  <script src="./analysis.js?v=1.0.0"></script>
   <script>
     (async () => {
       await window.NeighborhoodViewer.init({
@@ -283,6 +364,8 @@
         labelsCheckbox: 'nbhShowLabels', zoomInput: 'nbhZoom', zoomValue: 'nbhZoomValue', viewport: 'nbhViewport',
         spacer: 'nbhSpacer', rowLayer: 'nbhRowLayer', tooltipHost: 'nbhTooltipHost', errorBox: 'nbhError'
       });
+
+      window.neighborhoodAnalysisEditor = window.NeighborhoodAnalysisEditor.init(window.NeighborhoodViewer);
 
       window.NeighborhoodDomainEditor.init({
         tsvChoose: 'chooseTsvButton', renameChoose: 'chooseRenameButton', colorChoose: 'chooseColorButton',

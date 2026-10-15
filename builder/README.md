@@ -4,6 +4,8 @@ EvoSupplement Builder is a browser-based project generator for creating publicat
 
 Open `builder/` through an HTTP server, enter the paper metadata, create sections and items, attach the required files, and validate the project. Download a project ZIP for hosting or a portable ZIP that recipients can open locally without Python or Git hosting.
 
+Builder 1.15.0 packages Gene Neighborhood Viewer 3.6.0. The separate Neighborhood Editor now includes query-centered similarity networks, order patterns and exploratory alternative-domain analyses. These authoring tools stay in the editor; generated publication and portable ZIPs contain the reader viewer. Save analysis sessions from the editor separately from the Builder state ZIP. Existing Builder states and publication inputs remain compatible.
+
 Builder 1.12.1 fixes Architecture YAML validation for quoted mapping keys and the JSON representation supported by the viewer. Full architecture YAMLs exported by version 1.1.0 remain compatible; they do not need to be recreated. Standalone color and shape dictionaries still belong in their separate input fields.
 
 ## Unify names, colors and shapes

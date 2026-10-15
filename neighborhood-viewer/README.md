@@ -423,6 +423,16 @@ The original TSV value remains the canonical key for both exported dictionaries.
 
 Only names that differ from their original identifiers are included in the rename YAML. Only explicitly selected colors are included in the color YAML. Entries loaded from an existing YAML but not found in the current TSV are preserved by default and can be omitted with the corresponding editor option. Selected files are never overwritten.
 
+## Analyze neighborhoods (editor only)
+
+Version 3.6.0 adds a collapsed **Analyze neighborhoods** workspace in the editor. Load your input, adjust the continuity and text filters, open the panel and run the analysis. Choose the filtered cohort or all loaded query-connected segments. Results link back to the corresponding neighborhood rows without rewriting Include/Exclude filters.
+
+The workspace provides binary or abundance-weighted Jaccard similarity, a sparse similarity network with explicit grouping rules, complete and local order patterns, and exploratory candidate alternative-domain pairs with coexistence exceptions. Gene order is oriented relative to the query, while domain order within each protein is retained. Original domain IDs are the default; curated display-name grouping is an explicit option with its mapping recorded.
+
+Use the analysis JSON to save or reopen a calculation and the analysis ZIP for tables, parameters and provenance. **Download package** also includes the current analysis session when one exists. Analysis sessions are separate from Builder states and do not become interactive tools in published reader pages. Results are marked stale when their inputs or settings change. See [analysis methods, controls and limits](editor/ANALYSIS.md).
+
+Calculations run locally in a Web Worker. Open the Studio through its local HTTP server or a hosted site; an unsupported or blocked worker produces an actionable error. Statistical associations are exploratory: incomplete annotation, related taxa and overlapping loci can influence apparent alternatives, and low co-occurrence alone does not demonstrate functional replacement.
+
 ## Troubleshooting
 
 | Symptom | Likely cause or check |

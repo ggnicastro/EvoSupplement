@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_VERSION = '3.5.1';
+  const VIEWER_VERSION = '3.6.0';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const XLINK_NS = 'http://www.w3.org/1999/xlink';
   const FIELD_ALIASES = Object.freeze({
@@ -1909,7 +1909,14 @@
       allEntries: [],
       continuityEntries: [],
       continuityDirty: true,
+      baseFilteredEntries: [],
       filteredEntries: [],
+      analysisRevision: 0,
+      analysisFilterSignature: '',
+      datasetSequence: 0,
+      datasetId: '',
+      sourceIdentity: null,
+      analysisFocus: null,
       visibleStats: { neighborhoods: 0, rows: 0, genes: 0, domains: 0, markers: 0 },
       stats: { neighborhoods: 0, genes: 0, domains: 0, markers: 0, rows: 0 },
       rawTsvText: '',
@@ -1922,7 +1929,8 @@
       highlightedDomain: '',
       domainSelectHandlers: new Set(),
       visibleChangeHandlers: new Set(),
-      dataChangeHandlers: new Set()
+      dataChangeHandlers: new Set(),
+      analysisChangeHandlers: new Set()
     };
     const layout = {
       trackWidth: DEFAULTS.minTrackWidth,
@@ -2023,6 +2031,115 @@
       };
     }
 
+    function analysisFilters() {
+      return {
+        include: elements.includeInput ? elements.includeInput.value : '',
+        exclude: elements.excludeInput ? elements.excludeInput.value : '',
+        sameDirectionOnly: state.sameDirectionOnly,
+        maxIntergenicDistance: state.maxIntergenicDistance
+      };
+    }
+
+    // Source block IDs are deliberately shared by continuity segments in the
+    // renderer. Analysis needs a separate, dataset-scoped key for each segment.
+    function analysisEntryId(entry) {
+      const first = entry.genes[0];
+      const last = entry.genes[entry.genes.length - 1];
+      return JSON.stringify([state.datasetId, entry.sourceId || entry.id,
+        entry.segmentIndex || 0, first?.pid, first?.start, first?.end,
+        last?.pid, last?.start, last?.end]);
+    }
+
+    function cloneAnalysisValue(value, seen = new WeakMap()) {
+      if (!value || typeof value !== 'object') return value;
+      if (seen.has(value)) return seen.get(value);
+      const clone = Array.isArray(value) ? [] : {};
+      seen.set(value, clone);
+      for (const key of Object.keys(value)) {
+        Object.defineProperty(clone, key, {
+          value: cloneAnalysisValue(value[key], seen),
+          writable: true, enumerable: true, configurable: true
+        });
+      }
+      return clone;
+    }
+
+    function flushAnalysisFilters() {
+      if (state.continuityDirty || state.analysisFilterSignature !== JSON.stringify(analysisFilters())) {
+        window.clearTimeout(filterTimer);
+        filterTimer = 0;
+        applyFilter(false);
+      }
+    }
+
+    function getAnalysisSnapshot(options = {}) {
+      flushAnalysisFilters();
+      const scope = clean(options.scope).toLowerCase() === 'all' ? 'all' : 'visible';
+      // Ignore the transient analysis focus so selecting a result never changes
+      // the scientific input of a subsequent calculation.
+      const entries = scope === 'all' ? state.continuityEntries : state.baseFilteredEntries;
+      return {
+        version: 1,
+        viewerVersion: VIEWER_VERSION,
+        revision: state.analysisRevision,
+        datasetId: state.datasetId,
+        source: cloneAnalysisValue(state.sourceIdentity),
+        scope,
+        filters: analysisFilters(),
+        dictionaries: getDictionaries(),
+        warnings: state.parseWarnings.slice(),
+        entries: entries.map(entry => {
+          const clone = cloneAnalysisValue(entry);
+          clone.originalId = entry.id;
+          clone.sourceId = entry.sourceId || entry.id;
+          clone.id = analysisEntryId(entry);
+          clone.analysisId = clone.id;
+          return clone;
+        })
+      };
+    }
+
+    function getAnalysisFocus() {
+      const focus = state.analysisFocus;
+      return {
+        active: Boolean(focus),
+        label: focus?.label || '',
+        entryIds: focus ? Array.from(focus.entryIds) : [],
+        sourceIds: focus ? Array.from(focus.sourceIds) : [],
+        revision: state.analysisRevision,
+        matchedRows: state.filteredEntries.length,
+        availableRows: state.baseFilteredEntries.length
+      };
+    }
+
+    function setAnalysisFocus(options = {}) {
+      flushAnalysisFilters();
+      if (options.revision != null && options.revision !== state.analysisRevision) {
+        throw new Error('The neighborhoods changed. Run the analysis again before selecting its results.');
+      }
+      const list = value => Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
+      const entryIds = new Set(list(options.entryIds));
+      const sourceIds = new Set(list(options.sourceIds));
+      const availableIds = new Set(state.continuityEntries.map(analysisEntryId));
+      const availableSources = new Set(state.continuityEntries.map(entry => entry.sourceId || entry.id));
+      if ([...entryIds].some(id => !availableIds.has(id)) || [...sourceIds].some(id => !availableSources.has(id))) {
+        throw new Error('This selection belongs to different neighborhoods. Run the analysis again.');
+      }
+      state.analysisFocus = entryIds.size || sourceIds.size
+        ? { entryIds, sourceIds, label: clean(options.label) }
+        : null;
+      applyFilter(true, 'analysis-focus');
+      return getAnalysisFocus();
+    }
+
+    function clearAnalysisFocus() {
+      if (state.analysisFocus) {
+        state.analysisFocus = null;
+        applyFilter(false, 'analysis-focus');
+      }
+      return getAnalysisFocus();
+    }
+
     function setHighlightedDomain(rawName) {
       state.highlightedDomain = clean(rawName);
       virtualList.refresh();
@@ -2116,7 +2233,15 @@
       elements.statusText.textContent = `${prefix} (${percentageText}%) · ${numberText(state.visibleStats.rows)} rows · ${numberText(state.visibleStats.genes)} genes · ${numberText(state.visibleStats.domains)} domains`;
     }
 
-    function applyFilter(resetScroll = true) {
+    function applyFilter(resetScroll = true, reason = 'filter') {
+      const filters = analysisFilters();
+      const signature = JSON.stringify(filters);
+      const changed = state.analysisFilterSignature !== signature || reason === 'load' || reason === 'dictionary-update';
+      if (changed) {
+        state.analysisFilterSignature = signature;
+        state.analysisRevision += 1;
+        state.analysisFocus = null;
+      }
       if (state.continuityDirty) {
         state.continuityEntries = buildContinuitySegments(state.allEntries, state);
         state.continuityDirty = false;
@@ -2127,9 +2252,13 @@
         ...compileFilter(includeQuery, false),
         ...compileFilter(excludeQuery, true)
       ];
-      state.filteredEntries = terms.length
+      state.baseFilteredEntries = terms.length
         ? state.continuityEntries.filter(entry => entryMatches(entry, terms))
         : state.continuityEntries;
+      const focus = state.analysisFocus;
+      state.filteredEntries = focus
+        ? state.baseFilteredEntries.filter(entry => focus.entryIds.has(analysisEntryId(entry)) || focus.sourceIds.has(entry.sourceId || entry.id))
+        : state.baseFilteredEntries;
       state.visibleStats = computeVisibleStats(state.filteredEntries);
       state.globalExtent = computeGlobalExtent(state.filteredEntries, state.flipNegative);
       recomputeFixedLayouts();
@@ -2141,12 +2270,21 @@
       updateContinuityHelp();
       updateStatus();
       notifyHandlers(state.visibleChangeHandlers, {
+        reason,
         visibleNeighborhoods: state.visibleStats.neighborhoods,
         visibleRows: state.visibleStats.rows,
         visibleGenes: state.visibleStats.genes,
         visibleDomains: state.visibleStats.domains,
         totalNeighborhoods: state.allEntries.length,
         domainStats: getDomainStats({ scope: 'visible' })
+      });
+      if (changed) notifyHandlers(state.analysisChangeHandlers, {
+        reason,
+        revision: state.analysisRevision,
+        datasetId: state.datasetId,
+        filters: analysisFilters(),
+        visibleRows: state.baseFilteredEntries.length,
+        totalRows: state.continuityEntries.length
       });
     }
 
@@ -2266,7 +2404,8 @@
           elements.maxIntergenicDistanceInput.setAttribute('aria-invalid', 'false');
         }
       }
-      applyFilter(resetScroll);
+      state.analysisFocus = null;
+      applyFilter(resetScroll, options.reason || 'load');
       notifyHandlers(state.dataChangeHandlers, {
         reason: options.reason || 'load',
         stats: { ...state.stats },
@@ -2296,6 +2435,14 @@
         state.colorMap = copyFlatObject(colors);
         state.renameMap = copyFlatObject(renames);
         state.highlightedDomain = '';
+        state.datasetSequence += 1;
+        state.datasetId = `neighborhood-${state.datasetSequence}`;
+        state.sourceIdentity = {
+          id: state.datasetId,
+          name: typeof sources.tsv === 'string' ? sources.tsv : clean(sources.tsv?.name) || 'Neighborhood input',
+          format: parsed.inputFormat,
+          sizeBytes: new Blob([tsvText]).size
+        };
         applyParsedData(parsed, { resetFilters: true, resetScroll: true, reason: 'load' });
         return true;
       } catch (error) {
@@ -2351,6 +2498,15 @@
       onDomainSelect: handler => addHandler(state.domainSelectHandlers, handler),
       onVisibleChange: handler => addHandler(state.visibleChangeHandlers, handler),
       onDataChange: handler => addHandler(state.dataChangeHandlers, handler)
+    });
+    // The publication reader keeps its existing interface. Analysis is an
+    // authoring operation and is exposed only in the manual-load editor.
+    if (config.manualLoad) Object.assign(window.NeighborhoodViewer, {
+      getAnalysisSnapshot,
+      setAnalysisFocus,
+      clearAnalysisFocus,
+      getAnalysisFocus,
+      onAnalysisChange: handler => addHandler(state.analysisChangeHandlers, handler)
     });
     // --- end data loading -------------------------------------------------------
 
