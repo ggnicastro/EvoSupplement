@@ -1,5 +1,7 @@
 # Protein Domain Architecture Viewer
 
+Version 1.1.1 exports conventional unquoted structural keys while preserving all configuration fields. Builder 1.12.1 also accepts quoted keys from earlier exports, so existing architecture YAML files and saved states remain usable.
+
 The Protein Domain Architecture Viewer renders Pfam-like domain diagrams for many proteins while preserving domain coordinates, protein lengths, repeated domains, overlapping annotations, and optional per-protein or per-domain metadata.
 
 The module follows the standard EvoSupplement structure:

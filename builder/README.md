@@ -4,6 +4,8 @@ EvoSupplement Builder is a browser-based project generator for creating publicat
 
 Open `builder/` through an HTTP server, enter the paper metadata, create sections and items, attach the required files, and validate the project. Download a project ZIP for hosting or a portable ZIP that recipients can open locally without Python or Git hosting.
 
+Builder 1.12.1 fixes Architecture YAML validation for quoted mapping keys and the JSON representation supported by the viewer. Full architecture YAMLs exported by version 1.1.0 remain compatible; they do not need to be recreated. Standalone color and shape dictionaries still belong in their separate input fields.
+
 ## Unify figure colors and shapes
 
 Builder 1.12.0 links to the **Project Style Manager**, which opens in a separate tab. First use **Save state**, then load that ZIP in the Style Manager. Select the module layers that should share a palette (for example, Neighborhood and Architecture), review names after renaming and resolve conflicting colors. Apply the group and download an updated state, then return to **Load state** in the Builder. All instances in the selected layers receive the group palette; unselected layers retain their attachments and configuration.

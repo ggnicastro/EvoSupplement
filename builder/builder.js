@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.12.0';
+  const BUILDER_VERSION = '1.12.1';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
@@ -31,7 +31,7 @@
     phylogeny: '2.1.0',
     network: '1.2.0',
     taxonomy: '1.4.1',
-    architecture: '1.1.0',
+    architecture: '1.1.1',
     multistructure: '1.0.0'
   };
 
@@ -1406,8 +1406,10 @@
             }
             if (yaml) {
               const text = await readTextLimited(yaml, 3 * 1024 * 1024);
-              if (!/^\s*layout\s*:/m.test(text)) warning('The architecture YAML does not contain a layout block.', location);
-              if (!/^\s*(version|title|layout|metadata|styles|special_features)\s*:/m.test(text)) error('The YAML does not look like a Domain Architecture Editor file.', location);
+              if (!hasYamlMappingKey(text, ['layout'])) warning('The architecture YAML does not contain a layout block.', location);
+              if (!hasYamlMappingKey(text, ['version', 'title', 'layout', 'metadata', 'styles', 'special_features'])) {
+                error('Architecture YAML must contain the full configuration exported by the Domain Architecture Editor. Load standalone color or shape dictionaries in the separate Color YAML or Shape YAML fields.', location);
+              }
             }
           }
 
@@ -1477,6 +1479,23 @@
 
   function firstNonEmptyLine(text) {
     return String(text || '').split(/\r?\n/).find(line => line.trim()) || '';
+  }
+
+  // Match the structural keys the Architecture reader accepts, including
+  // quoted YAML keys and its supported JSON representation. This is a format
+  // hint, not a replacement for the viewer's configuration parser.
+  function hasYamlMappingKey(text, keys) {
+    const source = String(text || '').replace(/^\uFEFF/, '').trim();
+    if (source.startsWith('{')) {
+      try {
+        const value = JSON.parse(source);
+        return value !== null && typeof value === 'object' && !Array.isArray(value) &&
+          keys.some(key => Object.prototype.hasOwnProperty.call(value, key));
+      } catch { /* inspect block YAML below */ }
+    }
+    const entries = source.matchAll(/^[ \t]*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([A-Za-z_][A-Za-z0-9_]*))[ \t]*:/gm);
+    for (const entry of entries) if (keys.includes(entry[1] ?? entry[2] ?? entry[3])) return true;
+    return false;
   }
 
   async function readTextLimited(file, maxBytes) {

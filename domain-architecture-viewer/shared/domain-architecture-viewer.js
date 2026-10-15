@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
   const REQUIRED_COLUMNS = ['pid', 'domain', 'start', 'end', 'plen'];
   const SPECIAL_FEATURES = Object.freeze({
     TM: { color: '#4b5563', stroke: '#1f2937', shape: 'tm', label: 'TM' },
@@ -549,10 +549,11 @@
     }
     // JSON values are valid YAML flow values, preserving extension fields without a remote parser.
     return Object.entries(merged).map(([key, value]) => {
+      const yamlKey = ['version', 'title', 'layout', 'metadata', 'special_features', 'styles'].includes(key) ? key : quoteYaml(key);
       if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length) {
-        return `${quoteYaml(key)}:\n${Object.entries(value).map(([child, entry]) => `  ${quoteYaml(child)}: ${JSON.stringify(entry)}`).join('\n')}`;
+        return `${yamlKey}:\n${Object.entries(value).map(([child, entry]) => `  ${quoteYaml(child)}: ${JSON.stringify(entry)}`).join('\n')}`;
       }
-      return `${quoteYaml(key)}: ${JSON.stringify(value)}`;
+      return `${yamlKey}: ${JSON.stringify(value)}`;
     }).join('\n') + '\n';
   }
 
