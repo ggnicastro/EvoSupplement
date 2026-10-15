@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>EvoSupplement Builder</title>
-  <link rel="stylesheet" href="./styles.css?v=1.10.2">
+  <link rel="stylesheet" href="./styles.css?v=1.11.0">
+  <link rel="stylesheet" href="./markdown.css?v=1.11.0">
 </head>
 <body>
   <header class="app-header">
@@ -137,7 +138,11 @@
             </div>
             <button class="button button-secondary" id="addSectionButton" type="button">Add section</button>
           </div>
-          <p class="section-intro">A section becomes a heading on the portal. Each item can be a regular file, an HTML package, an external link, a placeholder, or one of the EvoSupplement viewers.</p>
+          <p class="section-intro">Mix text, figures, files, links, and interactive viewers in any order. Use the arrows to reorder sections and their blocks. Collapse controls only change your editing workspace.</p>
+          <div class="workspace-collapse-actions">
+            <button class="button button-small button-ghost" id="collapseAllButton" type="button">Collapse all</button>
+            <button class="button button-small button-ghost" id="expandAllButton" type="button">Expand all</button>
+          </div>
           <div id="sectionsHost" class="sections-editor"></div>
           <div id="emptySections" class="empty-state">
             <div class="empty-icon" aria-hidden="true">＋</div>
@@ -205,7 +210,7 @@
 
           <div class="preview-heading">
             <h3>Portal preview</h3>
-            <span>Manifest structure</span>
+            <span>Content order</span>
           </div>
           <div id="portalPreview" class="portal-preview"></div>
 
@@ -237,8 +242,10 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./portable/vendor/portable-vendor.js?v=1.10.2"></script>
-  <script src="./portable/launcher/shortcut.js?v=1.10.2"></script>
-  <script src="./builder.js?v=1.10.2"></script>
+  <script src="./vendor/marked.umd.js"></script>
+  <script src="./markdown.js?v=1.11.0"></script>
+  <script src="./portable/vendor/portable-vendor.js?v=1.11.0"></script>
+  <script src="./portable/launcher/shortcut.js?v=1.11.0"></script>
+  <script src="./builder.js?v=1.11.0"></script>
 </body>
 </html>

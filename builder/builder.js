@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.10.2';
+  const BUILDER_VERSION = '1.11.0';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
@@ -110,6 +110,8 @@
   };
 
   const KIND_LABELS = {
+    markdown: 'Text (Markdown)',
+    figure: 'Figure',
     file: 'File',
     html: 'HTML',
     protein: 'Structure + MSA',
@@ -130,6 +132,7 @@
   let toastTimer = null;
   let coverPreviewFile = null;
   let coverPreviewUrl = '';
+  const figurePreviews = new Map();
 
   const els = {
     projectTitle: document.getElementById('projectTitle'),
@@ -199,6 +202,7 @@
       description: '',
       slug: '',
       slugTouched: false,
+      collapsed: false,
       kind,
       config: defaultConfig(kind)
     };
@@ -206,6 +210,10 @@
 
   function defaultConfig(kind) {
     switch (kind) {
+      case 'markdown':
+        return { markdown: '', showTitle: false };
+      case 'figure':
+        return { alt: '', caption: '', showTitle: false };
       case 'file':
         return { badge: 'doc' };
       case 'html':
@@ -374,6 +382,7 @@
 
   function getRequiredRoles(item) {
     switch (item.kind) {
+      case 'figure': return ['figure'];
       case 'file': return ['file'];
       case 'html': return ['html'];
       case 'protein': return ['structure', 'annotations'];
@@ -406,6 +415,8 @@
       updateReview();
     });
     document.getElementById('addSectionButton').addEventListener('click', addSection);
+    document.getElementById('collapseAllButton').addEventListener('click', () => setAllCollapsed(true));
+    document.getElementById('expandAllButton').addEventListener('click', () => setAllCollapsed(false));
     document.getElementById('validateButton').addEventListener('click', runValidation);
     document.getElementById('downloadButton').addEventListener('click', () => downloadProject());
     document.getElementById('portableDownloadButton').addEventListener('click', () => downloadProject({ portablePlatform: els.portablePlatform.value }));
@@ -482,6 +493,7 @@
       title: index === 1 ? 'Figures' : `Section ${index}`,
       slug: index === 1 ? 'figures' : `section-${index}`,
       slugTouched: false,
+      collapsed: false,
       items: []
     });
     renderSections();
@@ -521,6 +533,10 @@
       const section = findSection(target.dataset.sectionId);
       if (!section) return;
       section[target.dataset.sectionField] = target.value;
+      if (target.dataset.sectionField === 'title') {
+        const summary = target.closest('.section-card')?.querySelector('.section-summary strong');
+        if (summary) summary.textContent = target.value || 'Untitled section';
+      }
       if (target.dataset.sectionField === 'slug') section.slugTouched = true;
       if (target.dataset.sectionField === 'title' && !section.slugTouched) {
         section.slug = slugify(target.value, 'section');
@@ -557,14 +573,33 @@
         return;
       }
       item.config[target.dataset.configField] = coerceInputValue(target);
+      updateInlinePreview(target, item);
       updateReview();
     }
   }
 
   function handleDynamicChange(event) {
     const target = event.target;
+    if (target.dataset.moveItem) {
+      const source = findSection(target.dataset.sectionId);
+      const destination = findSection(target.value);
+      const item = findItem(target.dataset.sectionId, target.dataset.itemId);
+      if (!source || !destination || !item || source === destination) return;
+      source.items = source.items.filter(entry => entry.id !== item.id);
+      destination.items.push(item);
+      destination.collapsed = false;
+      renderSections();
+      updateReview();
+      els.sectionsHost.querySelector(`[data-item-id="${CSS.escape(item.id)}"] [data-action="toggle-item"]`)?.focus();
+      return;
+    }
     if (target.matches('input[type="file"]')) {
       const file = target.files?.[0] || null;
+      if (!file) return;
+      if (target.dataset.fileRole === 'figure') {
+        const error = figureValidationError(file);
+        if (error) { target.value = ''; showToast(error); return; }
+      }
       setUpload(target.dataset.itemId, target.dataset.fileRole, file);
       renderSections();
       updateReview();
@@ -615,10 +650,24 @@
     const sectionId = button.dataset.sectionId;
     const itemId = button.dataset.itemId;
 
+    if (action === 'toggle-section' || action === 'toggle-item') {
+      const entry = action === 'toggle-section' ? findSection(sectionId) : findItem(sectionId, itemId);
+      if (!entry) return;
+      entry.collapsed = !entry.collapsed;
+      renderSections();
+      const selector = action === 'toggle-section'
+        ? `[data-action="toggle-section"][data-section-id="${CSS.escape(sectionId)}"]`
+        : `[data-action="toggle-item"][data-item-id="${CSS.escape(itemId)}"]`;
+      els.sectionsHost.querySelector(selector)?.focus();
+      return;
+    }
+
     if (action === 'add-item') {
       const section = findSection(sectionId);
       if (!section) return;
-      section.items.push(defaultItem('file'));
+      const kind = ['markdown', 'figure'].includes(button.dataset.kind) ? button.dataset.kind : 'file';
+      section.items.push(defaultItem(kind));
+      section.collapsed = false;
       renderSections();
       updateReview();
       const lastTitle = els.sectionsHost.querySelector(`[data-section-id="${CSS.escape(sectionId)}"] .item-card:last-child [data-item-field="title"]`);
@@ -679,6 +728,56 @@
     [array[index], array[next]] = [array[next], array[index]];
   }
 
+  function setAllCollapsed(collapsed) {
+    for (const section of state.sections) {
+      section.collapsed = collapsed;
+      for (const item of section.items) item.collapsed = collapsed;
+    }
+    renderSections();
+  }
+
+  function figureValidationError(file) {
+    if (!file.size) return 'The figure image is empty. Choose a PNG, JPEG, WebP, GIF or SVG image.';
+    if (!Object.prototype.hasOwnProperty.call(COVER_TYPES, extensionOf(file.name).slice(1))) {
+      return 'Choose a PNG, JPEG, WebP, GIF or SVG file for the figure.';
+    }
+    return '';
+  }
+
+  function getFigurePreviewUrl(item) {
+    const file = getUpload(item.id, 'figure');
+    const cached = figurePreviews.get(item.id);
+    if (cached?.file === file) return cached.url;
+    if (cached) URL.revokeObjectURL(cached.url);
+    figurePreviews.delete(item.id);
+    if (!file || figureValidationError(file)) return '';
+    const type = COVER_TYPES[extensionOf(file.name).slice(1)];
+    const url = URL.createObjectURL(file.slice(0, file.size, type || file.type));
+    figurePreviews.set(item.id, { file, url });
+    return url;
+  }
+
+  function renderMarkdown(source) {
+    if (!window.EvoSupplementMarkdown) return `<p>${escapeHtml(source)}</p>`;
+    // Previews must never navigate away from an unsaved authoring session.
+    // Only links generated by the safe renderer can produce an <a> element.
+    return window.EvoSupplementMarkdown.render(source).replace(/<a /g, '<a target="_blank" ');
+  }
+
+  function updateInlinePreview(target, item) {
+    const card = target.closest('.item-card');
+    if (item.kind === 'markdown' && target.dataset.configField === 'markdown') {
+      const preview = card?.querySelector('.markdown-live-preview');
+      if (preview) preview.innerHTML = renderMarkdown(item.config.markdown);
+    }
+    if (item.kind === 'figure') {
+      const img = card?.querySelector('.figure-image-preview img');
+      const caption = card?.querySelector('.figure-image-preview figcaption');
+      if (img) img.alt = item.config.alt;
+      if (caption) { caption.textContent = item.config.caption; caption.hidden = !item.config.caption; }
+    }
+  }
+
   function removeItemUploads(itemId) {
     for (const key of [...uploadFiles.keys()]) {
       if (key.startsWith(`${itemId}::`)) uploadFiles.delete(key);
@@ -707,6 +806,12 @@
   }
 
   function renderSections() {
+    for (const [id, cached] of figurePreviews) {
+      if (getUpload(id, 'figure') !== cached.file) {
+        URL.revokeObjectURL(cached.url);
+        figurePreviews.delete(id);
+      }
+    }
     els.emptySections.hidden = state.sections.length > 0;
     els.sectionsHost.innerHTML = state.sections.map((section, sectionIndex) => renderSection(section, sectionIndex)).join('');
   }
@@ -714,8 +819,20 @@
   function renderSection(section, sectionIndex) {
     return `
       <article class="section-card" data-section-id="${section.id}">
-        <div class="section-toolbar">
-          <div class="section-toolbar-main">
+        <header class="section-toolbar">
+          <div class="section-summary">
+            <strong>${escapeHtml(section.title || 'Untitled section')}</strong>
+            <small>${section.items.length} block${section.items.length === 1 ? '' : 's'}</small>
+          </div>
+          <div class="toolbar-actions">
+            <button class="button button-small button-ghost" type="button" data-action="toggle-section" data-section-id="${section.id}" aria-expanded="${!section.collapsed}" aria-controls="section-body-${section.id}">${section.collapsed ? 'Expand' : 'Collapse'}</button>
+            <button class="button button-icon button-ghost" type="button" data-action="move-section-up" data-section-id="${section.id}" aria-label="Move section up" ${sectionIndex === 0 ? 'disabled' : ''}>↑</button>
+            <button class="button button-icon button-ghost" type="button" data-action="move-section-down" data-section-id="${section.id}" aria-label="Move section down" ${sectionIndex === state.sections.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="button button-icon button-danger" type="button" data-action="remove-section" data-section-id="${section.id}" aria-label="Remove section">×</button>
+          </div>
+        </header>
+        <div class="section-body" id="section-body-${section.id}" ${section.collapsed ? 'hidden' : ''}>
+          <div class="section-toolbar-main section-fields">
             <label class="field">
               <span>Section name <b aria-hidden="true">*</b></span>
               <input type="text" value="${escapeAttribute(section.title)}" data-section-id="${section.id}" data-section-field="title" placeholder="Figures">
@@ -725,17 +842,14 @@
               <input type="text" value="${escapeAttribute(section.slug)}" data-section-id="${section.id}" data-section-field="slug" placeholder="figures">
             </label>
           </div>
-          <div class="toolbar-actions">
-            <button class="button button-icon button-ghost" type="button" data-action="move-section-up" data-section-id="${section.id}" aria-label="Move section up" ${sectionIndex === 0 ? 'disabled' : ''}>↑</button>
-            <button class="button button-icon button-ghost" type="button" data-action="move-section-down" data-section-id="${section.id}" aria-label="Move section down" ${sectionIndex === state.sections.length - 1 ? 'disabled' : ''}>↓</button>
-            <button class="button button-icon button-danger" type="button" data-action="remove-section" data-section-id="${section.id}" aria-label="Remove section">×</button>
-          </div>
-        </div>
         <div class="items-list">
           ${section.items.length ? section.items.map((item, itemIndex) => renderItem(section, item, itemIndex)).join('') : '<div class="preview-empty">This section has no items yet.</div>'}
         </div>
         <div class="add-item-row">
           <button class="button button-secondary" type="button" data-action="add-item" data-section-id="${section.id}">Add item</button>
+          <button class="button button-secondary" type="button" data-action="add-item" data-kind="markdown" data-section-id="${section.id}">Add text</button>
+          <button class="button button-secondary" type="button" data-action="add-item" data-kind="figure" data-section-id="${section.id}">Add figure</button>
+        </div>
         </div>
       </article>`;
   }
@@ -750,12 +864,13 @@
             <strong>${escapeHtml(title)}</strong>
           </div>
           <div class="toolbar-actions">
+            <button class="button button-small button-ghost" type="button" data-action="toggle-item" data-section-id="${section.id}" data-item-id="${item.id}" aria-expanded="${!item.collapsed}" aria-controls="item-body-${item.id}">${item.collapsed ? 'Expand' : 'Collapse'}</button>
             <button class="button button-icon button-ghost" type="button" data-action="move-item-up" data-section-id="${section.id}" data-item-id="${item.id}" aria-label="Move item up" ${itemIndex === 0 ? 'disabled' : ''}>↑</button>
             <button class="button button-icon button-ghost" type="button" data-action="move-item-down" data-section-id="${section.id}" data-item-id="${item.id}" aria-label="Move item down" ${itemIndex === section.items.length - 1 ? 'disabled' : ''}>↓</button>
             <button class="button button-icon button-danger" type="button" data-action="remove-item" data-section-id="${section.id}" data-item-id="${item.id}" aria-label="Remove item">×</button>
           </div>
         </header>
-        <div class="item-body">
+        <div class="item-body" id="item-body-${item.id}" ${item.collapsed ? 'hidden' : ''}>
           <div class="item-common-grid">
             <label class="field">
               <span>Title / label <b aria-hidden="true">*</b></span>
@@ -781,20 +896,44 @@
           </div>
           <div class="item-footer">
             <span class="item-path">${escapeHtml(generatedPathLabel(section, item))}</span>
-            <div class="item-actions"></div>
+            <div class="item-actions">${state.sections.length > 1 ? `<select class="item-move-select" aria-label="Move block to section" data-move-item="true" data-section-id="${section.id}" data-item-id="${item.id}"><option value="">Move to section…</option>${state.sections.filter(entry => entry.id !== section.id).map(entry => `<option value="${escapeAttribute(entry.id)}">${escapeHtml(entry.title || 'Untitled section')}</option>`).join('')}</select>` : ''}</div>
           </div>
         </div>
       </article>`;
   }
 
   function kindOptions(selected) {
-    const kinds = ['file', 'html', 'protein', 'neighborhood', 'phylogeny', 'network', 'taxonomy', 'architecture', 'multistructure', 'external', 'coming'];
+    const kinds = ['markdown', 'figure', 'file', 'html', 'protein', 'neighborhood', 'phylogeny', 'network', 'taxonomy', 'architecture', 'multistructure', 'external', 'coming'];
     return kinds.map(kind => `<option value="${kind}" ${selected === kind ? 'selected' : ''}>${escapeHtml(KIND_LABELS[kind])}</option>`).join('');
   }
 
   function renderItemSpecific(section, item) {
     const attrs = `data-section-id="${section.id}" data-item-id="${item.id}"`;
     switch (item.kind) {
+      case 'markdown':
+        return `
+          <h4>Text on the supplement page</h4>
+          <label class="field">
+            <span>Markdown text <b aria-hidden="true">*</b></span>
+            <textarea class="markdown-editor" rows="9" ${attrs} data-config-field="markdown" placeholder="## Background&#10;&#10;Write your explanation with **bold**, *italic*, lists, and [links](https://example.org).">${escapeHtml(item.config.markdown)}</textarea>
+            <small class="field-help">Headings, lists, links, tables, quotes, and code are supported. Add images with an uploaded Figure block. HTML tags are shown as text.</small>
+          </label>
+          <label class="checkbox-field"><input type="checkbox" ${attrs} data-config-field="showTitle" ${item.config.showTitle ? 'checked' : ''}><span>Show the block title on the page</span></label>
+          <div class="inline-preview-heading">Text preview</div>
+          <div class="markdown-content markdown-live-preview">${renderMarkdown(item.config.markdown)}</div>`;
+      case 'figure': {
+        const src = getFigurePreviewUrl(item);
+        return `
+          <h4>Figure on the supplement page</h4>
+          <div class="field"><span>Image <b aria-hidden="true">*</b></span>${renderFilePicker(item, 'figure', 'Choose image', '.png,.jpg,.jpeg,.webp,.gif,.svg,image/png,image/jpeg,image/webp,image/gif,image/svg+xml')}</div>
+          <div class="specific-grid figure-settings">
+            <label class="field field-wide"><span>Image description <small>for accessibility</small></span><input type="text" ${attrs} data-config-field="alt" value="${escapeAttribute(item.config.alt)}" placeholder="Describe the figure for readers who cannot see it."></label>
+            <label class="field field-wide"><span>Caption or credit <small>optional</small></span><textarea rows="3" ${attrs} data-config-field="caption" placeholder="Figure legend or image credit.">${escapeHtml(item.config.caption)}</textarea></label>
+          </div>
+          <label class="checkbox-field"><input type="checkbox" ${attrs} data-config-field="showTitle" ${item.config.showTitle ? 'checked' : ''}><span>Show the block title on the page</span></label>
+          <small class="field-help">The complete image is displayed without cropping and included in saved states and publication ZIPs.</small>
+          ${src ? `<figure class="figure-image-preview"><img src="${escapeAttribute(src)}" alt="${escapeAttribute(item.config.alt)}"><figcaption ${item.config.caption ? '' : 'hidden'}>${escapeHtml(item.config.caption)}</figcaption></figure>` : ''}`;
+      }
       case 'file':
         return `
           <h4>Uploaded file</h4>
@@ -957,6 +1096,8 @@
   function generatedPathLabel(section, item) {
     const slug = slugify(item.slug || item.title, 'item');
     switch (item.kind) {
+      case 'markdown': return 'Inline text on the supplement page';
+      case 'figure': return `assets/figures/${slugify(section.slug || section.title, 'section')}/${slug}/…`;
       case 'file': return `files/${slugify(section.slug || section.title, 'section')}/${slug}/…`;
       case 'html': return `html/${slug}/`;
       case 'protein': return `protein-viewer/${slug}/`;
@@ -1003,7 +1144,16 @@
         <section class="preview-section">
           <h4>${escapeHtml(section.title || 'Untitled section')}</h4>
           <div class="preview-items">
-            ${section.items.map(item => `
+            ${section.items.map(item => item.kind === 'markdown' ? `
+              <div class="preview-inline">${item.config.showTitle ? `<strong>${escapeHtml(item.title)}</strong>` : ''}
+                ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
+                <div class="markdown-content">${renderMarkdown(item.config.markdown)}</div>
+              </div>` : item.kind === 'figure' ? `
+              <figure class="preview-inline preview-figure">${item.config.showTitle ? `<strong>${escapeHtml(item.title)}</strong>` : ''}
+                ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ''}
+                ${getFigurePreviewUrl(item) ? `<img src="${escapeAttribute(getFigurePreviewUrl(item))}" alt="${escapeAttribute(item.config.alt)}">` : '<p>No figure selected</p>'}
+                ${item.config.caption ? `<figcaption>${escapeHtml(item.config.caption)}</figcaption>` : ''}
+              </figure>` : `
               <div class="preview-item">
                 <span class="preview-badge">${escapeHtml(previewBadge(item))}</span>
                 <div>
@@ -1068,6 +1218,14 @@
           } catch {
             error('Enter a valid http(s) URL.', location);
           }
+        }
+        if (item.kind === 'markdown' && !item.config.markdown.trim()) {
+          error('Enter Markdown text for this block.', location);
+        }
+        if (item.kind === 'figure') {
+          const file = getUpload(item.id, 'figure');
+          if (file && figureValidationError(file)) error(figureValidationError(file), location);
+          if (file && !item.config.alt.trim()) warning('Add an image description for readers who cannot see the figure.', location);
         }
         if (item.kind === 'neighborhood' && !isValidIntergenicDistance(item.config.defaultMaxIntergenicDistance)) {
           error('Intergenic distance must be a nonnegative safe integer in bp, or blank to disable the filter.', location);
@@ -1298,7 +1456,7 @@
 
   function roleLabel(role) {
     return ({
-      file: 'uploaded', html: 'HTML', structure: 'structure', annotations: 'annotation', msa: 'alignment',
+      figure: 'figure image', file: 'uploaded', html: 'HTML', structure: 'structure', annotations: 'annotation', msa: 'alignment',
       neighborhoods: 'neighborhood input', rename: 'rename YAML', colors: 'color YAML', tree: 'tree', phylogenyYaml: 'phylogeny YAML',
       edges: 'edge TSV', nodes: 'node YAML', taxonomyResolved: 'resolved taxonomy TSV', taxonomyYaml: 'taxonomy curation YAML', taxonomyColors: 'taxonomy color YAML', taxonomyInput: 'original taxonomy TSV', architectureData: 'domain TSV', architectureYaml: 'architecture YAML', multiStructurePackage: 'multi-structure publication package ZIP'
     })[role] || role;
@@ -1424,6 +1582,12 @@
 
     const portalTemplate = await fetchSourceText('builder/templates/publication-portal.html');
     root.file('index.html', preparePortalIndex(portalTemplate));
+    for (const [source, name] of [
+      ['builder/vendor/marked.umd.js', 'marked.umd.js'],
+      ['builder/vendor/marked.LICENSE.md', 'marked.LICENSE.md'],
+      ['builder/markdown.js', 'markdown.js'],
+      ['builder/markdown.css', 'markdown.css']
+    ]) root.file(`assets/markdown/${name}`, await fetchSourceText(source));
     root.file('.nojekyll', '');
     root.file('.gitattributes', await fetchSourceText('builder/templates/gitattributes.txt'));
     root.file('.github/workflows/pages.yml', await fetchSourceText('builder/templates/pages.yml'));
@@ -1507,6 +1671,21 @@
 
     if (item.kind === 'coming') return common;
     if (item.kind === 'external') return { ...common, type: 'external', href: item.config.url.trim(), external: true };
+
+    if (item.kind === 'markdown') {
+      return { ...common, type: 'markdown', markdown: item.config.markdown, showTitle: item.config.showTitle };
+    }
+
+    if (item.kind === 'figure') {
+      const file = getUpload(item.id, 'figure');
+      if (!file) throw new Error(`Missing figure image for “${item.title}”.`);
+      const error = figureValidationError(file);
+      if (error) throw new Error(error);
+      const path = `assets/figures/${slugify(section.slug || section.title, 'section')}/${slug}/figure${extensionOf(file.name)}`;
+      root.file(path, file);
+      assetRecords.push(assetRecord(item, 'figure', path, file));
+      return { ...common, type: 'figure', src: `./${path}`, alt: item.config.alt, caption: item.config.caption, showTitle: item.config.showTitle };
+    }
 
     if (item.kind === 'file') {
       const file = getUpload(item.id, 'file');
@@ -1775,7 +1954,9 @@
       kind: 'file',
       path,
       originalName: file.name,
-      mime: file.type || 'application/octet-stream'
+      mime: file.type,
+      size: file.size,
+      lastModified: file.lastModified
     };
   }
 
@@ -1986,7 +2167,7 @@
     const authors = state.project.authors.map(author => author.name.trim()).filter(Boolean).join(', ');
     const moduleKinds = [...usedModuleKinds()];
     const contents = manifest.sections.flatMap(section => section.items.map(item => ({ section: section.title, ...item })));
-    const tableRows = contents.map(item => `| ${escapeMarkdown(item.section)} | ${escapeMarkdown(item.title)} | ${escapeMarkdown(item.type)} | ${item.href ? `\`${item.href}\`` : 'Coming soon'} |`).join('\n');
+    const tableRows = contents.map(item => `| ${escapeMarkdown(item.section)} | ${escapeMarkdown(item.title)} | ${escapeMarkdown(item.type)} | ${item.src ? `\`${item.src}\`` : item.href ? `\`${item.href}\`` : item.type === 'markdown' ? 'Inline text on the portal' : 'Coming soon'} |`).join('\n');
     const moduleLines = moduleKinds.length
       ? moduleKinds.map(kind => `- **${MODULE_REGISTRY[kind].label}** — viewer ${MODULE_VERSIONS[kind]}`).join('\n')
       : '- No EvoSupplement viewer module is included in this project.';
@@ -2065,6 +2246,7 @@
   }
 
   function manifestType(item) {
+    if (item.kind === 'markdown' || item.kind === 'figure') return item.kind;
     if (item.kind === 'file') return item.config.badge || 'doc';
     if (item.kind === 'external') return 'external';
     if (item.kind === 'coming') return 'doc';
@@ -2083,6 +2265,10 @@
   function generatedHref(section, item) {
     const slug = slugify(item.slug || item.title, 'item');
     switch (item.kind) {
+      case 'figure': {
+        const file = getUpload(item.id, 'figure');
+        return file ? `./assets/figures/${slugify(section.slug || section.title, 'section')}/${slug}/figure${extensionOf(file.name)}` : '';
+      }
       case 'file': {
         const file = getUpload(item.id, 'file');
         return file ? `./files/${slugify(section.slug || section.title, 'section')}/${slug}/${sanitizeFileName(file.name)}` : '';
@@ -2419,7 +2605,7 @@
     if (!Array.isArray(imported.sections)) throw new Error('The saved section list is invalid.');
     imported.sections = imported.sections.map(section => {
       requireObject(section, 'section');
-      const normalized = importFields(section, { title: '', slug: slugify(section.title, 'section'), slugTouched: true }, 'section');
+      const normalized = importFields(section, { title: '', slug: slugify(section.title, 'section'), slugTouched: true, collapsed: false }, 'section');
       normalized.id = importId(section.id, 'section');
       if (!Array.isArray(section.items)) throw new Error('A saved item list is invalid.');
       normalized.items = section.items.map(item => {
@@ -2428,7 +2614,7 @@
           throw new Error(`Unsupported saved item type: ${item.kind}. Use a compatible Builder version.`);
         }
         const normalizedItem = importFields(item, {
-          title: '', description: '', slug: slugify(item.title, 'item'), slugTouched: true
+          title: '', description: '', slug: slugify(item.title, 'item'), slugTouched: true, collapsed: false
         }, 'item');
         normalizedItem.id = importId(item.id, 'item');
         // Restore unfinished numeric edits unchanged; publication validation

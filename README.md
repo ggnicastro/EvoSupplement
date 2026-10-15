@@ -93,6 +93,8 @@ Open `builder/` from the Studio page or directly through an HTTP server. The Bui
 - paper metadata and ordered authors;
 - an optional cover image with accessibility text and a caption, displayed without cropping;
 - arbitrary sections and ordered items;
+- collapsible sections and items, with **Collapse all** / **Expand all** and saved workspace arrangement;
+- inline Markdown and uploaded Figure blocks interleaved with other items in their exact section order;
 - uploaded files and self-contained HTML pages;
 - ZIP-packaged HTML pages with an `index.html` entry point;
 - external links and coming-soon placeholders;
@@ -114,6 +116,10 @@ Builder 1.9.0 adds an optional uploaded cover image above the publication sectio
 
 Builder 1.10.2 includes Gene Neighborhood Viewer 3.5.1 with **Same direction as query** and **Intergenic distance (bp)** controls. The distance limit starts at 20 bp and can be cleared; strand continuity is off by default. Connected queries share a row, while disconnected segments have separate rows. Compact synthetic coordinates do not use biological distance filtering. These reversible view filters preserve the source data and full normalized exports; see the [neighborhood filter documentation](neighborhood-viewer/README.md#filters). The Neighborhood Editor now defaults domain statistics to **Filtered view**, updating frequencies and rankings automatically after those filters; **All loaded data** remains available for comparison.
 
+Builder 1.11.0 adds collapsible sections and items plus inline **Markdown** and **Figure** blocks. Text, uploaded images, and viewer or download cards appear in the exact order defined within each section. Figure blocks show the whole image without cropping, with optional titles, accessibility text, and captions. Markdown previews use a local renderer; raw HTML is shown literally and Markdown image syntax directs authors to uploaded Figure blocks. Both publication export formats include the required local content and rendering dependencies.
+
+**Save state** preserves Markdown, Figure uploads, and collapsed workspace settings. **Open project ZIP** restores the new items for editing. Existing schema-1 states remain supported; older items without collapse settings open expanded. See the [Builder content workflow](builder/README.md#add-markdown-and-figure-blocks).
+
 Creating a portable ZIP may need internet access to obtain viewer libraries, which are included for local use afterward. External links and remote resources inside custom HTML or imported content may still require internet. The normal project ZIP remains available for hosting.
 
 A generated project receives the publication portal from `builder/templates/publication-portal.html`, not the Studio root page. This separation prevents authoring tools from replacing the reader-facing supplement.
@@ -126,6 +132,7 @@ The root of a Builder-generated project contains:
 - `manifest.js`, the paper metadata and ordered content definition;
 - only the viewer modules selected by the author;
 - uploaded files and scientific inputs;
+- inline Figure images and local Markdown rendering dependencies when used;
 - `README.md`, `DEPLOYMENT.md`, `CITATION.cff`, and an optional license;
 - `.nojekyll` and `.github/workflows/pages.yml`;
 - `evosupplement-project.json` for reopening the project in the Builder.
@@ -135,6 +142,7 @@ The generated portal reads `manifest.js` and creates:
 - the supplement title and citation information;
 - an optional description and DOI link;
 - section headings;
+- full-width Markdown and Figure blocks in the specified item order;
 - cards for viewers, files, tables, images, datasets, documents, and external resources;
 - non-clickable coming-soon cards for unfinished items.
 
@@ -154,7 +162,7 @@ Common paper fields are:
 | `doi` | DOI without the DOI website prefix. |
 | `cover` | Optional object with a local image `src`, accessibility text `alt`, and `caption`. |
 
-Each section contains ordered items. Common item fields are:
+Each section contains ordered items. Common fields for linked card items are:
 
 | Field | Purpose |
 |---|---|
@@ -166,6 +174,8 @@ Each section contains ordered items. Common item fields are:
 | `external` | Optional flag that forces a new browser tab. |
 
 A blank `href` produces a visible, non-clickable coming-soon item.
+
+Inline content items use `type: "markdown"` with `markdown` and `showTitle`, or `type: "figure"` with `src`, `alt`, `caption`, and `showTitle`. They render directly in the section rather than as download cards. Markdown and Figure blocks retain their positions among the other items.
 
 ## Manual publication-project maintenance
 

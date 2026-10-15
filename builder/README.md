@@ -4,6 +4,29 @@ EvoSupplement Builder is a browser-based project generator for creating publicat
 
 Open `builder/` through an HTTP server, enter the paper metadata, create sections and items, attach the required files, and validate the project. Download a project ZIP for hosting or a portable ZIP that recipients can open locally without Python or Git hosting.
 
+## Organize a long supplement
+
+Builder 1.11.0 lets you collapse individual sections and items while editing. Use **Collapse all** to reduce the form to its headings, then expand the section or item you want to work on. **Expand all** opens everything again.
+
+Collapsing a section or item only changes the Builder workspace. Its content, uploads, order, and inclusion in the published supplement are preserved. **Save state** / **Load state** also preserve which sections and items are collapsed, so you can resume with the same workspace arrangement.
+
+## Add Markdown and Figure blocks
+
+Sections can mix ordinary linked items, viewer cards, and content displayed directly on the publication page. Use **Add text**, **Add figure**, or **Add item**, or select **Text (Markdown)** or **Figure** in the item type menu. Use the arrows to set the order. **Move to section** transfers a block, including its attached files, to another section. The publication follows the exact item order, including text or figures between groups of cards.
+
+| Item type | Authoring workflow | Publication result |
+|---|---|---|
+| **Text (Markdown)** | Enter text in the Markdown field and review the rendered preview. Use **Show the block title on the page** to control whether the item title appears above it. | A full-width text block inside its section. |
+| **Figure** | Upload a PNG, JPEG, WebP, GIF, or SVG image, add accessibility text and an optional caption, and choose whether to show the title. | The complete image, at its original aspect ratio without cropping, with the optional title and caption. |
+
+Markdown supports headings, paragraphs, bold and italic text, strikethrough, ordered and unordered lists, task lists, links, inline and fenced code, blockquotes, horizontal rules, and tables. Raw HTML is displayed literally as text. Markdown image syntax displays a placeholder instead of requesting the image; add an uploaded **Figure** block when you want an image in the supplement. This lets the Builder include the image with the project.
+
+For example, place a Markdown methods paragraph before an interactive viewer, followed by a Figure with its caption. Use additional sections and move controls to build the desired reading order without creating separate HTML files.
+
+Markdown content, Figure uploads and settings, and collapsed workspace state are saved together with the project. Regular and portable publication ZIPs include the Figure files and the local Markdown rendering dependencies they need. **Open project ZIP** restores those items for editing. The Markdown renderer does not require a CDN; external links and resources in custom content may still require internet access.
+
+Builder 1.11.0 continues to read older schema-1 states and publication recipes. Missing collapse settings default to expanded, and existing item types retain their behavior. States containing the new Markdown or Figure item types require a Builder version that supports those types; the state schema remains 1.
+
 ## Add an optional cover image
 
 Builder 1.9.0 lets you add a **Cover image** in Project information. Choose a PNG, JPEG, WebP, GIF, or SVG file, add an accessibility description, and optionally enter a caption or credit. The published portal displays the entire image below the paper information and above the sections, preserving its aspect ratio without cropping. **Remove image** returns the portal to its original layout.
@@ -12,7 +35,7 @@ The selected image is processed locally, included in both regular and portable p
 
 ## Save and restore Builder state
 
-**Save state** downloads an editable snapshot named `<repository>-builder-state-<timestamp>.zip`. It preserves the paper metadata, authors, section and item order, item settings, and attached files, even when the draft is incomplete or has publication-validation errors. Saving a state does not run publication validation or fetch templates or viewer assets.
+**Save state** downloads an editable snapshot named `<repository>-builder-state-<timestamp>.zip`. It preserves the paper metadata, authors, section and item order, collapsed sections and items, Markdown content, item settings, and attached files, including Figure images, even when the draft is incomplete or has publication-validation errors. Saving a state does not run publication validation or fetch templates or viewer assets.
 
 To continue after changing or updating the Builder:
 
@@ -73,6 +96,8 @@ Every generated ZIP receives that template as its root `index.html` together wit
 
 ## Supported item types
 
+- inline Markdown text blocks;
+- uploaded Figure blocks displayed directly in their section;
 - uploaded files;
 - self-contained HTML pages;
 - ZIP-packaged HTML pages with an `index.html` entry point;
@@ -86,7 +111,7 @@ Every generated ZIP receives that template as its root `index.html` together wit
 - Protein Domain Architecture Viewer figures generated from a one-row-per-domain TSV and architecture YAML.
 - Multi-Structure Comparison Viewer figures generated from the publication package ZIP exported by its editor.
 
-The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.10.2 includes all seven interactive modules, including the Gene Neighborhood Viewer 3.5.1, Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
+The generated ZIP includes only the shared viewer modules actually used by the project. Builder 1.11.0 includes all seven interactive modules, including the Gene Neighborhood Viewer 3.5.1, Taxonomy Sankey Viewer 1.4.1 and Multi-Structure Comparison Viewer 1.0.0.
 
 ## Neighborhood filter defaults
 
@@ -116,6 +141,7 @@ A generated project contains:
 
 - the publication portal `index.html` and generated `manifest.js`;
 - the optional project cover image, when selected;
+- uploaded Figure images and local rendering dependencies for Markdown blocks;
 - uploaded scientific files and viewer inputs;
 - shared JavaScript and CSS for used modules;
 - one publication folder per interactive item;
@@ -145,8 +171,10 @@ Selected files are processed in the browser session. Saving a state or generatin
 
 Portable export may download third-party viewer libraries into the author’s browser for inclusion in the ZIP. The local launcher serves the extracted publication to the recipient’s browser on their own computer; it does not publish the supplement to the internet.
 
-## Bundled dependency
+## Bundled dependencies
 
 The Builder bundles JSZip for reading and creating ZIP archives. Its license is included under `builder/vendor/JSZIP-LICENSE.md`.
+
+Markdown preview and publication rendering use a bundled renderer. Publication ZIPs include its local dependencies and license notices when needed, so Markdown content does not depend on an external script service.
 
 Portable export includes the third-party runtime libraries needed by the selected viewers, together with their license notices. Normal project export retains the viewer templates’ existing CDN references.

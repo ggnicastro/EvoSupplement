@@ -7,6 +7,7 @@
   <meta name="description" content="EvoSupplement portal — interactive structures, genomic neighborhoods, phylogenies, networks, figures, tables, and data for this publication.">
   <meta name="theme-color" content="#111827">
   <title>Supplementary Material</title>
+  <link rel="stylesheet" href="./assets/markdown/markdown.css">
   <style>
     :root {
       color-scheme: light;
@@ -139,6 +140,21 @@
       gap: 14px;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     }
+    .portal-section > .portal-grid + *,
+    .portal-section > .portal-inline-content + * { margin-top: 22px; }
+    .portal-inline-content {
+      min-width: 0;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .portal-inline-title { margin: 0 0 12px; font-size: 19px; line-height: 1.35; }
+    .portal-inline-description { margin: 0 0 15px; color: var(--muted); font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+    .portal-figure { margin: 0; }
+    .portal-figure img { display: block; width: 100%; height: auto; object-fit: contain; }
+    .portal-figure figcaption { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.65; white-space: pre-line; overflow-wrap: anywhere; }
+    .portal-figure-missing { margin: 0; color: var(--muted); font-size: 14px; }
     .portal-card, .portal-card-disabled {
       display: block;
       padding: 18px 20px 17px;
@@ -236,6 +252,7 @@
       .privacy-badge { display: none; }
       .header-links { padding-top: 10px; }
       .portal-shell { width: min(100% - 22px, 920px); padding-top: 32px; }
+      .portal-inline-content { padding: 18px; }
     }
   </style>
 </head>
@@ -263,6 +280,8 @@
   </main>
 
   <script src="./manifest.js"></script>
+  <script src="./assets/markdown/marked.umd.js"></script>
+  <script src="./assets/markdown/markdown.js"></script>
   <script>
     (() => {
       'use strict';
@@ -326,6 +345,50 @@
         return `<figure class="portal-cover"><img src="${escapeHtml(cover.src)}" alt="${escapeHtml(alt)}" decoding="async">${caption}</figure>`;
       }
 
+      function renderInlineContent(item) {
+        const title = item.showTitle === true
+          ? `<h3 class="portal-inline-title">${escapeHtml(item.title || 'Untitled')}</h3>`
+          : '';
+        const description = item.description
+          ? `<p class="portal-inline-description">${escapeHtml(item.description)}</p>`
+          : '';
+        if (item.type === 'markdown') {
+          const source = typeof item.markdown === 'string' ? item.markdown : '';
+          const content = window.EvoSupplementMarkdown
+            ? window.EvoSupplementMarkdown.render(source)
+            : `<pre class="markdown-fallback">${escapeHtml(source)}</pre>`;
+          return `<div class="portal-inline-content portal-text">${title}${description}<div class="markdown-content">${content}</div></div>`;
+        }
+        const src = typeof item.src === 'string' ? item.src.trim() : '';
+        const image = src
+          ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(item.alt || '')}" loading="lazy" decoding="async">`
+          : '<p class="portal-figure-missing">Figure unavailable.</p>';
+        const caption = item.caption
+          ? `<figcaption>${escapeHtml(item.caption)}</figcaption>`
+          : '';
+        return `<div class="portal-inline-content">${title}${description}<figure class="portal-figure">${image}${caption}</figure></div>`;
+      }
+
+      function renderSectionItems(items) {
+        const groups = [];
+        let cards = [];
+        const flushCards = () => {
+          if (cards.length) groups.push(`<div class="portal-grid">${cards.join('')}</div>`);
+          cards = [];
+        };
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          if (item.type === 'markdown' || item.type === 'figure') {
+            flushCards();
+            groups.push(renderInlineContent(item));
+          } else {
+            cards.push(renderCard(item));
+          }
+        }
+        flushCards();
+        return groups.join('');
+      }
+
       function renderHeader(paper) {
         const container = document.getElementById('portalHeader');
         if (!paper) { container.innerHTML = ''; return; }
@@ -361,7 +424,7 @@
           sectionEl.className = 'portal-section';
           sectionEl.innerHTML = `
             <h2 class="portal-section-title">${escapeHtml(section.title || 'Section')}</h2>
-            <div class="portal-grid">${section.items.map(renderCard).join('')}</div>`;
+            ${renderSectionItems(section.items)}`;
           container.appendChild(sectionEl);
         }
       }
