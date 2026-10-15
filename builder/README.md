@@ -6,7 +6,9 @@ Open `builder/` through an HTTP server, enter the paper metadata, create section
 
 Builder 1.12.1 fixes Architecture YAML validation for quoted mapping keys and the JSON representation supported by the viewer. Full architecture YAMLs exported by version 1.1.0 remain compatible; they do not need to be recreated. Standalone color and shape dictionaries still belong in their separate input fields.
 
-## Unify figure colors and shapes
+## Unify names, colors and shapes
+
+Builder 1.14.0 includes a compact **Project Style Manager** review. Start with a summary, open the name list when needed, and sort or filter by frequency in the selected data layer. Names, colors and supported shapes are edited together, with 20 rows shown per page by default. Display filters help you find entries while the selected palette group determines where changes apply. Review the change preview before applying and downloading the updated state.
 
 Builder 1.13.0 includes shared renaming in the **Project Style Manager**. After selecting layers, edit their current display names, preview the renames, and resolve colors and shapes for the resulting names. Different names that become identical share a palette entry. Original domain IDs, TaxIDs, network node IDs and input tables remain unchanged. Network renaming applies to Function groups. Apply the reviewed changes, download the updated state, and reopen it with **Load state**. Existing saved groups remain compatible; previously applied renames are not replayed when a state is reopened.
 

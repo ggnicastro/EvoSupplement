@@ -6,7 +6,7 @@
   root.EvoStyleCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
   'use strict';
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
   const LAYERS = ['taxonomy', 'neighborhood', 'architecture', 'network'];
   const SHAPES = ['rounded', 'rectangle', 'capsule', 'ellipse', 'hexagon', 'chevron', 'arrow', 'diamond'];
   const MANIFEST = 'evosupplement-builder-state.json';
@@ -219,10 +219,27 @@
   function selectedLayers(layers) { if (!Array.isArray(layers) || !layers.length || layers.some(layer => !LAYERS.includes(layer))) fail('Select at least one supported module layer.'); return [...new Set(layers)].sort((a, b) => LAYERS.indexOf(a) - LAYERS.indexOf(b)); }
   function readPalette(session, instance, role, type = 'color') { const text = textOf(session, instance.itemId, role); return text.trim() ? parseFlat(text, `${instance.title} / ${role}`, type) : map(); }
   function source(instance, originalId, name, value, shape, kind) { return { ...instance, originalId, name, color: value || '', shape: shape || '', kind }; }
+  function observe(frequencies, id, entity, occurrence = entity) {
+    let record = frequencies.get(id);
+    if (!record) { record = { entities: new Set(), occurrences: new Set() }; frequencies.set(id, record); }
+    record.entities.add(entity); record.occurrences.add(occurrence);
+  }
+  function geneIdentity(entry, gene, index) {
+    const assembly = gene.assembly || entry.assembly || '';
+    if (entry.coordinateSource !== 'synthetic' && entry.nucleotide) return JSON.stringify(['locus', assembly, entry.nucleotide, gene.start, gene.end, gene.strand]);
+    // Compact coordinates are synthetic and shift between overlapping blocks.
+    // A supplied PID is stable; generated unknown IDs are local to one block.
+    if (gene.pid && !gene.pid.startsWith('unknown_')) return JSON.stringify(entry.coordinateSource === 'synthetic' ? ['pid', assembly, gene.pid] : ['pid', assembly, gene.pid, gene.start, gene.end, gene.strand]);
+    return JSON.stringify(['block', entry.id, index]);
+  }
 
   function neighborhood(session, instance, warnings) {
     const renames = readPalette(session, instance, 'rename', 'rename'), colors = readPalette(session, instance, 'colors');
-    const ids = new Set(Object.keys(renames));
+    const foldedRenames = new Map(Object.entries(renames).map(([key, value]) => [key.toLocaleLowerCase(), value]));
+    const foldedColors = new Map(Object.entries(colors).map(([key, value]) => [key.toLocaleLowerCase(), value]));
+    const renameFor = id => own(renames, id) ? renames[id] : foldedRenames.get(id.toLocaleLowerCase());
+    const colorFor = id => own(colors, id) ? colors[id] : foldedColors.get(id.toLocaleLowerCase());
+    const ids = new Set(Object.keys(renames)), frequencies = new Map();
     const markerIds = new Set();
     const marker = name => ['TM', 'SIG', 'SIF'].includes(clean(name).toUpperCase());
     const text = textOf(session, instance.itemId, 'neighborhoods');
@@ -231,24 +248,38 @@
       if (!viewer?.parseInput) fail('The local Neighborhood parser did not load. Reload the page.');
       const item = session.items.get(instance.itemId);
       const parsed = viewer.parseInput(text, { renames, colors, config: { inputFormat: item.config?.inputFormat || 'auto', markerDomains: { TM: { width: 4, color: '#f4cf3a', position: 'ordered' }, SIG: { width: 5, color: '#d62828', position: 'start' }, SIF: { width: 5, color: '#d62828', position: 'start' } } } });
-      for (const entry of parsed.entries || []) for (const gene of entry.genes || []) for (const domain of gene.domains || []) if (domain.rawName && domain.rawName !== '?') { ids.add(domain.rawName); if (domain.marker) markerIds.add(domain.rawName); }
+      for (const entry of parsed.entries || []) for (const [geneIndex, gene] of (entry.genes || []).entries()) {
+        const entity = geneIdentity(entry, gene, geneIndex);
+        for (const [domainIndex, domain] of (gene.domains || []).entries()) if (domain.rawName && domain.rawName !== '?') {
+          ids.add(domain.rawName); if (domain.marker) markerIds.add(domain.rawName);
+          const position = Number.isFinite(domain.proteinStart) && Number.isFinite(domain.proteinEnd) ? [domain.proteinStart, domain.proteinEnd] : [Number.isFinite(domain.order) ? domain.order : domainIndex];
+          observe(frequencies, domain.rawName, entity, JSON.stringify([entity, domain.rawName, ...position]));
+        }
+      }
     } else warnings.push(`${instance.title}: no neighborhood table attached; inventory uses YAML entries only.`);
-    const resolve = id => clean(lookup(renames, id, true)) || id;
+    const resolve = id => clean(renameFor(id)) || id;
     const finalNames = new Set([...ids].map(resolve));
-    const resolvePaletteKey = key => finalNames.has(key) ? key : [...finalNames].find(name => name.toLocaleLowerCase() === key.toLocaleLowerCase()) || resolve(key);
-    const records = [...ids].filter(id => !markerIds.has(id) && !marker(id) && !marker(resolve(id))).map(id => { const name = resolve(id); return source(instance, id, name, lookup(colors, name, true) || lookup(colors, id, true) || '#d7dce2', '', 'domain'); });
+    const foldedNames = new Map(); for (const name of finalNames) if (!foldedNames.has(name.toLocaleLowerCase())) foldedNames.set(name.toLocaleLowerCase(), name);
+    const resolvePaletteKey = key => finalNames.has(key) ? key : foldedNames.get(key.toLocaleLowerCase()) || resolve(key);
+    const records = [...ids].filter(id => !markerIds.has(id) && !marker(id) && !marker(resolve(id))).map(id => { const name = resolve(id); return source(instance, id, name, colorFor(name) || colorFor(id) || '#d7dce2', '', 'domain'); });
     for (const [key, value] of Object.entries(colors)) if (!markerIds.has(key) && !marker(key) && !marker(resolvePaletteKey(key))) records.push(source(instance, key, resolvePaletteKey(key), value, '', 'color dictionary'));
     warnings.push(`${instance.title}: TM, SIG and SIF retain the Neighborhood viewer’s fixed marker colors.`);
-    return { instance, records, renames, ids, resolve, markerIds, marker };
+    return { instance, records, renames, ids, resolve, markerIds, marker, frequencies };
   }
   function architecture(session, instance, warnings) {
     const text = textOf(session, instance.itemId, 'architectureYaml');
     const curation = text.trim() ? parseYaml(text, `${instance.title} / architecture YAML`) : map();
     const styles = curation.styles === undefined ? map() : checkObject(curation.styles, 'Architecture styles');
     const colors = readPalette(session, instance, 'architectureColors'), shapes = readPalette(session, instance, 'architectureShapes', 'shape');
-    const ids = new Set(Object.keys(styles));
+    const ids = new Set(Object.keys(styles)), frequencies = new Map();
     const data = textOf(session, instance.itemId, 'architectureData');
-    for (const row of table(data, instance.title)) if (row.domain) ids.add(row.domain);
+    for (const [index, row] of table(data, instance.title).entries()) {
+      if (row.domain) ids.add(row.domain);
+      const start = Number(row.start), end = Number(row.end), plen = Number(row.plen);
+      // Match the viewer's skipped-row rules; malformed annotations must not
+      // inflate a frequency even when their style remains in the inventory.
+      if (row.pid && row.domain && [start, end, plen].every(Number.isFinite) && start >= 1 && end >= start && plen >= 1 && end <= plen) observe(frequencies, row.domain, row.pid, String(index));
+    }
     if (!data.trim()) warnings.push(`${instance.title}: no architecture table attached; inventory uses YAML entries only.`);
     const resolve = id => clean(styles[id]?.display_name ?? styles[id]?.label ?? id) || id;
     const finalNames = new Set([...ids].map(resolve));
@@ -266,22 +297,30 @@
     for (const [id, value] of Object.entries(colors)) if (!special(id)) records.push(source(instance, id, resolvePaletteKey(id), value, '', 'color dictionary'));
     for (const [id, shape] of Object.entries(shapes)) if (!special(id)) records.push(source(instance, id, resolvePaletteKey(id), '', shape, 'shape dictionary'));
     warnings.push(`${instance.title}: SIG, TM and LIPO retain the Architecture viewer’s fixed colors and symbols.`);
-    return { instance, records, curation, styles, ids, resolve, colors, shapes };
+    return { instance, records, curation, styles, ids, resolve, colors, shapes, frequencies };
   }
   function taxonomy(session, instance, warnings) {
     const text = textOf(session, instance.itemId, 'taxonomyYaml');
     const curation = text.trim() ? parseYaml(text, `${instance.title} / taxonomy YAML`) : map();
     const overrides = curation.overrides === undefined ? map() : checkObject(curation.overrides, 'Taxonomy overrides');
     const colors = readPalette(session, instance, 'taxonomyColors');
-    const catalog = new Map(), rows = table(textOf(session, instance.itemId, 'taxonomyResolved'), instance.title);
-    for (const row of rows) {
+    const catalog = new Map(), frequencies = new Map(), rows = table(textOf(session, instance.itemId, 'taxonomyResolved'), instance.title);
+    for (const [rowIndex, row] of rows.entries()) {
       const ids = (row.lineage_taxids || '').split('|').map(clean), names = (row.lineage_names || '').split('|').map(clean), ranks = (row.lineage_ranks || '').split('|').map(clean);
-      ids.forEach((id, index) => { if (id) catalog.set(id, { id, name: names[index] || id, rank: ranks[index] === 'superkingdom' ? 'domain' : ranks[index] }); });
-      for (const key of Object.keys(row)) if (key.endsWith('_taxid') && row[key] && row[key.replace(/_taxid$/, '_name')]) { const id = row[key]; if (!catalog.has(id)) catalog.set(id, { id, name: row[key.replace(/_taxid$/, '_name')], rank: key.slice(0, -6) }); }
+      const rowTaxa = new Set();
+      ids.forEach((id, index) => { if (id) { catalog.set(id, { id, name: names[index] || id, rank: ranks[index] === 'superkingdom' ? 'domain' : ranks[index] }); rowTaxa.add(id); } });
+      for (const key of Object.keys(row)) if (key.endsWith('_taxid') && row[key] && row[key.replace(/_taxid$/, '_name')]) { const id = row[key]; if (!catalog.has(id)) catalog.set(id, { id, name: row[key.replace(/_taxid$/, '_name')], rank: key.slice(0, -6) }); rowTaxa.add(id); }
+      // Records, rather than unique protein IDs, match the Sankey input unit.
+      // A lineage/standard-rank duplicate counts once; ancestor-child labels
+      // merged later also count the associated record only once.
+      for (const id of rowTaxa) observe(frequencies, id, String(rowIndex), JSON.stringify([rowIndex, id]));
     }
     for (const [id, raw] of Object.entries(overrides)) { const override = checkObject(raw, `${instance.title} override ${id}`); if (!catalog.has(id)) catalog.set(id, { id, name: override.source_name || id, rank: override.display_rank || override.source_rank || '' }); }
     const final = node => clean(overrides[node.id]?.display_name) || node.name;
-    const nodesForKey = key => { const finalMatches = [...catalog.values()].filter(node => final(node) === key); return finalMatches.length ? finalMatches : [...catalog.values()].filter(node => node.id === key || node.name === key); };
+    const byFinal = new Map(), byOriginal = new Map();
+    const indexNode = (index, key, node) => { if (!index.has(key)) index.set(key, []); index.get(key).push(node); };
+    for (const node of catalog.values()) { indexNode(byFinal, final(node), node); indexNode(byOriginal, node.id, node); if (node.name !== node.id) indexNode(byOriginal, node.name, node); }
+    const nodesForKey = key => byFinal.get(key) || byOriginal.get(key) || [];
     const records = [];
     for (const [key, value] of Object.entries(colors)) {
       const nodes = nodesForKey(key);
@@ -300,9 +339,10 @@
     }
     // Names below the selected color rank are still editable. They must not
     // acquire a new palette entry or override inherited ancestor colors.
-    for (const node of catalog.values()) if (!records.some(rec => rec.originalId === node.id && !rec.dictionary)) records.push(source(instance, node.id, final(node), '', '', 'taxon label'));
+    const styledIds = new Set(records.filter(rec => !rec.dictionary).map(rec => rec.originalId));
+    for (const node of catalog.values()) if (!styledIds.has(node.id)) records.push(source(instance, node.id, final(node), '', '', 'taxon label'));
     if (by.startsWith('depth:')) warnings.push(`${instance.title}: depth-based automatic colors depend on the displayed tree. Existing dictionary colors and explicit overrides are included; new automatic depth categories are not inferred.`);
-    return { instance, records, curation, overrides, catalog, final };
+    return { instance, records, curation, overrides, catalog, final, frequencies };
   }
   function network(session, instance, warnings) {
     const text = textOf(session, instance.itemId, 'nodes');
@@ -311,10 +351,22 @@
     const groupFor = raw => { const value = clean(raw.Function); return !value || /^(?:\.?(?:nan)|null|none|undefined|~)$/i.test(value) ? 'Unassigned' : value; };
     const normalizeGroup = value => clean(value).replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
     const normalizedColors = new Map(Object.entries(colors).map(([key, value]) => [normalizeGroup(key), value]));
-    const annotated = new Set();
-    for (const [id, raw] of Object.entries(nodes)) { checkObject(raw, `${instance.title}, node ${id}`); groups.add(groupFor(raw)); annotated.add(normalizeGroup(id)); annotated.add(normalizeGroup(clean(raw.Display_name) || id)); }
+    const annotated = new Set(), canonical = new Map();
+    const included = raw => typeof raw === 'boolean' ? raw : typeof raw === 'number' ? raw === 1 : ['1', 'true', 'yes', 'y', 'include'].includes(normalizeGroup(raw));
+    for (const [id, raw] of Object.entries(nodes)) {
+      checkObject(raw, `${instance.title}, node ${id}`); const group = groupFor(raw);
+      groups.add(group); annotated.add(normalizeGroup(id));
+      const label = /^(?:\.?(?:nan)|null|none|undefined|~)$/i.test(clean(raw.Display_name)) ? id : clean(raw.Display_name) || id;
+      const identity = normalizeGroup(label); annotated.add(identity);
+      if (!canonical.has(identity)) canonical.set(identity, []);
+      canonical.get(identity).push({ group, included: included(raw.Include) });
+    }
     const unannotated = new Set();
-    for (const row of table(textOf(session, instance.itemId, 'edges'), instance.title)) for (const key of ['source', 'target']) if (clean(row[key]) && !annotated.has(normalizeGroup(row[key]))) unannotated.add(clean(row[key]));
+    const unannotatedIdentities = new Set();
+    for (const row of table(textOf(session, instance.itemId, 'edges'), instance.title)) for (const key of ['source', 'target']) if (clean(row[key]) && !annotated.has(normalizeGroup(row[key]))) {
+      unannotated.add(clean(row[key]));
+      if (clean(row.source) && clean(row.target) && Number.isFinite(Number(row.edge_count)) && Number(row.edge_count) >= 0) unannotatedIdentities.add(normalizeGroup(row[key]));
+    }
     if (unannotated.size) groups.add('Unassigned');
     const records = []; let index = 0;
     for (const group of [...groups].sort((a, b) => a.localeCompare(b))) {
@@ -322,18 +374,30 @@
       const value = supplied || NETWORK_HINTS[group] || NETWORK_PALETTE[index++ % NETWORK_PALETTE.length];
       records.push(source(instance, group, group, value, '', 'network Function group'));
     }
+    const foldedGroups = new Map(); for (const name of groups) { const token = normalizeGroup(name); if (!foldedGroups.has(token)) foldedGroups.set(token, []); foldedGroups.get(token).push(name); }
     for (const [group, value] of Object.entries(colors)) {
-      const matches = groups.has(group) ? [group] : [...groups].filter(name => normalizeGroup(name) === normalizeGroup(group));
+      const matches = groups.has(group) ? [group] : foldedGroups.get(normalizeGroup(group)) || [];
       for (const name of matches.length ? matches : [group]) records.push(source(instance, group, name, value, '', 'network group dictionary'));
     }
     warnings.push(`${instance.title}: Network colors refer to Function groups. Renamed node labels and computed community colors are separate; the configured coloring mode is preserved.`);
     if ([...groups].some(group => !normalizedColors.has(normalizeGroup(group)))) warnings.push(`${instance.title}: groups without a saved color use suggested defaults. Automatic colors can depend on the currently included network nodes.`);
-    return { instance, records, nodes, groupFor, unannotated };
+    function frequencyForPlan(renames) {
+      const frequencies = new Map(), renamed = name => own(renames, name) ? renames[name] : name;
+      for (const [identity, entries] of canonical) {
+        // The viewer merges aliases with the same display label. The preferred
+        // Function may change when a plan renames a group to/from Unassigned.
+        const chosen = entries.find(entry => entry.included && renamed(entry.group) !== 'Unassigned') || entries.find(entry => renamed(entry.group) !== 'Unassigned') || entries[0];
+        observe(frequencies, chosen.group, identity);
+      }
+      for (const identity of unannotatedIdentities) observe(frequencies, 'Unassigned', identity);
+      return frequencies;
+    }
+    return { instance, records, nodes, groupFor, unannotated, frequencyForPlan, frequencies: frequencyForPlan({}) };
   }
   const ADAPTERS = { neighborhood, architecture, taxonomy, network };
   async function analyze(session, layers, options = {}) {
     const renames = renamePlan(options.renames || {});
-    const selected = selectedLayers(layers), warnings = [], models = [], entries = new Map();
+    const selected = selectedLayers(layers), warnings = [], models = [], entries = new Map(), accumulators = new Map();
     const instances = session.instances.filter(instance => selected.includes(instance.layer));
     for (const instance of instances) {
       const model = ADAPTERS[instance.layer](session, instance, warnings); models.push(model);
@@ -357,10 +421,11 @@
         }
       }
     }
-    const originalNames = new Set(models.flatMap(model => model.records.map(rec => rec.name)));
+    const originalNames = new Map();
+    for (const model of models) for (const rec of model.records) { if (!originalNames.has(rec.name)) originalNames.set(rec.name, new Set()); originalNames.get(rec.name).add(model); }
     for (const [name, target] of Object.entries(renames)) {
       if (!originalNames.has(name)) fail(`Rename “${name}”: this is not a current final name in the selected layers. Import a plan for the current labels, not original data IDs.`);
-      for (const model of models.filter(model => model.records.some(rec => rec.name === name))) {
+      for (const model of originalNames.get(name)) {
         if (model.instance.layer === 'neighborhood' && (model.marker(target) || target === '?' || target === '-')) fail(`Rename “${name}”: “${target}” is a reserved Neighborhood marker or unknown-domain label.`);
         if (model.instance.layer === 'architecture' && special(target)) fail(`Rename “${name}”: “${target}” is a reserved Architecture feature label.`);
         if (model.instance.layer === 'network' && /^(?:\.?(?:nan)|null|none|undefined|~)$/i.test(target)) fail(`Rename “${name}”: Network treats “${target}” as an empty Function group.`);
@@ -370,20 +435,43 @@
     // Apply the plan once to the current vocabulary. A→B and B→C means two
     // simultaneous renames; it never sends A transitively to C.
     for (const model of models) {
+      if (model.frequencyForPlan) model.frequencies = model.frequencyForPlan(renames);
       for (const rec of model.records) {
         if (!clean(rec.name)) continue;
         rec.previousName = rec.name;
         rec.name = own(renames, rec.name) ? renames[rec.name] : rec.name;
         let entry = entries.get(rec.name);
-        if (!entry) { entry = { name: rec.name, key: rec.name, label: rec.name, colors: [], shapes: [], sources: [], previousNames: [] }; entries.set(rec.name, entry); }
-        if (!entry.previousNames.includes(rec.previousName)) entry.previousNames.push(rec.previousName);
-        if (rec.color && !entry.colors.includes(rec.color)) entry.colors.push(rec.color);
-        if (rec.shape && !entry.shapes.includes(rec.shape)) entry.shapes.push(rec.shape);
-        if (!entry.sources.some(s => s.itemId === rec.itemId && s.originalId === rec.originalId && s.color === rec.color && s.shape === rec.shape && s.kind === rec.kind)) entry.sources.push(rec);
+        if (!entry) {
+          entry = { name: rec.name, key: rec.name, label: rec.name, colors: [], shapes: [], sources: [], previousNames: [], frequency: map(), frequenciesByInstance: map(), instanceCount: 0 };
+          entries.set(rec.name, entry); accumulators.set(rec.name, { names: new Set(), colors: new Set(), shapes: new Set(), sources: new Set(), instances: new Map() });
+        }
+        const accumulator = accumulators.get(rec.name);
+        if (!accumulator.names.has(rec.previousName)) { accumulator.names.add(rec.previousName); entry.previousNames.push(rec.previousName); }
+        if (rec.color && !accumulator.colors.has(rec.color)) { accumulator.colors.add(rec.color); entry.colors.push(rec.color); }
+        if (rec.shape && !accumulator.shapes.has(rec.shape)) { accumulator.shapes.add(rec.shape); entry.shapes.push(rec.shape); }
+        const observed = rec.dictionary || rec.kind.includes('dictionary') ? undefined : model.frequencies.get(rec.originalId);
+        rec.frequency = { count: observed?.entities.size || 0, occurrences: observed?.occurrences.size || 0 };
+        const sourceKey = JSON.stringify([rec.itemId, rec.originalId, rec.color, rec.shape, rec.kind]);
+        if (!accumulator.sources.has(sourceKey)) { accumulator.sources.add(sourceKey); entry.sources.push(rec); }
+        if (!accumulator.instances.has(rec.itemId)) accumulator.instances.set(rec.itemId, { layer: rec.layer, entities: new Set(), occurrences: new Set() });
+        const counts = accumulator.instances.get(rec.itemId);
+        if (observed) {
+          for (const entity of observed.entities) counts.entities.add(entity);
+          for (const occurrence of observed.occurrences) counts.occurrences.add(occurrence);
+        }
       }
     }
     const result = [...entries.values()].sort((a, b) => a.name.localeCompare(b.name));
-    for (const entry of result) { entry.colorEditable = entry.sources.some(rec => rec.kind !== 'taxon label'); entry.colorConflict = entry.colors.length > 1; entry.shapeConflict = entry.shapes.length > 1; entry.suggestedColor = entry.colorEditable ? entry.colors[0] || automaticColor(entry.name) : ''; entry.suggestedShape = entry.shapes[0] || ''; }
+    for (const entry of result) {
+      for (const [itemId, counts] of accumulators.get(entry.name).instances) {
+        const count = counts.entities.size, occurrences = counts.occurrences.size;
+        entry.frequenciesByInstance[itemId] = { layer: counts.layer, count, occurrences };
+        if (!entry.frequency[counts.layer]) entry.frequency[counts.layer] = { count: 0, occurrences: 0, instanceCount: 0 };
+        entry.frequency[counts.layer].count += count; entry.frequency[counts.layer].occurrences += occurrences;
+        if (count) { entry.frequency[counts.layer].instanceCount++; entry.instanceCount++; }
+      }
+      entry.colorEditable = entry.sources.some(rec => rec.kind !== 'taxon label'); entry.colorConflict = entry.colors.length > 1; entry.shapeConflict = entry.shapes.length > 1; entry.suggestedColor = entry.colorEditable ? entry.colors[0] || automaticColor(entry.name) : ''; entry.suggestedShape = entry.shapes[0] || '';
+    }
     if (!instances.length) warnings.push('This state has no instances of the selected layers.');
     return { entries: result, warnings: [...new Set(warnings)], instances, layers: selected, models, renames };
   }

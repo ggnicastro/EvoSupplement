@@ -22,7 +22,7 @@ The Studio root does not render a paper manifest. When the Project Builder creat
 | Tool | Purpose |
 |---|---|
 | [EvoSupplement Project Builder](builder/README.md) | Creates paper metadata, ordered sections, regular files, HTML packages, interactive figures, documentation, editable state ZIPs, and publication ZIPs for hosting or portable local viewing. |
-| [Project Style Manager](style-manager/README.md) | Loads a Builder state, edits shared display names in selected Neighborhood, Architecture, Taxonomy and Network layers, unifies colors and architecture shapes after renaming, resolves conflicts, and exports a new editable state. |
+| [Project Style Manager](style-manager/README.md) | Loads a Builder state, ranks names by data frequency, edits names, colors and architecture shapes in a compact list across selected module layers, previews changes, and exports a new editable state. |
 | [Protein Structure and MSA Editor](protein-viewer/README.md) | Loads PDB or mmCIF structures, associates chains with MSA references, captures residue selections or imports user-created Mol* selection components, creates compatible annotation YAML, and previews the publication scene. |
 | [Gene Neighborhood Editor](neighborhood-viewer/README.md) | Loads standard TSV or compact architecture neighborhoods, curates domain display names and colors, ranks domain frequencies, and exports YAML dictionaries plus a normalized TSV. |
 | [Phylogeny Editor](phylogeny-viewer/README.md) | Authors publication-ready Newick figures with selected support markers, saved roots, colored clade groups, three layouts, optional TSV labels, and a generated phylogeny YAML without changing the source tree. |

@@ -5,7 +5,9 @@
   const core = window.EvoStyleCore;
   const LAYERS = ['taxonomy', 'neighborhood', 'architecture', 'network'];
   const LABELS = { taxonomy: 'Taxonomy', neighborhood: 'Neighborhood', architecture: 'Architecture', network: 'Network' };
-  const PAGE_SIZE = 50;
+  const CHANGE_PAGE_SIZE = 20;
+  const UNITS = { taxonomy: 'records', neighborhood: 'genes', architecture: 'proteins', network: 'nodes' };
+  const MEASURES = { taxonomy: 'Taxonomy records', neighborhood: 'Neighborhood genes', architecture: 'Architecture proteins', network: 'Network nodes' };
   const $ = id => document.getElementById(id);
   const layerInputs = Array.from(document.querySelectorAll('input[name="layer"]'));
   let session = null;
@@ -14,7 +16,9 @@
   let renameEdits = new Map();
   let previewedRenames = Object.create(null);
   let renameStale = false;
-  let renamePage = 0;
+  let changesPage = 0;
+  let reviewed = false;
+  let previewRows = [];
   let choices = new Map();
   let reviewLayers = [];
   let reviewShapes = true;
@@ -131,56 +135,37 @@
     $('layerFields').disabled = busy || !session;
     $('groupName').disabled = busy || !session;
     layerInputs.forEach(input => {
-      const group = assignment(input.value);
-      input.disabled = busy || !session || Boolean(editingGroupId) || !countLayer(input.value) || Boolean(group);
-      const count = countLayer(input.value);
-      let note = session ? `${count} ${count === 1 ? 'instance' : 'instances'}` : 'Load a state first';
-      if (group) note += ` · ${group.name}`;
-      $('count-' + input.value).textContent = note;
+      const group = assignment(input.value), count = countLayer(input.value);
+      input.disabled = busy || !session || Boolean(editingGroupId) || !count || Boolean(group);
+      $('count-' + input.value).textContent = session ? `${count} ${count === 1 ? 'instance' : 'instances'}${group ? ` · ${group.name}` : ''}` : 'Load a state first';
     });
-    const selected = selectedLayers();
-    $('includeShapes').disabled = busy || !session || !selected.includes('architecture');
-    $('analyzeButton').disabled = busy || !session || !selected.length;
+    $('includeShapes').disabled = busy || !session || !selectedLayers().includes('architecture');
+    $('analyzeButton').disabled = busy || !session || !selectedLayers().length;
     $('newGroupButton').hidden = !editingGroupId;
     $('newGroupButton').disabled = busy;
-    $('searchInput').disabled = busy || !analysis || renameStale;
-    $('conflictsOnly').disabled = busy || !analysis || renameStale;
-    $('applyButton').disabled = busy || !analysis || renameStale || !analysis.entries.length || unresolvedCount() > 0;
+    ['searchInput', 'conflictsOnly', 'changedOnly', 'minFrequency', 'layerFilter', 'moduleFilter', 'sortBy', 'frequencyLayer', 'pageSize', 'reviewNamesButton', 'renameFile', 'backToNamesButton'].forEach(id => { $(id).disabled = busy || !analysis; });
+    document.querySelectorAll('#paletteBody input,#paletteBody select').forEach(control => {
+      control.disabled = busy || (renameStale && !control.className.split(/\s+/).includes('rename-input'));
+    });
+    $('previewChangesButton').disabled = busy || !analysis || !analysis.entries.length || invalidRenameCount() > 0;
+    $('resetRenamesButton').disabled = busy || !analysis || !renameEdits.size;
+    $('renameStaleNotice').hidden = !renameStale;
     $('applyButton').textContent = editingGroupId ? 'Update shared palette' : 'Apply shared palette';
     $('exportStateButton').disabled = busy || !groups().length;
     $('exportGroup').disabled = busy || !groups().length;
     document.querySelectorAll('#groupsList button').forEach(button => { button.disabled = busy; });
-    document.querySelectorAll('#paletteBody input,#paletteBody select').forEach(control => { control.disabled = busy || renameStale; });
-    document.querySelectorAll('#renameBody input').forEach(control => { control.disabled = busy; });
-    $('renameSearchInput').disabled = busy || !baseAnalysis;
-    $('renameFile').disabled = busy || !baseAnalysis;
-    $('previewRenamesButton').disabled = busy || !baseAnalysis || invalidRenameCount() > 0;
-    $('resetRenamesButton').disabled = busy || !baseAnalysis || !renameEdits.size;
-    $('renameStaleNotice').hidden = !renameStale;
-    updatePaletteDownloads();
-    updateReviewStatus();
-    updatePagination();
-    updateRenamePagination();
-    updateRenameHint();
-    if (editingGroupId) {
-      $('layerHint').textContent = 'Editing an applied group. Its layer membership is fixed; use New group for unassigned layers. To regroup layers, reload your original state ZIP.';
-    } else {
-      $('layerHint').textContent = 'Names are matched exactly after renaming. Network uses Function categories; taxonomy retains its coloring mode. Each layer belongs to one palette group.';
-    }
+    updatePaletteDownloads(); updateReviewStatus(); updatePagination(); updateRenameHint(); updateChangePagination();
+    $('layerHint').textContent = editingGroupId
+      ? 'Editing an applied group. Its layer membership is fixed; use New group for unassigned layers. To regroup layers, reload your original state ZIP.'
+      : 'Names are matched exactly after renaming. Network uses Function categories; taxonomy retains its coloring mode. Each layer belongs to one palette group.';
   }
 
   function invalidateReview() {
-    analysis = null;
-    baseAnalysis = null;
-    renameEdits = new Map();
-    previewedRenames = Object.create(null);
-    renameStale = false;
-    choices = new Map();
-    reviewLayers = [];
-    hasReviewEdits = false;
-    $('reviewPanel').hidden = true;
-    $('paletteBody').replaceChildren();
-    $('renameBody').replaceChildren();
+    analysis = null; baseAnalysis = null; renameEdits = new Map(); previewedRenames = Object.create(null);
+    renameStale = false; choices = new Map(); reviewLayers = []; hasReviewEdits = false;
+    reviewed = false; previewRows = []; changesPage = 0;
+    $('reviewPanel').hidden = true; $('changesPanel').hidden = true;
+    $('namesPanel').hidden = true; $('paletteBody').replaceChildren(); $('changesBody').replaceChildren();
     updateControls();
   }
 
@@ -219,53 +204,72 @@
 
   async function analyzeSelection() {
     if (!session || !selectedLayers().length) return;
-    const layers = selectedLayers();
-    const includeShapes = $('includeShapes').checked && layers.includes('architecture');
-    await perform('Reading styles and final display names from the selected layers…', async () => {
+    const layers = selectedLayers(), includeShapes = $('includeShapes').checked && layers.includes('architecture');
+    await perform('Reading names, styles, and frequencies from the selected layers…', async () => {
       const next = await core.analyze(session, layers);
-      reviewLayers = layers;
-      reviewShapes = includeShapes;
-      baseAnalysis = next;
-      renameEdits = new Map();
-      previewedRenames = Object.create(null);
-      renameStale = false;
-      setAnalysis(next);
-      hasReviewEdits = false;
-      page = 0;
-      renamePage = 0;
-      $('searchInput').value = '';
-      $('renameSearchInput').value = '';
-      $('conflictsOnly').checked = false;
-      $('reviewPanel').hidden = false;
+      reviewLayers = layers; reviewShapes = includeShapes; baseAnalysis = next;
+      renameEdits = new Map(); previewedRenames = Object.create(null); renameStale = false;
+      setAnalysis(next); hasReviewEdits = false; reviewed = false; page = 0; changesPage = 0; previewRows = [];
+      $('searchInput').value = ''; $('conflictsOnly').checked = false; $('changedOnly').checked = false;
+      $('minFrequency').value = '0'; $('sortBy').value = 'frequency'; $('pageSize').value = '20';
+      fillFilterOptions();
+      $('reviewPanel').hidden = false; $('namesPanel').hidden = true; $('changesPanel').hidden = true;
+      $('paletteBody').replaceChildren(); $('changesBody').replaceChildren();
+      $('reviewNamesButton').textContent = 'Review names'; $('reviewNamesButton').setAttribute('aria-expanded', 'false');
       $('shapeColumnHeading').textContent = reviewShapes ? 'Architecture shape' : 'Shape';
-      renderRenameTable();
       renderWarnings();
-      renderTable();
-      const remaining = unresolvedCount();
-      notify(remaining ? `Review ready. ${remaining} ${remaining === 1 ? 'name needs' : 'names need'} a style choice.` : 'Review ready. Inspect the palette, then apply it to the selected layers.', !remaining);
-      $('reviewHeading').setAttribute('tabindex', '-1');
-      $('reviewHeading').focus({ preventScroll: true });
+      notify('Review ready. Open Review names to explore the most frequent entries, or preview the proposed palette.', true);
+      $('reviewHeading').setAttribute('tabindex', '-1'); $('reviewHeading').focus({ preventScroll: true });
       $('reviewPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
 
-  function sourceSignature(entry) {
-    return JSON.stringify([entry.colorEditable !== false, (entry.sources || []).map(source =>
-      [source.layer, source.itemId, source.originalId]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
-  }
+  function sourceKey(source) { return JSON.stringify([source.layer, source.itemId, source.originalId, source.kind]); }
+  function sourceSignature(entry) { return JSON.stringify([entry.colorEditable !== false, (entry.sources || []).map(sourceKey).sort()]); }
 
   function setAnalysis(next, preserveChoices = false) {
-    const previous = new Map();
-    if (preserveChoices && analysis) analysis.entries.forEach(entry => previous.set(sourceSignature(entry), choices.get(entryName(entry))));
-    analysis = next;
-    choices = new Map();
+    const previous = new Map(), bySource = new Map();
+    if (preserveChoices && analysis) analysis.entries.forEach(entry => {
+      const value = choices.get(entryName(entry)); previous.set(sourceSignature(entry), value);
+      (entry.sources || []).forEach(source => bySource.set(sourceKey(source), value));
+    });
+    analysis = next; choices = new Map();
     analysis.entries.forEach(entry => {
-      const existing = previous.get(sourceSignature(entry));
       const color = entry.colorConflict ? '' : (entry.suggestedColor || entry.colors[0] || '');
       const shape = entry.shapeConflict ? '' : (entry.suggestedShape || entry.shapes[0] || 'rounded');
-      choices.set(entryName(entry), existing ? { ...existing } : { color, colorText: color, shape });
+      let value = { color, colorText: color, shape, touchedColor: false, touchedShape: false };
+      const existing = previous.get(sourceSignature(entry));
+      if (existing) value = { ...existing };
+      else {
+        const contributors = (entry.sources || []).map(source => bySource.get(sourceKey(source)));
+        if (contributors.length && contributors.every(Boolean)) {
+          for (const field of ['color', 'shape']) {
+            const touch = field === 'color' ? 'touchedColor' : 'touchedShape';
+            const values = new Set(contributors.map(choice => choice[field]));
+            if (values.size === 1 && contributors.some(choice => choice[touch])) {
+              value[field] = contributors[0][field]; value[touch] = true;
+              if (field === 'color') value.colorText = contributors[0].colorText;
+            }
+          }
+        }
+      }
+      choices.set(entryName(entry), value);
     });
-    $('reviewSummary').textContent = `${reviewLayers.map(layer => LABELS[layer]).join(' + ')} · ${analysis.instances.length} module ${analysis.instances.length === 1 ? 'instance' : 'instances'} · ${analysis.entries.length} final ${analysis.entries.length === 1 ? 'name' : 'names'}`;
+    $('reviewSummary').textContent = reviewLayers.map(layer => LABELS[layer]).join(' + ');
+  }
+
+  function option(value, text) { const node = element('option', text); node.value = value; return node; }
+  function fillFilterOptions() {
+    $('frequencyLayer').replaceChildren(...reviewLayers.map(layer => option(layer, MEASURES[layer])));
+    $('frequencyLayer').value = reviewLayers.includes('neighborhood') ? 'neighborhood' : reviewLayers[0];
+    $('layerFilter').replaceChildren(option('', 'All selected layers'), ...reviewLayers.map(layer => option(layer, LABELS[layer])));
+    $('layerFilter').value = ''; fillModuleOptions();
+  }
+  function fillModuleOptions() {
+    const layer = $('layerFilter').value;
+    const instances = analysis ? analysis.instances.filter(instance => !layer || instance.layer === layer) : [];
+    $('moduleFilter').replaceChildren(option('', 'All selected modules'), ...instances.map(instance => option(instance.itemId || instance.id, `${LABELS[instance.layer]} · ${instance.title || instance.itemId || instance.id}`)));
+    $('moduleFilter').value = '';
   }
 
   function renamePlan() {
@@ -283,102 +287,54 @@
     return JSON.stringify(keys.map(key => [key, left[key]])) === JSON.stringify(Object.keys(right).sort().map(key => [key, right[key]]));
   }
 
+  function invalidatePreview() {
+    reviewed = false; hasReviewEdits = true; $('changesPanel').hidden = true;
+  }
   function nameEdited() {
     renameStale = invalidRenameCount() > 0 || !sameRenamePlan(renamePlan(), previewedRenames);
-    hasReviewEdits = true;
-    updateControls();
+    invalidatePreview(); updateControls();
   }
-
-  function filteredRenameEntries() {
-    if (!baseAnalysis) return [];
-    const query = $('renameSearchInput').value.trim().toLocaleLowerCase();
-    return baseAnalysis.entries.filter(entry => !query || [entryName(entry), renameEdits.get(entryName(entry)),
-      ...(entry.sources || []).flatMap(source => [source.originalId, source.title, source.sectionTitle, LABELS[source.layer]])]
-      .some(value => String(value || '').toLocaleLowerCase().includes(query)));
-  }
-
-  function updateRenamePagination() {
-    const count = filteredRenameEntries().length;
-    const pages = Math.max(1, Math.ceil(count / PAGE_SIZE));
-    renamePage = Math.max(0, Math.min(renamePage, pages - 1));
-    $('previousRenamePage').disabled = busy || !baseAnalysis || renamePage === 0;
-    $('nextRenamePage').disabled = busy || !baseAnalysis || renamePage >= pages - 1;
-    $('renamePageInfo').textContent = `Page ${renamePage + 1} of ${pages}`;
-    $('renameFilteredCount').textContent = `${count} ${count === 1 ? 'name' : 'names'} shown`;
-  }
-
   function updateRenameHint() {
-    const count = Object.keys(renamePlan()).length;
-    const invalid = invalidRenameCount();
-    $('renameHint').textContent = invalid ? `${invalid} ${invalid === 1 ? 'name is' : 'names are'} invalid. Use nonempty text without control characters.`
-      : count ? `${count} ${count === 1 ? 'name change' : 'name changes'} ${renameStale ? 'to preview' : 'previewed'}. Changes are saved only when you apply the group.`
-        : 'Keep a name as it is, or enter its replacement. Renames are applied simultaneously, without following rename chains.';
+    const count = Object.keys(renamePlan()).length, invalid = invalidRenameCount();
+    $('renameHint').textContent = invalid ? `${invalid} invalid ${invalid === 1 ? 'name' : 'names'}. Use nonempty text without control characters.`
+      : count ? `${count} pending ${count === 1 ? 'name change' : 'name changes'}. Preview changes before applying. Renames run simultaneously.`
+      : 'Edit names, colors, and shapes in the same row. Original identifiers remain in the project.';
   }
-
-  function renderRenameTable() {
-    updateRenamePagination();
-    const entries = filteredRenameEntries();
-    const body = $('renameBody');
-    body.replaceChildren();
-    entries.slice(renamePage * PAGE_SIZE, (renamePage + 1) * PAGE_SIZE).forEach(entry => {
-      const name = entryName(entry), row = element('tr'), current = element('td'), target = element('td');
-      current.append(element('strong', name, 'rename-current-name'));
-      const input = element('input');
-      input.type = 'text';
-      input.value = renameEdits.has(name) ? renameEdits.get(name) : name;
-      input.autocomplete = 'off';
-      input.spellcheck = false;
-      input.setAttribute('aria-label', `New display name for ${name}`);
-      input.disabled = busy;
-      const validate = () => {
-        const invalid = !input.value.trim() || /[\u0000-\u001f\u007f]/.test(input.value);
-        input.classList.toggle('invalid-input', invalid);
-        input.setAttribute('aria-invalid', String(invalid));
-      };
-      validate();
-      input.addEventListener('input', () => {
-        if (input.value === name) renameEdits.delete(name); else renameEdits.set(name, input.value);
-        validate();
-        nameEdited();
-      });
-      target.append(input);
-      row.append(current, target, sourcesCell(entry));
-      body.append(row);
-    });
-    $('emptyRenames').hidden = entries.length > 0;
-    updateRenameHint();
+  function currentNames(entry) {
+    return entry.previousNames && entry.previousNames.length ? entry.previousNames : Array.from(new Set((entry.sources || []).map(source => source.previousName || source.name || entryName(entry))));
   }
-
-  async function previewRenames() {
-    if (!baseAnalysis || invalidRenameCount()) return;
-    const plan = renamePlan();
-    await perform('Previewing renamed entries and their combined styles…', async () => {
-      const next = await core.analyze(session, reviewLayers, { renames: plan });
-      setAnalysis(next, true);
-      previewedRenames = plan;
-      renameStale = false;
-      page = 0;
-      renderWarnings();
-      renderTable();
-      const remaining = unresolvedCount();
-      notify(remaining ? `Rename preview ready. Resolve styles for ${remaining} ${remaining === 1 ? 'name' : 'names'} before applying.` : 'Rename preview ready. Apply the group to save its names and styles.', !remaining);
+  function renameInput(name) {
+    const wrap = element('label', null, 'name-edit'); wrap.append(element('span', name, 'current-name'));
+    const input = element('input', null, 'rename-input'); input.type = 'text';
+    input.value = renameEdits.has(name) ? renameEdits.get(name) : name;
+    input.autocomplete = 'off'; input.spellcheck = false; input.setAttribute('aria-label', `New display name for ${name}`); input.disabled = busy;
+    const validate = () => { const invalid = !input.value.trim() || /[\u0000-\u001f\u007f]/.test(input.value); input.classList.toggle('invalid-input', invalid); input.setAttribute('aria-invalid', String(invalid)); };
+    validate(); input.addEventListener('input', () => {
+      if (input.value === name) renameEdits.delete(name); else renameEdits.set(name, input.value);
+      validate(); nameEdited();
     });
+    wrap.append(element('span', '→', 'name-arrow'), input); return wrap;
+  }
+  function nameCell(entry) {
+    const cell = element('td'), names = currentNames(entry);
+    cell.append(element('strong', entryName(entry), 'entry-name'), element('span', '', 'entry-status'));
+    names.slice(0, 3).forEach(name => cell.append(renameInput(name)));
+    if (names.length > 3) {
+      const details = element('details', null, 'more-name-edits'); details.append(element('summary', `${names.length - 3} more current names`));
+      let loaded = false; details.addEventListener('toggle', () => { if (details.open && !loaded) { loaded = true; pagedDetails(details, names.slice(3), renameInput, 'names'); } }); cell.append(details);
+    }
+    return cell;
   }
 
   async function importRenames(file) {
     if (!file || !baseAnalysis) return;
     await perform('Reading the rename plan YAML…', async () => {
-      const plan = core.parseRenameYaml(await file.text());
-      const names = new Set(baseAnalysis.entries.map(entryName));
+      const plan = core.parseRenameYaml(await file.text()), names = new Set(baseAnalysis.entries.map(entryName));
       const unknown = Object.keys(plan).filter(name => !names.has(name));
       if (unknown.length) throw new Error(`Rename plan contains names absent from the selected layers: ${unknown.slice(0, 5).join(', ')}. Use current display names as keys.`);
-      // Validate all targets before replacing any pending edits.
       await core.analyze(session, reviewLayers, { renames: plan });
       renameEdits = new Map(Object.entries(plan).filter(([name, value]) => name !== value));
-      renamePage = 0;
-      renderRenameTable();
-      nameEdited();
-      notify('Rename plan imported. Preview the renamed palette, then resolve any style conflicts.');
+      nameEdited(); page = 0; renderTable(); notify('Rename plan imported. Preview changes to combine matching names and review their styles.');
     });
     $('renameFile').value = '';
   }
@@ -394,36 +350,76 @@
     $('warningsBox').hidden = !warnings.length;
   }
 
+  function scopeSources(entry) {
+    const layer = $('layerFilter').value, module = $('moduleFilter').value;
+    return (entry.sources || []).filter(source => (!layer || source.layer === layer) && (!module || source.itemId === module));
+  }
+  function scopedFrequency(entry, layer) {
+    const module = $('moduleFilter').value, visible = $('layerFilter').value;
+    if (visible && visible !== layer) return { count: 0, occurrences: 0, instanceCount: 0 };
+    if (module) {
+      const value = (entry.frequenciesByInstance || {})[module];
+      return value && value.layer === layer ? { ...value, instanceCount: value.count > 0 ? 1 : 0 } : { count: 0, occurrences: 0, instanceCount: 0 };
+    }
+    return (entry.frequency || {})[layer] || { count: 0, occurrences: 0, instanceCount: 0 };
+  }
+  function frequencyCount(entry) { return scopedFrequency(entry, $('frequencyLayer').value).count || 0; }
+  function scopedInstances(entry) {
+    return reviewLayers.reduce((total, layer) => total + (scopedFrequency(entry, layer).instanceCount || 0), 0);
+  }
+  function entryEdited(entry) {
+    const choice = choices.get(entryName(entry));
+    return currentNames(entry).some(name => renameEdits.has(name) && renameEdits.get(name).trim() !== name) || Boolean(choice && (choice.touchedColor || choice.touchedShape));
+  }
   function filteredEntries() {
     if (!analysis) return [];
-    const query = $('searchInput').value.trim().toLocaleLowerCase();
+    const query = $('searchInput').value.trim().toLocaleLowerCase(), minimum = Math.max(0, Number($('minFrequency').value) || 0);
     return analysis.entries.filter(entry => {
+      if (!scopeSources(entry).length) return false;
       if ($('conflictsOnly').checked && entryResolved(entry)) return false;
-      if (!query) return true;
-      return [entryName(entry), ...(entry.sources || []).flatMap(source => [source.originalId, source.title, source.sectionTitle, LABELS[source.layer]])]
+      if ($('changedOnly').checked && !entryEdited(entry)) return false;
+      if (frequencyCount(entry) < minimum) return false;
+      return !query || [entryName(entry), ...currentNames(entry), ...currentNames(entry).map(name => renameEdits.get(name)), ...(entry.sources || []).flatMap(source => [source.originalId, source.title, source.sectionTitle, LABELS[source.layer]])]
         .some(value => String(value || '').toLocaleLowerCase().includes(query));
+    }).sort((left, right) => {
+      const mode = $('sortBy').value;
+      return (mode === 'frequency' ? frequencyCount(right) - frequencyCount(left) : mode === 'modules' ? scopedInstances(right) - scopedInstances(left) : 0) || entryName(left).localeCompare(entryName(right));
     });
   }
-
   function updateReviewStatus() {
-    if (!analysis) return;
     const remaining = unresolvedCount();
-    $('conflictBadge').textContent = renameStale ? 'Preview name edits' : remaining ? `${remaining} unresolved` : 'Ready to apply';
+    $('applyButton').disabled = busy || !analysis || renameStale || !reviewed || !analysis.entries.length || remaining > 0;
+    if (!analysis) return;
+    $('summaryNames').textContent = analysis.entries.length; $('summaryInstances').textContent = analysis.instances.length; $('summaryConflicts').textContent = remaining;
+    $('conflictBadge').textContent = renameStale ? 'Name edits pending' : remaining ? `${remaining} unresolved` : reviewed ? 'Preview reviewed' : 'Ready to preview';
     $('conflictBadge').className = renameStale || remaining ? 'badge badge-warning' : 'badge';
-    $('applyHint').textContent = renameStale ? 'Preview the name edits to refresh the palette before applying.' : !analysis.entries.length ? 'No configurable names or styles were found in these layers.' : remaining
-      ? `Choose the missing colors${reviewShapes ? ' or shapes' : ''} for ${remaining} ${remaining === 1 ? 'name' : 'names'}. Conflicting values are never selected automatically.`
-      : `Apply the previewed names and palette to all ${analysis.instances.length} selected module ${analysis.instances.length === 1 ? 'instance' : 'instances'}. Original identifiers are preserved.`;
-    $('applyButton').disabled = busy || renameStale || !analysis.entries.length || remaining > 0;
+    $('applyHint').textContent = renameStale ? 'Preview changes to regroup renamed entries before resolving their styles.'
+      : !analysis.entries.length ? 'No configurable names or styles were found in these layers.'
+      : remaining ? `Resolve ${remaining} ${remaining === 1 ? 'entry' : 'entries'} in the list, then preview changes. Conflicts are never chosen automatically.`
+      : reviewed ? `Apply to all ${analysis.instances.length} selected modules. List filters do not limit the application.`
+      : 'Preview the changes before applying names and styles to this group.';
   }
-
+  function pageSize() { const size = Number($('pageSize').value); return [20, 50, 100].includes(size) ? size : 20; }
   function updatePagination() {
-    const count = filteredEntries().length;
-    const pages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+    const count = filteredEntries().length, pages = Math.max(1, Math.ceil(count / pageSize()));
     page = Math.max(0, Math.min(page, pages - 1));
-    $('previousPage').disabled = busy || !analysis || renameStale || page === 0;
-    $('nextPage').disabled = busy || !analysis || renameStale || page >= pages - 1;
+    $('previousPage').disabled = busy || !analysis || page === 0; $('nextPage').disabled = busy || !analysis || page >= pages - 1;
     $('pageInfo').textContent = `Page ${page + 1} of ${pages}`;
-    $('filteredCount').textContent = `${count} ${count === 1 ? 'name' : 'names'} shown`;
+    $('filteredCount').textContent = `${count} of ${analysis ? analysis.entries.length : 0} names`;
+    const measure = $('frequencyLayer').value;
+    $('frequencyHint').textContent = measure ? `${MEASURES[measure]}; counted once per ${measure === 'neighborhood' ? 'gene' : measure === 'architecture' ? 'protein' : measure === 'network' ? 'node' : 'record'} in each module. Counts are separate across layers.` : '';
+  }
+  function frequencyCell(entry) {
+    const cell = element('td');
+    reviewLayers.forEach(layer => {
+      if ($('layerFilter').value && $('layerFilter').value !== layer) return;
+      if (!scopeSources(entry).some(source => source.layer === layer)) return;
+      const metric = scopedFrequency(entry, layer), line = element('div', null, 'frequency-line');
+      line.append(element('strong', (metric.count || 0).toLocaleString()), document.createTextNode(` ${UNITS[layer]}`));
+      line.title = `${LABELS[layer]}: ${(metric.occurrences || 0).toLocaleString()} occurrences in ${metric.instanceCount || 0} modules`;
+      cell.append(line);
+    });
+    cell.append(element('small', `${scopedInstances(entry)} modules with data`, 'cell-note')); return cell;
   }
 
   function updateEntryRow(row, entry) {
@@ -438,9 +434,9 @@
   }
 
   function choiceChanged(row, entry) {
-    hasReviewEdits = true;
+    invalidatePreview();
     updateEntryRow(row, entry);
-    updateReviewStatus();
+    updateControls();
   }
 
   function colorCell(row, entry) {
@@ -456,7 +452,7 @@
     picker.type = 'color';
     picker.value = normalizedHex(choice.color) || '#cbd5e1';
     picker.setAttribute('aria-label', `Choose shared color for ${name}`);
-    const text = element('input');
+    const text = element('input', null, 'color-text');
     text.type = 'text';
     text.value = choice.colorText;
     text.placeholder = '#RRGGBB';
@@ -470,17 +466,20 @@
     const prompt = element('option', entry.colorConflict ? 'Choose an existing color…' : 'Existing colors…');
     prompt.value = '';
     candidates.append(prompt);
-    (entry.colors || []).forEach(color => {
-      const uses = (entry.sources || []).filter(source => String(source.color).toLowerCase() === String(color).toLowerCase()).length;
-      const option = element('option', `${color}${uses ? ` · ${uses} ${uses === 1 ? 'source' : 'sources'}` : ''}`);
-      option.value = color;
-      candidates.append(option);
+    const colorUses = new Map();
+    (entry.sources || []).forEach(source => { const key = String(source.color || '').toLowerCase(); if (key) colorUses.set(key, (colorUses.get(key) || 0) + 1); });
+    (entry.colors || []).slice().sort((left, right) => (colorUses.get(String(right).toLowerCase()) || 0) - (colorUses.get(String(left).toLowerCase()) || 0)).slice(0, 100).forEach(color => {
+      const uses = colorUses.get(String(color).toLowerCase()) || 0;
+      const existing = element('option', `${color}${uses ? ` · ${uses} ${uses === 1 ? 'source' : 'sources'}` : ''}`);
+      existing.value = color; candidates.append(existing);
     });
     if ((entry.colors || []).length) cell.append(candidates);
     else cell.append(element('small', 'Suggested color; adjust if needed.', 'cell-note'));
+    if ((entry.colors || []).length > 100) cell.append(element('small', '100 most-used colors shown. Enter any other hexadecimal color.', 'cell-note'));
     if ((entry.colors || []).some(color => !normalizedHex(color))) cell.append(element('small', 'Choose a hexadecimal color (#RRGGBB) to share across viewers.', 'cell-note'));
     function setColor(value, isTextInput) {
       const normalized = normalizedHex(value);
+      choice.touchedColor = true;
       choice.colorText = value;
       choice.color = normalized || (validColor(value) ? value : '');
       if (!isTextInput) text.value = value;
@@ -507,7 +506,7 @@
       return cell;
     }
     const choice = choices.get(entryName(entry));
-    const select = element('select');
+    const select = element('select', null, 'shape-select');
     select.setAttribute('aria-label', `Shared shape for ${entryName(entry)}`);
     const prompt = element('option', 'Choose a shape…');
     prompt.value = '';
@@ -519,62 +518,105 @@
     });
     select.value = choice.shape;
     select.disabled = busy || renameStale;
-    select.addEventListener('change', () => { choice.shape = select.value; choiceChanged(row, entry); });
+    select.addEventListener('change', () => { choice.shape = select.value; choice.touchedShape = true; choiceChanged(row, entry); });
     cell.append(select);
     if (entry.shapeConflict) cell.append(element('small', 'Different shapes found in architecture sources.', 'cell-note'));
     return cell;
   }
 
-  function sourcesCell(entry) {
-    const cell = element('td');
-    const sources = entry.sources || [];
-    const details = element('details');
-    const instances = new Set(sources.map(source => source.itemId));
-    const layers = Array.from(new Set(sources.map(source => LABELS[source.layer] || source.layer)));
-    details.append(element('summary', `${sources.length} ${sources.length === 1 ? 'source' : 'sources'} · ${instances.size} ${instances.size === 1 ? 'instance' : 'instances'}`, 'source-summary'));
-    const list = element('ul', null, 'source-list');
-    sources.forEach(source => {
-      const item = element('li');
-      item.append(element('strong', `${LABELS[source.layer] || source.layer} · ${source.title || source.itemId}`));
-      if (source.sectionTitle) item.append(element('small', source.sectionTitle));
-      item.append(element('code', String(source.originalId || source.name || entryName(entry))));
-      if (source.previousName && source.previousName !== entryName(entry)) item.append(element('small', `Previous name: ${source.previousName}`));
-      const style = element('small', null, 'source-style');
-      if (source.color) {
-        const swatch = element('span', null, 'color-swatch');
-        if (validColor(source.color)) swatch.style.backgroundColor = source.color;
-        swatch.setAttribute('aria-hidden', 'true');
-        style.append(swatch, document.createTextNode(String(source.color)));
-      } else style.append(document.createTextNode('No explicit color'));
-      if (source.shape) style.append(document.createTextNode(` · ${source.shape}`));
-      item.append(style);
-      list.append(item);
-    });
-    details.append(list);
-    cell.append(details, element('small', layers.join(' + '), 'cell-note'));
-    return cell;
+  function pagedDetails(details, items, render, noun) {
+    let index = 0; const pageLength = 20;
+    const body = element(noun === 'sources' ? 'ul' : 'div', null, noun === 'sources' ? 'source-list' : 'more-names-list');
+    const pager = element('div', null, 'detail-pagination'), previous = element('button', 'Previous', 'button button-ghost detail-previous'), next = element('button', 'Next', 'button button-ghost detail-next'), info = element('span');
+    previous.type = 'button'; next.type = 'button'; previous.setAttribute('aria-label', `Previous ${noun}`); next.setAttribute('aria-label', `Next ${noun}`);
+    const update = () => {
+      body.replaceChildren(...items.slice(index * pageLength, (index + 1) * pageLength).map(render));
+      previous.disabled = index === 0; next.disabled = (index + 1) * pageLength >= items.length;
+      info.textContent = `${index * pageLength + 1}–${Math.min(items.length, (index + 1) * pageLength)} of ${items.length}`;
+    };
+    previous.addEventListener('click', () => { index--; update(); }); next.addEventListener('click', () => { index++; update(); });
+    pager.append(previous, info, next); details.append(body); if (items.length > pageLength) details.append(pager); update();
   }
-
+  function sourcesCell(entry) {
+    const cell = element('td'), sources = entry.sources || [], details = element('details', null, 'source-details');
+    details.append(element('summary', `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}`, 'source-summary'));
+    let loaded = false;
+    details.addEventListener('toggle', () => {
+      if (!details.open || loaded) return; loaded = true;
+      pagedDetails(details, sources, source => {
+        const item = element('li'); item.append(element('strong', `${LABELS[source.layer] || source.layer} · ${source.title || source.itemId}`));
+        if (source.sectionTitle) item.append(element('small', source.sectionTitle));
+        item.append(element('code', String(source.originalId || source.name || entryName(entry))));
+        if (source.previousName && source.previousName !== entryName(entry)) item.append(element('small', `Previous name: ${source.previousName}`));
+        item.append(element('small', `${source.color || 'No explicit color'}${source.shape ? ` · ${source.shape}` : ''}`, 'source-style'));
+        return item;
+      }, 'sources');
+      reviewLayers.forEach(layer => { const value = (entry.frequency || {})[layer]; if (value) details.append(element('small', `${LABELS[layer]}: ${value.count || 0} ${UNITS[layer]}, ${value.occurrences || 0} occurrences across ${value.instanceCount || 0} modules`, 'cell-note')); });
+    });
+    cell.append(details); return cell;
+  }
   function renderTable() {
     updatePagination();
-    const entries = filteredEntries();
-    const body = $('paletteBody');
-    body.replaceChildren();
-    entries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).forEach(entry => {
-      const row = element('tr');
-      const name = element('td');
-      name.append(element('strong', entryName(entry), 'entry-name'), element('span', '', 'entry-status'));
-      row.append(name, colorCell(row, entry), shapeCell(row, entry), sourcesCell(entry));
-      updateEntryRow(row, entry);
-      body.append(row);
+    const entries = filteredEntries(), body = $('paletteBody'); body.replaceChildren();
+    if ($('namesPanel').hidden) return;
+    entries.slice(page * pageSize(), (page + 1) * pageSize()).forEach(entry => {
+      const row = element('tr'); row.append(nameCell(entry), frequencyCell(entry), colorCell(row, entry), shapeCell(row, entry), sourcesCell(entry));
+      updateEntryRow(row, entry); body.append(row);
     });
     $('emptyReview').hidden = entries.length > 0;
     $('emptyReview').textContent = analysis && analysis.entries.length ? 'No names match these filters.' : 'No configurable styles were found in the selected layers.';
     updateReviewStatus();
   }
+  function showNames(show) {
+    $('namesPanel').hidden = !show; $('reviewNamesButton').textContent = show ? 'Collapse names' : 'Review names';
+    $('reviewNamesButton').setAttribute('aria-expanded', String(show));
+    if (show) { $('changesPanel').hidden = true; renderTable(); } else $('paletteBody').replaceChildren();
+  }
+
+  function changedEntry(entry) {
+    const choice = choices.get(entryName(entry)), names = currentNames(entry);
+    const renames = names.filter(name => name !== entryName(entry));
+    const color = entry.colorEditable !== false && Boolean(choice.color) && (entry.sources || []).some(source => source.color && normalizedHex(source.color) !== normalizedHex(choice.color));
+    const shape = shapeApplies(entry) && Boolean(choice.shape) && (entry.sources || []).some(source => source.layer === 'architecture' && source.shape && source.shape !== choice.shape);
+    return { entry, renames, color, shape, merge: names.length > 1, unresolved: !entryResolved(entry) };
+  }
+  function updateChangePagination() {
+    const pages = Math.max(1, Math.ceil(previewRows.length / CHANGE_PAGE_SIZE));
+    changesPage = Math.max(0, Math.min(changesPage, pages - 1));
+    $('previousChangesPage').disabled = busy || changesPage === 0; $('nextChangesPage').disabled = busy || changesPage >= pages - 1;
+    $('changesPageInfo').textContent = `Page ${changesPage + 1} of ${pages}`;
+    $('changesPagination').hidden = previewRows.length <= CHANGE_PAGE_SIZE;
+  }
+  function renderChangePreview() {
+    const body = $('changesBody'); body.replaceChildren(); updateChangePagination();
+    previewRows.slice(changesPage * CHANGE_PAGE_SIZE, (changesPage + 1) * CHANGE_PAGE_SIZE).forEach(change => {
+      const { entry, renames, color, shape, merge, unresolved } = change, choice = choices.get(entryName(entry)), item = element('li');
+      item.append(element('strong', entryName(entry)));
+      const labels = [];
+      if (renames.length) labels.push(`${renames.slice(0, 4).join(', ')}${renames.length > 4 ? ` + ${renames.length - 4} more` : ''} → ${entryName(entry)}`);
+      if (merge) labels.push(`${currentNames(entry).length} names combined`);
+      if (color) labels.push(`color ${choice.color}`); if (shape) labels.push(`shape ${choice.shape}`);
+      if (unresolved) labels.push('style choice required');
+      item.append(element('span', labels.join(' · '))); body.append(item);
+    });
+    $('emptyChanges').hidden = previewRows.length > 0;
+    $('changesSummary').textContent = `${Object.keys(previewedRenames).length} name changes · ${previewRows.filter(row => row.merge).length} merged entries · ${previewRows.filter(row => row.color || row.shape).length} style updates${unresolvedCount() ? ` · ${unresolvedCount()} unresolved` : ''}`;
+    $('changesScope').textContent = `Applies to all ${analysis.instances.length} modules in ${reviewLayers.map(layer => LABELS[layer]).join(' + ')}. Preview includes changes outside the current list filters.`;
+    $('backToNamesButton').textContent = unresolvedCount() ? 'Resolve styles in list' : 'Back to names';
+  }
+  async function previewChanges() {
+    if (!baseAnalysis || invalidRenameCount()) return;
+    await perform('Previewing name changes and the shared palette…', async () => {
+      const plan = renamePlan(), next = await core.analyze(session, reviewLayers, { renames: plan });
+      setAnalysis(next, true); previewedRenames = plan; renameStale = false;
+      previewRows = analysis.entries.map(changedEntry).filter(change => change.renames.length || change.merge || change.color || change.shape || change.unresolved);
+      changesPage = 0; reviewed = true; renderWarnings(); showNames(false); renderChangePreview(); $('changesPanel').hidden = false;
+      notify(unresolvedCount() ? `Preview ready. Resolve ${unresolvedCount()} ${unresolvedCount() === 1 ? 'entry' : 'entries'} in the list before applying.` : 'Preview ready. Review the changes, then apply them to the selected group.', !unresolvedCount());
+    });
+  }
 
   async function applyPalette() {
-    if (!analysis || renameStale || unresolvedCount()) return;
+    if (!analysis || renameStale || !reviewed || unresolvedCount()) return;
     await perform('Applying names and the shared palette to every selected module instance…', async () => {
       const resolved = new Map();
       analysis.entries.forEach(entry => {
@@ -600,13 +642,8 @@
       renameEdits = new Map();
       previewedRenames = Object.create(null);
       renameStale = false;
-      renamePage = 0;
-      page = 0;
-      $('renameSearchInput').value = '';
-      setAnalysis(next);
-      renderRenameTable();
-      renderWarnings();
-      renderTable();
+      page = 0; reviewed = false; previewRows = []; $('changesPanel').hidden = true;
+      setAnalysis(next); showNames(false); renderWarnings();
       renderGroups(group.id);
       notify(`Applied “${group.name}” to ${group.instanceCount} module ${group.instanceCount === 1 ? 'instance' : 'instances'}. Download the updated state to keep these changes.`, true);
       $('downloadPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -711,17 +748,24 @@
   $('includeShapes').addEventListener('change', invalidateReview);
   $('newGroupButton').addEventListener('click', () => { startNewGroup(); clearError(); notify('Choose unassigned layers for another independent palette group.'); });
   $('analyzeButton').addEventListener('click', analyzeSelection);
-  $('renameSearchInput').addEventListener('input', () => { renamePage = 0; renderRenameTable(); });
-  $('previousRenamePage').addEventListener('click', () => { renamePage--; renderRenameTable(); });
-  $('nextRenamePage').addEventListener('click', () => { renamePage++; renderRenameTable(); });
+  $('reviewNamesButton').addEventListener('click', () => showNames($('namesPanel').hidden));
+  $('backToNamesButton').addEventListener('click', () => {
+    if (unresolvedCount()) { $('conflictsOnly').checked = true; $('changedOnly').checked = false; $('searchInput').value = ''; $('minFrequency').value = '0'; $('layerFilter').value = ''; fillModuleOptions(); }
+    page = 0; showNames(true);
+  });
   $('renameFile').addEventListener('change', event => importRenames(event.target.files && event.target.files[0]));
-  $('previewRenamesButton').addEventListener('click', previewRenames);
-  $('resetRenamesButton').addEventListener('click', () => { renameEdits = new Map(); nameEdited(); renderRenameTable(); });
+  $('resetRenamesButton').addEventListener('click', () => { renameEdits = new Map(); nameEdited(); renderTable(); });
+  $('previewChangesButton').addEventListener('click', previewChanges);
   $('applyButton').addEventListener('click', applyPalette);
-  $('searchInput').addEventListener('input', () => { page = 0; renderTable(); });
-  $('conflictsOnly').addEventListener('change', () => { page = 0; renderTable(); });
+  $('groupName').addEventListener('input', () => { if (analysis) { invalidatePreview(); updateControls(); } });
+  ['searchInput', 'minFrequency'].forEach(id => $(id).addEventListener('input', () => { page = 0; renderTable(); }));
+  ['conflictsOnly', 'changedOnly', 'sortBy', 'frequencyLayer', 'pageSize'].forEach(id => $(id).addEventListener('change', () => { page = 0; renderTable(); }));
+  $('layerFilter').addEventListener('change', () => { fillModuleOptions(); if ($('layerFilter').value) $('frequencyLayer').value = $('layerFilter').value; page = 0; renderTable(); });
+  $('moduleFilter').addEventListener('change', () => { const instance = analysis.instances.find(item => (item.itemId || item.id) === $('moduleFilter').value); if (instance) $('frequencyLayer').value = instance.layer; page = 0; renderTable(); });
   $('previousPage').addEventListener('click', () => { page--; renderTable(); });
   $('nextPage').addEventListener('click', () => { page++; renderTable(); });
+  $('previousChangesPage').addEventListener('click', () => { changesPage--; renderChangePreview(); });
+  $('nextChangesPage').addEventListener('click', () => { changesPage++; renderChangePreview(); });
   $('exportGroup').addEventListener('change', updatePaletteDownloads);
   $('exportStateButton').addEventListener('click', exportState);
   $('exportColorsButton').addEventListener('click', () => exportPalette('color'));

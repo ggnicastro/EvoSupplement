@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Project Style Manager · EvoSupplement</title>
-  <link rel="stylesheet" href="./styles.css?v=1.1.0">
+  <link rel="stylesheet" href="./styles.css?v=1.2.0">
 </head>
 <body>
   <header class="app-header">
@@ -74,53 +74,59 @@
 
     <section id="reviewPanel" class="panel review-panel" aria-labelledby="reviewHeading" hidden>
       <div class="panel-heading">
-        <div><p class="panel-kicker">Step 3</p><h2 id="reviewHeading">Review the shared palette</h2><p id="reviewSummary" class="help"></p></div>
+        <div><p class="panel-kicker">Step 3</p><h2 id="reviewHeading">Review names and styles</h2><p id="reviewSummary" class="help"></p></div>
         <span id="conflictBadge" class="badge"></span>
       </div>
-      <div class="rename-panel" aria-labelledby="renameHeading">
-        <h3 id="renameHeading">1. Edit display names</h3>
-        <p class="help">A name change affects every matching entry in the selected layers. Entries given the same new name will share one palette row after preview. Original identifiers stay in the data. Network names are Function categories.</p>
+      <div class="review-overview">
+        <div class="overview-stat"><strong id="summaryNames">0</strong><span>display names</span></div>
+        <div class="overview-stat"><strong id="summaryInstances">0</strong><span>selected modules</span></div>
+        <div class="overview-stat"><strong id="summaryConflicts">0</strong><span>unresolved styles</span></div>
+        <button id="reviewNamesButton" class="button button-secondary" type="button" aria-expanded="false" aria-controls="namesPanel">Review names</button>
+      </div>
+      <p class="small-help">Start with the most frequent names. The list shows 20 rows at a time; filters only change what you see. Applying the group includes every selected module.</p>
+      <details id="warningsBox" class="warnings" hidden><summary>Review notes</summary><ul id="warningsList"></ul></details>
+      <p id="renameStaleNotice" class="status" role="status" hidden>Name edits are pending. Preview changes to regroup matching names and refresh their styles.</p>
+
+      <div id="namesPanel" hidden>
         <div class="review-toolbar">
-          <label class="search-field"><span class="sr-only">Search current names or sources</span><input id="renameSearchInput" type="search" placeholder="Search current names, original IDs, or module titles…"></label>
-          <span id="renameFilteredCount" class="small-help"></span>
+          <label class="search-field"><span class="sr-only">Search names, original IDs, or modules</span><input id="searchInput" type="search" placeholder="Search current or new names, original IDs, or modules…"></label>
+          <label class="field compact-field" for="sortBy"><span>Order</span><select id="sortBy"><option value="frequency">Most frequent</option><option value="name">Name A–Z</option><option value="modules">Most modules</option></select></label>
+          <label class="field compact-field" for="frequencyLayer"><span>Frequency measure</span><select id="frequencyLayer"></select></label>
         </div>
+        <div class="filter-bar">
+          <label class="field compact-field" for="layerFilter"><span>Show layer</span><select id="layerFilter"><option value="">All selected layers</option></select></label>
+          <label class="field compact-field module-filter" for="moduleFilter"><span>Show module</span><select id="moduleFilter"><option value="">All selected modules</option></select></label>
+          <label class="field compact-field minimum-field" for="minFrequency"><span>Minimum frequency</span><input id="minFrequency" type="number" value="0" min="0" step="1"></label>
+          <label class="checkbox-field"><input id="conflictsOnly" type="checkbox"><span>Unresolved only</span></label>
+          <label class="checkbox-field"><input id="changedOnly" type="checkbox"><span>Edited only</span></label>
+        </div>
+        <div class="list-context"><p id="frequencyHint" class="small-help"></p><span id="filteredCount" class="small-help"></span></div>
         <div class="table-wrap">
-          <table class="palette-table rename-table">
-            <caption class="sr-only">Rename the current display names before unifying styles</caption>
-            <thead><tr><th scope="col">Current display name</th><th scope="col">New display name</th><th scope="col">Sources</th></tr></thead>
-            <tbody id="renameBody"></tbody>
+          <table class="palette-table">
+            <caption class="sr-only">Display names, frequencies, shared colors, and architecture shapes</caption>
+            <thead><tr><th scope="col">Current → new name</th><th scope="col">Frequency</th><th scope="col">Shared color</th><th scope="col" id="shapeColumnHeading">Architecture shape</th><th scope="col">Details</th></tr></thead>
+            <tbody id="paletteBody"></tbody>
           </table>
         </div>
-        <p id="emptyRenames" class="empty-state" hidden>No matching names.</p>
-        <div class="pagination"><button id="previousRenamePage" class="button button-ghost button-small" type="button">Previous names</button><span id="renamePageInfo"></span><button id="nextRenamePage" class="button button-ghost button-small" type="button">Next names</button></div>
-        <div class="rename-actions">
-          <label class="field" for="renameFile"><span>Import rename plan YAML <small>optional</small></span><input id="renameFile" type="file" accept=".yaml,.yml,application/yaml,text/yaml"><small>Maps current display names to new names; replaces this review's rename plan.</small></label>
+        <p id="emptyReview" class="empty-state" hidden>No matching names.</p>
+        <div class="pagination"><label for="pageSize">Rows <select id="pageSize"><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label><button id="previousPage" class="button button-ghost button-small" type="button">Previous</button><span id="pageInfo"></span><button id="nextPage" class="button button-ghost button-small" type="button">Next</button></div>
+        <details class="rename-tools"><summary>Rename plan and reset</summary><div class="rename-actions">
+          <label class="field" for="renameFile"><span>Import rename plan YAML <small>optional</small></span><input id="renameFile" type="file" accept=".yaml,.yml,application/yaml,text/yaml"><small>Maps current display names to new names; replaces this review's pending rename plan.</small></label>
           <button id="resetRenamesButton" class="button button-ghost" type="button">Reset name edits</button>
-          <button id="previewRenamesButton" class="button button-secondary" type="button">Preview renamed palette</button>
-        </div>
+        </div></details>
         <p id="renameHint" class="small-help"></p>
       </div>
-      <h3>2. Review colors and shapes</h3>
-      <p class="help">Each row is a final display name after the previewed renames. Open its sources to inspect original identifiers and module instances. Choose a color for every conflict before applying the group.</p>
-      <p id="renameStaleNotice" class="status" role="status" hidden>Name edits have changed. Preview the renamed palette before choosing styles or applying the group.</p>
-      <div id="warningsBox" class="warnings" hidden><strong>Review notes</strong><ul id="warningsList"></ul></div>
-      <div class="review-toolbar">
-        <label class="search-field"><span class="sr-only">Search final names or sources</span><input id="searchInput" type="search" placeholder="Search names, original IDs, or module titles…"></label>
-        <label class="checkbox-field"><input id="conflictsOnly" type="checkbox"><span>Unresolved only</span></label>
-        <span id="filteredCount" class="small-help"></span>
-      </div>
-      <div class="table-wrap">
-        <table class="palette-table">
-          <caption class="sr-only">Shared styles by final display name</caption>
-          <thead><tr><th scope="col">Final display name</th><th scope="col">Shared color</th><th scope="col" id="shapeColumnHeading">Architecture shape</th><th scope="col">Sources</th></tr></thead>
-          <tbody id="paletteBody"></tbody>
-        </table>
-      </div>
-      <p id="emptyReview" class="empty-state" hidden>No matching names.</p>
-      <div class="pagination"><button id="previousPage" class="button button-ghost button-small" type="button">Previous</button><span id="pageInfo"></span><button id="nextPage" class="button button-ghost button-small" type="button">Next</button></div>
+
+      <section id="changesPanel" class="changes-panel" aria-labelledby="changesHeading" hidden>
+        <div class="panel-heading"><div><h3 id="changesHeading">Preview changes</h3><p id="changesSummary" class="help"></p></div><button id="backToNamesButton" class="button button-ghost button-small" type="button">Back to names</button></div>
+        <p id="changesScope" class="small-help"></p>
+        <ul id="changesBody" class="changes-list"></ul>
+        <p id="emptyChanges" class="small-help" hidden>No names or existing styles will change. Applying still records this shared palette group in the state.</p>
+        <div id="changesPagination" class="pagination"><button id="previousChangesPage" class="button button-ghost button-small" type="button">Previous changes</button><span id="changesPageInfo"></span><button id="nextChangesPage" class="button button-ghost button-small" type="button">Next changes</button></div>
+      </section>
       <div class="apply-bar">
         <p id="applyHint" class="help"></p>
-        <button id="applyButton" class="button button-primary" type="button" disabled>Apply shared palette</button>
+        <div class="apply-actions"><button id="previewChangesButton" class="button button-secondary" type="button" disabled>Preview changes</button><button id="applyButton" class="button button-primary" type="button" disabled>Apply shared palette</button></div>
       </div>
     </section>
 
@@ -142,7 +148,7 @@
   </main>
   <script src="../builder/vendor/jszip.min.js"></script>
   <script src="../neighborhood-viewer/shared/neighborhood-viewer.js"></script>
-  <script src="./core.js?v=1.1.0"></script>
-  <script src="./app.js?v=1.1.0"></script>
+  <script src="./core.js?v=1.2.0"></script>
+  <script src="./app.js?v=1.2.0"></script>
 </body>
 </html>
