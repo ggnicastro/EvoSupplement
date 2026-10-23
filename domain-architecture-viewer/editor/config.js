@@ -3,13 +3,14 @@
  */
 window.DOMAIN_ARCHITECTURE_CONFIG = {
   title: 'Protein Domain Architecture Editor',
-  subtitle: 'Author workspace for colors, shapes, metadata, and compact architecture layouts',
+  subtitle: 'Author workspace for names, styles, metadata, and architecture layouts',
   paperTitle: '',
   figureTitle: '',
   authoring: true,
   autoLoad: true,
   dataUrl: './data/domain.tsv',
   yamlUrl: './data/domain-architecture.yaml',
+  renameUrl: '', // Optional flat mapping from original domain IDs to display names.
   colorUrl: '', // Optional flat color YAML keyed by final display name.
   shapeUrl: '', // Optional flat shape YAML keyed by final display name.
   fitOnLoad: true,

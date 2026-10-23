@@ -6,7 +6,7 @@
   <meta name="description" content="Authoring editor for interactive protein domain architecture figures.">
   <meta name="theme-color" content="#101720">
   <title>Protein Domain Architecture Editor</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=1.1.1">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.2.0">
 </head>
 <body>
   <header class="app-header">
@@ -24,6 +24,7 @@
       <div class="load-row">
         <span class="file-field"><span class="file-field-label">Domain TSV <b aria-hidden="true">*</b></span><label class="file-button" for="architectureEditorDataInput">Choose TSV</label><input id="architectureEditorDataInput" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain" hidden><span class="file-name" id="architectureEditorDataName">No file selected</span></span>
         <span class="file-field"><span class="file-field-label">Architecture YAML <em>optional</em></span><label class="file-button" for="architectureEditorYamlInput">Choose YAML</label><input id="architectureEditorYamlInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" hidden><span class="file-name" id="architectureEditorYamlName">Optional</span></span>
+        <span class="file-field"><span class="file-field-label">Rename YAML <em>optional</em></span><label class="file-button" for="architectureEditorRenameInput">Choose YAML</label><input id="architectureEditorRenameInput" type="file" accept=".yaml,.yml,.json,text/yaml,text/plain,application/json" hidden><span class="file-name" id="architectureEditorRenameName">Optional</span></span>
         <span class="file-field"><span class="file-field-label">Color YAML <em>optional</em></span><label class="file-button" for="architectureEditorColorInput">Choose colors</label><input id="architectureEditorColorInput" type="file" accept=".yaml,.yml,.json,text/yaml,text/plain,application/json" hidden><span class="file-name" id="architectureEditorColorName">Optional</span></span>
         <span class="file-field"><span class="file-field-label">Shape YAML <em>optional</em></span><label class="file-button" for="architectureEditorShapeInput">Choose shapes</label><input id="architectureEditorShapeInput" type="file" accept=".yaml,.yml,.json,text/yaml,text/plain,application/json" hidden><span class="file-name" id="architectureEditorShapeName">Optional</span></span>
       </div>
@@ -31,17 +32,18 @@
         <button class="action-button primary" id="architectureEditorLoad" type="button" disabled>Load local files</button>
         <button class="action-button" id="architectureEditorReload" type="button">Reload bundled example</button>
         <button class="action-button" id="architectureEditorClearYaml" type="button" hidden>Clear architecture file</button>
+        <button class="action-button" id="architectureEditorClearRename" type="button" hidden>Clear rename file</button>
         <button class="action-button" id="architectureEditorClearColor" type="button" hidden>Clear color file</button>
         <button class="action-button" id="architectureEditorClearShape" type="button" hidden>Clear shape file</button>
         <button class="action-button" id="architectureApplyDictionaries" type="button" disabled>Apply colors and shapes to current figure</button>
-        <p class="load-hint">One row represents one domain or feature. Required columns are <code>pid</code>, <code>domain</code>, <code>start</code>, <code>end</code>, and <code>plen</code>. Extra columns are detected as protein or domain metadata and become available for labels, sorting, grouping, and hover. Color and shape YAMLs use final display names after renaming; their entries override the corresponding architecture styles. Clear buttons remove pending files; load again to reset the figure.</p>
+        <p class="load-hint">One row represents one domain or feature. Required columns are <code>pid</code>, <code>domain</code>, <code>start</code>, <code>end</code>, and <code>plen</code>. Extra columns are available as metadata. Rename YAML maps original domain IDs to display names and overrides names in the architecture YAML; color and shape YAMLs use final display names. Load again to reset the figure.</p>
       </div>
     </section>
 
     <section class="toolbar" aria-label="Architecture controls">
       <div class="toolbar-row">
         <label class="search-field" for="architectureSearch"><span class="field-label">Find proteins or domains</span><span class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg><input id="architectureSearch" type="search" autocomplete="off" placeholder="PID, domain, taxonomy, metadata…"><button class="clear-search" id="architectureSearchClear" type="button" aria-label="Clear search">×</button></span></label>
-        <span class="status-text" id="architectureStatus" aria-live="polite">Load a domain table to begin.</span>
+        <span class="status-text" id="architectureStatus" aria-live="polite">Load a domain table to begin.</span><button class="action-button" id="architectureExportSvg" type="button">Export SVG</button>
       </div>
       <div class="toolbar-row">
         <label class="control-field" for="architectureMode"><span>Drawing mode</span><select id="architectureMode"><option value="true">True length</option><option value="normalized">Normalized proteins</option><option value="compact">Compact architecture</option></select></label>
@@ -94,7 +96,7 @@
     <section class="editor-panel" aria-label="Domain style editor">
       <div class="editor-panel-head">
         <div><h2>Domain style curation</h2><p>Rank domains by frequency, suggest a palette, then click a domain in the table or drawing to adjust its display name, color, and shape. Domains sharing a final display name receive the same edited color and shape. SIG, TM, and LIPO keep fixed conventions and are excluded from Top-N suggestions.</p></div>
-        <div class="export-actions"><button class="action-button primary" id="architectureExportYaml" type="button">Download architecture YAML</button><button class="action-button" id="architectureExportColor" type="button">Download color YAML</button><button class="action-button" id="architectureExportShape" type="button">Download shape YAML</button><button class="action-button" id="architectureExportPackage" type="button">Download publication package</button></div>
+        <div class="export-actions"><button class="action-button primary" id="architectureExportYaml" type="button">Download architecture YAML</button><button class="action-button" id="architectureExportRename" type="button">Download rename YAML</button><button class="action-button" id="architectureExportColor" type="button">Download color YAML</button><button class="action-button" id="architectureExportShape" type="button">Download shape YAML</button><button class="action-button" id="architectureExportPackage" type="button">Download publication package</button></div>
       </div>
       <div class="curation-controls">
         <label class="control-field" for="architectureFrequencyMetric"><span>Rank by</span><select id="architectureFrequencyMetric"><option value="proteins">Distinct proteins</option><option value="occurrences">Occurrences</option><option value="residues">Residues covered</option></select></label>
@@ -127,8 +129,8 @@
   <footer class="page-footer"><span>One TSV row represents one domain or special feature.</span><span aria-hidden="true">•</span><span>Ctrl/Cmd + wheel zooms; drag empty space to pan.</span><span aria-hidden="true">•</span><span>The editor never rewrites the selected source files.</span></footer>
 
   <script src="./vendor/jszip.min.js"></script>
-  <script src="./config.js?v=1.1.1"></script>
-  <script src="../shared/domain-architecture-viewer.js?v=1.1.1"></script>
-  <script src="./editor.js?v=1.1.1"></script>
+  <script src="./config.js?v=1.2.0"></script>
+  <script src="../shared/domain-architecture-viewer.js?v=1.2.0"></script>
+  <script src="./editor.js?v=1.2.0"></script>
 </body>
 </html>

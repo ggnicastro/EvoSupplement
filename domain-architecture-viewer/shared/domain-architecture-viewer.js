@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.1.1';
+  const VERSION = '1.2.0';
   const REQUIRED_COLUMNS = ['pid', 'domain', 'start', 'end', 'plen'];
   const SPECIAL_FEATURES = Object.freeze({
     TM: { color: '#4b5563', stroke: '#1f2937', shape: 'tm', label: 'TM' },
@@ -63,6 +63,8 @@
     yamlName: '',
     colorName: '',
     shapeName: '',
+    renameName: '',
+    renameDictionary: Object.create(null),
     colorDictionary: Object.create(null),
     shapeDictionary: Object.create(null),
     search: '',
@@ -368,6 +370,53 @@
       output[name] = normalized;
     }
     return output;
+  }
+
+  function parseRenameDictionary(text) {
+    const source = String(text || '').replace(/^\uFEFF/, '').trim();
+    const output = Object.create(null);
+    if (!source) return output;
+    let entries;
+    if (source.startsWith('{')) {
+      let parsed;
+      try { parsed = JSON.parse(source); }
+      catch { throw new Error('Rename YAML must be a flat original-domain-to-display-name mapping or JSON object.'); }
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('Rename YAML must be a flat original-domain-to-display-name mapping.');
+      entries = Object.entries(parsed);
+    } else {
+      entries = [];
+      for (const [index, original] of source.split(/\r?\n/).entries()) {
+        const line = stripYamlComment(original).trim();
+        if (!line || line === '---' || line === '...') continue;
+        const [key, value] = yamlKeyValue(line);
+        if (!key || !value || /^\s/.test(original) || line.startsWith('- ')) throw new Error(`Rename YAML line ${index + 1}: expected a flat original-domain: display-name entry.`);
+        entries.push([String(parseYamlScalar(key)), parseYamlScalar(value)]);
+      }
+    }
+    for (const [rawId, displayName] of entries) {
+      if (!rawId || typeof displayName !== 'string' || !displayName.trim()) throw new Error(`Rename YAML has an invalid display name for "${rawId}".`);
+      if (Object.prototype.hasOwnProperty.call(output, rawId)) throw new Error(`Rename YAML contains duplicate domain "${rawId}".`);
+      output[rawId] = displayName.trim();
+    }
+    return output;
+  }
+
+  function applyRenameDictionary(dictionary) {
+    state.renameDictionary = Object.assign(Object.create(null), dictionary || {});
+    for (const [domain, displayName] of Object.entries(state.renameDictionary)) {
+      if (!state.domains.has(domain) || specialKey(domain)) continue;
+      state.styles[domain] = normalizeStyle(domain, { ...getStyle(domain), display_name: displayName, explicit: true });
+    }
+  }
+
+  function serializeRenameYaml() {
+    const dictionary = { ...state.renameDictionary };
+    for (const stats of getDomainStats()) {
+      if (stats.special) continue;
+      if (stats.style.display_name && stats.style.display_name !== stats.id) dictionary[stats.id] = stats.style.display_name;
+      else delete dictionary[stats.id];
+    }
+    return Object.entries(dictionary).sort(([a], [b]) => naturalCompare(a, b)).map(([id, name]) => `${quoteYaml(id)}: ${quoteYaml(name)}`).join('\n') + '\n';
   }
 
   function domainGroups() {
@@ -1254,6 +1303,8 @@
     }
     state.styles[domain] = normalizeStyle(domain, next);
     state.styles[domain].explicit = true;
+    if (state.styles[domain].display_name === domain) delete state.renameDictionary[domain];
+    else state.renameDictionary[domain] = state.styles[domain].display_name;
     const updated = state.styles[domain];
     state.colorDictionary[finalName] = updated.color;
     state.shapeDictionary[finalName] = updated.shape;
@@ -1269,6 +1320,7 @@
 
   function resetDomainStyle(domain) {
     delete state.styles[domain];
+    delete state.renameDictionary[domain];
     for (const protein of state.proteins) protein.layoutCache.clear();
     scheduleRender(false);
     emit('style-changed', { domain, style: getStyle(domain), stats: domainStats(domain) });
@@ -1328,12 +1380,15 @@
     try {
       const tsvText = payload.tsvText ?? await readUrl(payload.dataUrl || state.config.dataUrl);
       const yamlText = payload.yamlText !== undefined ? payload.yamlText : ((payload.yamlUrl || state.config.yamlUrl) ? await readUrl(payload.yamlUrl || state.config.yamlUrl) : '');
+      const renameUrl = payload.renameUrl !== undefined ? payload.renameUrl : state.config.renameUrl;
+      const renameText = payload.renameText !== undefined ? payload.renameText : (renameUrl ? await readUrl(renameUrl) : '');
       const colorUrl = payload.colorUrl !== undefined ? payload.colorUrl : state.config.colorUrl;
       const shapeUrl = payload.shapeUrl !== undefined ? payload.shapeUrl : state.config.shapeUrl;
       const colorText = payload.colorText !== undefined ? payload.colorText : (colorUrl ? await readUrl(colorUrl) : '');
       const shapeText = payload.shapeText !== undefined ? payload.shapeText : (shapeUrl ? await readUrl(shapeUrl) : '');
       parseStyleDictionary(colorText, 'color');
       parseStyleDictionary(shapeText, 'shape');
+      const renames = parseRenameDictionary(renameText);
       const parsed = parseTSV(tsvText, payload.tsvName || payload.dataUrl || state.config.dataUrl || 'domain.tsv');
       state.headers = parsed.headers;
       state.rows = parsed.rows;
@@ -1352,10 +1407,14 @@
       state.yamlName = '';
       state.colorName = '';
       state.shapeName = '';
+      state.renameName = '';
+      state.renameDictionary = Object.create(null);
       state.colorDictionary = Object.create(null);
       state.shapeDictionary = Object.create(null);
       state.selectedDomain = '';
       if (yamlText && String(yamlText).trim()) applyYaml(yamlText, payload.yamlName || payload.yamlUrl || state.config.yamlUrl || '');
+      applyRenameDictionary(renames);
+      state.renameName = payload.renameName || renameUrl || '';
       applyStyleDictionaries({ colorText, shapeText, colorName: payload.colorName || colorUrl || '', shapeName: payload.shapeName || shapeUrl || '' }, false);
       for (const protein of state.proteins) protein.layoutCache.clear();
       syncDynamicControls();
@@ -1380,6 +1439,109 @@
     return JSON.parse(JSON.stringify(state.settings));
   }
 
+  function createSvgNode(name, attributes = {}) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+    for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+    return node;
+  }
+
+  function serializeCurrentSvg(options = {}) {
+    if (!state.proteins.length) throw new Error('No architecture data is available to export.');
+    if (!state.displayItems.some(item => item.type === 'protein')) throw new Error('No proteins match the current search or filters.');
+    const geometry = calculateContentGeometry();
+    const width = Math.max(1, Math.ceil(state.contentWidth));
+    const rulerVisible = state.settings.show_ruler && state.settings.mode !== 'compact' && !(state.settings.mode === 'true' && state.settings.align !== 'n');
+    const rulerHeight = rulerVisible ? 30 : 0;
+    const height = Math.max(1, Math.ceil(state.totalHeight + rulerHeight));
+    const background = options.background || '#ffffff';
+    const svg = createSvgNode('svg', { xmlns: 'http://www.w3.org/2000/svg', version: '1.1', width, height, viewBox: `0 0 ${width} ${height}`, role: 'img' });
+    const title = createSvgNode('title');
+    title.textContent = options.title || state.config.figureTitle || state.config.title || 'Protein domain architectures';
+    const metadata = createSvgNode('metadata');
+    metadata.textContent = `Generated by EvoSupplement Protein Domain Architecture Editor ${VERSION} on ${new Date().toISOString()}`;
+    const style = createSvgNode('style');
+    style.textContent = `svg{background:${background};font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033}.protein-backbone{stroke:#8696a9;stroke-width:2;stroke-linecap:round}.protein-length{fill:#64748b;font-size:9px;font-weight:700}.domain-label{fill:#0f172a;font-size:8px;font-weight:760}.domain-special .domain-label{display:none}.gap-marker path{stroke:#64748b;stroke-width:1.5;fill:none}.architecture-group-label{fill:#27415f;font-size:11px;font-weight:900;letter-spacing:.025em}.protein-label-main{fill:#172033;font-size:11px;font-weight:700}.protein-label-sub{fill:#64748b;font-size:9px}.architecture-count{fill:#64748b;font-size:8px}.ruler-text{fill:#64748b;font-size:9px;font-weight:700}.ruler-tick-line{stroke:#94a3b8;stroke-width:1}.row-divider{stroke:#e8edf3;stroke-width:1}`;
+    const bg = createSvgNode('rect', { x: 0, y: 0, width, height, fill: background });
+    const defs = createSvgNode('defs');
+    const labelClip = createSvgNode('clipPath', { id: 'protein-label-clip', clipPathUnits: 'userSpaceOnUse' });
+    labelClip.append(createSvgNode('rect', { x: 10, y: 0, width: Math.max(0, state.settings.label_width - 20), height: state.settings.row_height }));
+    defs.append(labelClip);
+    svg.append(title, metadata, style, bg, defs);
+
+    if (rulerVisible) {
+      const maxWidth = geometry.maxWidth;
+      const ruler = createSvgNode('g', { 'aria-label': 'Protein coordinate ruler' });
+      ruler.append(createSvgNode('line', { x1: 0, y1: rulerHeight - 1, x2: width, y2: rulerHeight - 1, stroke: '#e7edf4' }));
+      const addTick = (x, label) => {
+        const tick = createSvgNode('g', { transform: `translate(${state.settings.label_width + x} 0)` });
+        tick.append(createSvgNode('line', { class: 'ruler-tick-line', x1: 0, y1: 17, x2: 0, y2: 27 }));
+        const text = createSvgNode('text', { class: 'ruler-text', x: 0, y: 11, 'text-anchor': 'middle' });
+        text.textContent = label;
+        tick.append(text);
+        ruler.append(tick);
+      };
+      if (state.settings.mode === 'normalized') {
+        for (const percent of [0, 25, 50, 75, 100]) addTick((percent / 100) * maxWidth, `${percent}%`);
+      } else {
+        const maxLength = Math.max(1, ...state.proteins.map(protein => protein.plen));
+        const desiredTicks = Math.max(2, Math.floor(maxWidth / 110));
+        const roughStep = maxLength / desiredTicks;
+        const power = 10 ** Math.floor(Math.log10(Math.max(1, roughStep)));
+        const step = [1, 2, 5, 10].map(value => value * power).find(value => value >= roughStep) || 10 * power;
+        for (let value = 0; value <= maxLength; value += step) addTick(value * state.settings.pixels_per_aa * state.settings.zoom, value.toLocaleString());
+      }
+      svg.append(ruler);
+    }
+
+    for (let index = 0; index < state.displayItems.length; index += 1) {
+      const item = state.displayItems[index];
+      const top = state.itemOffsets[index] + rulerHeight;
+      if (item.type === 'group') {
+        const group = createSvgNode('g', { transform: `translate(0 ${top})` });
+        group.append(createSvgNode('rect', { x: 0, y: 0, width, height: 34, fill: '#edf4fb', stroke: '#cad6e4' }));
+        const label = createSvgNode('text', { class: 'architecture-group-label', x: 11, y: 22 });
+        label.textContent = item.label;
+        group.append(label);
+        svg.append(group);
+        continue;
+      }
+      const protein = item.protein;
+      const rowHeight = state.settings.row_height;
+      const row = createSvgNode('g', { transform: `translate(0 ${top})`, 'data-pid': protein.id });
+      row.append(createSvgNode('line', { class: 'row-divider', x1: 0, y1: rowHeight, x2: width, y2: rowHeight }));
+      row.append(createSvgNode('rect', { x: 0, y: 0, width: state.settings.label_width, height: rowHeight, fill: '#ffffff' }));
+      row.append(createSvgNode('line', { x1: state.settings.label_width, y1: 0, x2: state.settings.label_width, y2: rowHeight, stroke: '#e1e8f0' }));
+      const labelMain = createSvgNode('text', { class: 'protein-label-main', 'clip-path': 'url(#protein-label-clip)', x: 10, y: state.settings.subtitle_template ? Math.max(15, rowHeight / 2 - 2) : rowHeight / 2 + 4 });
+      labelMain.textContent = templateValue(state.settings.label_template, protein) || protein.id;
+      row.append(labelMain);
+      const subtitleValue = templateValue(state.settings.subtitle_template, protein);
+      if (subtitleValue) {
+        const subtitle = createSvgNode('text', { class: 'protein-label-sub', 'clip-path': 'url(#protein-label-clip)', x: 10, y: Math.min(rowHeight - 5, rowHeight / 2 + 10) });
+        subtitle.textContent = subtitleValue;
+        row.append(subtitle);
+      }
+      if (protein.collapsedCount > 1) {
+        const count = createSvgNode('text', { class: 'architecture-count', x: 10, y: rowHeight - 3 });
+        count.textContent = `${protein.collapsedCount.toLocaleString()} proteins`;
+        row.append(count);
+      }
+      const rendered = document.createElement('div');
+      rendered.innerHTML = renderProteinRow(item, 0, geometry);
+      const rowSvg = rendered.querySelector('.architecture-row-svg');
+      if (rowSvg) {
+        const embedded = createSvgNode('svg', { x: state.settings.label_width, y: 0, width: rowSvg.getAttribute('width'), height: rowSvg.getAttribute('height'), viewBox: rowSvg.getAttribute('viewBox'), 'aria-label': rowSvg.getAttribute('aria-label') || protein.id });
+        for (const child of [...rowSvg.childNodes]) {
+          const copy = child.cloneNode(true);
+          if (copy.classList) copy.classList.remove('domain-selected');
+          embedded.append(copy);
+        }
+        row.append(embedded);
+      }
+      svg.append(row);
+    }
+    return `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(svg)}\n`;
+  }
+
   function getSnapshot() {
     return {
       version: VERSION,
@@ -1387,6 +1549,7 @@
       yamlName: state.yamlName,
       colorName: state.colorName,
       shapeName: state.shapeName,
+      renameName: state.renameName,
       headers: [...state.headers],
       proteinCount: state.proteins.length,
       rowCount: state.rows.length,
@@ -1475,7 +1638,7 @@
     state.resizeObserver = new ResizeObserver(() => scheduleRender(false));
     if (state.elements.viewport) state.resizeObserver.observe(state.elements.viewport);
     state.initialized = true;
-    if (state.config.autoLoad !== false && state.config.dataUrl) load({ dataUrl: state.config.dataUrl, yamlUrl: state.config.yamlUrl || '' });
+    if (state.config.autoLoad !== false && state.config.dataUrl) load({ dataUrl: state.config.dataUrl, yamlUrl: state.config.yamlUrl || '', renameUrl: state.config.renameUrl || '' });
     return api;
   }
 
@@ -1502,9 +1665,12 @@
     parseSimpleYaml,
     serializeYaml,
     parseStyleDictionary,
+    parseRenameDictionary,
     applyStyleDictionaries,
     serializeColorYaml,
     serializeShapeYaml,
+    serializeRenameYaml,
+    serializeCurrentSvg,
     getSnapshot,
     getSettings,
     updateSettings,

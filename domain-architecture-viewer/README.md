@@ -1,6 +1,6 @@
 # Protein Domain Architecture Viewer
 
-Version 1.1.1 exports conventional unquoted structural keys while preserving all configuration fields. Builder 1.12.1 also accepts quoted keys from earlier exports, so existing architecture YAML files and saved states remain usable.
+Version 1.2.0 adds standalone rename dictionaries and full-view SVG export from the Editor. Existing architecture YAML files remain usable.
 
 The Protein Domain Architecture Viewer renders Pfam-like domain diagrams for many proteins while preserving domain coordinates, protein lengths, repeated domains, overlapping annotations, and optional per-protein or per-domain metadata.
 
@@ -66,13 +66,30 @@ They remain separate occurrences even when repeated within a protein.
 ## Editor workflow
 
 1. Open `domain-architecture-viewer/editor/` through an HTTP server.
-2. Load a domain TSV. An existing architecture YAML, a separate color YAML, and a separate shape YAML are optional.
+2. Load a domain TSV. An existing architecture YAML, a separate rename YAML, a color YAML, and a shape YAML are optional.
 3. Choose true-length, normalized, or compact drawing.
 4. Configure alignment, sorting, grouping, labels, subtitles, and hover fields.
 5. Rank ordinary domains by distinct proteins, occurrences, or residues covered.
 6. Suggest styles for Top 10, Top 15, Top 20, or a custom number of domains.
 7. Click a domain in the table or drawing to edit its display name, color, shape, or visibility.
-8. Download `domain-architecture.yaml`, the separate color/shape dictionaries, or a publication package ZIP.
+8. Export the current filtered figure as SVG, or download `domain-architecture.yaml`, separate rename/color/shape dictionaries, or a publication package ZIP.
+
+### Rename YAML
+
+Rename files are flat mappings from the original TSV domain ID to its display name:
+
+```yaml
+PF00001: Kinase
+PF00002: "Helicase C-terminal"
+```
+
+JSON objects with the same mapping are also accepted. The separate rename YAML takes precedence over `display_name` values in the architecture YAML. Names are applied before color and shape dictionaries, whose keys continue to use the final display name. The Editor can export the current rename mapping separately; the architecture YAML also retains the resolved names so publication figures remain self-contained. Unused entries from a loaded rename dictionary are preserved in the separate export.
+
+The `renameUrl` figure configuration option can load the same dictionary on a published figure. The shared API accepts `renameText` or `renameUrl` alongside the other inputs.
+
+### SVG export
+
+**Export SVG** is available in the Editor only. It exports all rows in the current filtered and sorted view, including group headings, labels, ruler, domain shapes, and the current layout/style settings. Search filtering, grouping, and collapsing apply; browser scroll position and zoom do not crop the file. Large filtered collections produce correspondingly tall SVG files.
 
 Source files are never overwritten.
 
@@ -178,4 +195,4 @@ After loading a figure, **Apply colors and shapes to current figure** applies th
 
 Manual style edits propagate color and shape to all IDs sharing that final name, while each ID keeps its visibility and other metadata. Changing a display name first resolves that new name against the active dictionaries (or an existing domain with that name); further manual color/shape edits update the shared style. Top-N suggestions also keep aliases sharing a final name consistent. Separate dictionary exports use final names and retain unused imported entries. If a legacy architecture contains conflicting styles under one final name, dictionary export asks you to resolve that conflict first. The architecture YAML and publication package retain all resolved styles under original domain IDs; separate YAML files are also included in the package.
 
-Published figure configurations accept optional `colorUrl` and `shapeUrl`. The shared API accepts `load({ tsvText, yamlText, colorText, shapeText })`, or the corresponding `dataUrl`, `yamlUrl`, `colorUrl`, and `shapeUrl` inputs. It also exposes `applyStyleDictionaries({ colorText, shapeText })`, `serializeColorYaml()` and `serializeShapeYaml()`.
+Published figure configurations accept optional `renameUrl`, `colorUrl`, and `shapeUrl`. The shared API accepts `load({ tsvText, yamlText, renameText, colorText, shapeText })`, or the corresponding `dataUrl`, `yamlUrl`, `renameUrl`, `colorUrl`, and `shapeUrl` inputs. It also exposes `applyStyleDictionaries({ colorText, shapeText })`, `serializeRenameYaml()`, `serializeColorYaml()`, `serializeShapeYaml()`, and `serializeCurrentSvg()`.
