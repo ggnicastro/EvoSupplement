@@ -21,8 +21,8 @@ window.NEIGHBORHOOD_VIEWER_CONFIG = {
   colorUrl: '',
   renameUrl: '',
 
-  includePlaceholder: 'Include by domain, PFAM, organism, taxonomy, PID…',
-  excludePlaceholder: 'Exclude by the same syntax…',
+  includePlaceholder: 'Pfam:Radical or ProfileDB:RADICAL-SAM, Taxonomy:Archaea',
+  excludePlaceholder: 'Dom:"TM" or product:"hypothetical protein"',
 
   defaultScaleMode: 'fixed',
   defaultAlignQuery: false,

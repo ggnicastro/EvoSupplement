@@ -16,8 +16,8 @@ window.NEIGHBORHOOD_VIEWER_CONFIG = {
   colorUrl: './data/color_dic.yaml',
   renameUrl: './data/domain_rename.yaml',
 
-  includePlaceholder: 'Include by domain, PFAM, organism, taxonomy, PID…',
-  excludePlaceholder: 'Exclude by the same syntax…',
+  includePlaceholder: 'Pfam:Radical or ProfileDB:RADICAL-SAM, Taxonomy:Archaea',
+  excludePlaceholder: 'Dom:"TM" or product:"hypothetical protein"',
 
   // "fixed" (default): regular domain blocks keep fixed screen widths and
   // each row starts at the left edge; the track can extend horizontally.

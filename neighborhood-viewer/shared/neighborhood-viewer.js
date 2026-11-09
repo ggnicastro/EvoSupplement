@@ -1,19 +1,21 @@
 (() => {
   'use strict';
 
-  const VIEWER_VERSION = '3.6.0';
+  const VIEWER_VERSION = '3.7.0';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const XLINK_NS = 'http://www.w3.org/1999/xlink';
   const FIELD_ALIASES = Object.freeze({
-    domain: 'domain', dom: 'domain',
+    domain: 'dom', dom: 'dom',
     pfam: 'pfam',
+    profiledb: 'profiledb',
     organism: 'organism', org: 'organism',
-    taxon: 'taxonomy', taxonomy: 'taxonomy', classification: 'taxonomy',
+    taxon: 'taxonomy', taxonomy: 'taxonomy',
+    lineage: 'lineage', classification: 'classification',
     pid: 'pid', protein: 'pid',
     nucleotide: 'nucleotide', nucc: 'nucleotide', accession: 'nucleotide',
     product: 'product',
     assembly: 'assembly',
-    block: 'block', block_id: 'block'
+    block: 'block_id', block_id: 'block_id'
   });
 
   const DEFAULTS = Object.freeze({
@@ -110,9 +112,9 @@
       colorUrl: clean(raw.colorUrl) || './data/color_dic.yaml',
       renameUrl: clean(raw.renameUrl) || './data/domain_rename.yaml',
       includePlaceholder: clean(raw.includePlaceholder || raw.searchPlaceholder)
-        || 'Include by domain, PFAM, organism, taxonomy, PID…',
+        || 'Pfam:Radical or ProfileDB:RADICAL-SAM, Taxonomy:Archaea',
       excludePlaceholder: clean(raw.excludePlaceholder)
-        || 'Exclude by the same syntax…',
+        || 'Dom:"TM" or product:"hypothetical protein"',
       defaultScaleMode,
       defaultAlignQuery,
       defaultFlipNegativeQueries: raw.defaultFlipNegativeQueries !== false,
@@ -499,6 +501,60 @@
     return detailDomains[index];
   }
 
+  // Keep values separate: a match must never span two cells or leak into a
+  // different annotation source. List fields also index their individual items
+  // so quoted domain/taxonomy terms match complete items, not substrings.
+  function buildSearchFields(entry) {
+    const fields = Object.create(null);
+    const add = (field, rawValue) => {
+      const value = clean(rawValue).toLocaleLowerCase();
+      if (!value) return;
+      const values = fields[field] || (fields[field] = new Set());
+      values.add(value);
+      const separator = ['dom', 'arch', 'pfam', 'profiledb'].includes(field) ? /\+/
+        : ['lineage', 'classification'].includes(field) ? /[>;]/ : null;
+      if (separator) value.split(separator).map(clean).filter(Boolean).forEach(item => values.add(item));
+    };
+    for (const gene of entry.genes) {
+      if (gene.filterValues) {
+        for (const [field, values] of Object.entries(gene.filterValues)) {
+          values.forEach(value => add(field, value));
+        }
+      } else {
+        // Compact input has reconstructed genes rather than original TSV rows.
+        const values = {
+          block_id: entry.id, nucleotide: entry.nucleotide,
+          pid: gene.pid, start: gene.start, end: gene.end, strand: gene.strand,
+          query: gene.query ? 1 : 0, plen: Number.isFinite(gene.plen) ? gene.plen : '',
+          organism: gene.organism, taxid: gene.taxid, lineage: gene.lineage,
+          classification: gene.classification, assembly: gene.assembly,
+          locus: gene.locus, gene: gene.geneName, type: gene.type,
+          seq_type: gene.seqType, product: gene.product, feature_order: gene.featureOrder,
+          internal_id: gene.internalId, replaced: gene.replaced, c80e3: gene.c80e3,
+          arch: gene.arch, profiledb: gene.profiledb, pfam: gene.pfam,
+          coordinate_source: entry.coordinateSource
+        };
+        for (const [field, value] of Object.entries(values)) add(field, value);
+      }
+      for (const domain of gene.domains) {
+        add('dom', domain.rawName);
+        add('dom', domain.name);
+      }
+    }
+    const taxonomy = new Set(fields.taxonomy || []);
+    for (const field of ['organism', 'taxid', 'single_tax_name', 'single_tax_taxid', 'lineage', 'classification']) {
+      for (const value of fields[field] || []) taxonomy.add(value);
+    }
+    fields.taxonomy = taxonomy;
+    const all = new Set();
+    entry.searchFields = Object.create(null);
+    for (const [field, values] of Object.entries(fields)) {
+      entry.searchFields[field] = Array.from(values);
+      values.forEach(value => all.add(value));
+    }
+    entry.searchFields.all = Array.from(all);
+  }
+
   function finalizeNeighborhoodEntry(entry) {
     entry.queryGenes = entry.genes.filter(gene => gene.query);
     const anchors = entry.queryGenes.length ? entry.queryGenes : [entry.genes[Math.floor(entry.genes.length / 2)]];
@@ -509,21 +565,7 @@
     entry.regionStart = Math.min(...entry.genes.map(gene => gene.start));
     entry.regionEnd = Math.max(...entry.genes.map(gene => gene.end));
 
-    const domainRaw = entry.genes.flatMap(gene => gene.domains.map(domain => domain.rawName));
-    const domainDisplay = entry.genes.flatMap(gene => gene.domains.map(domain => domain.name));
-    const lowerJoin = values => values.filter(Boolean).join(' ').toLocaleLowerCase();
-    entry.searchFields = {
-      domain: lowerJoin([...domainRaw, ...domainDisplay, ...entry.genes.map(gene => gene.arch), ...entry.genes.map(gene => gene.profiledb)]),
-      pfam: lowerJoin(entry.genes.map(gene => gene.pfam)),
-      organism: lowerJoin([entry.organism, ...entry.genes.map(gene => gene.organism)]),
-      taxonomy: lowerJoin([entry.classification, entry.lineage, entry.taxid, ...entry.genes.map(gene => gene.classification), ...entry.genes.map(gene => gene.lineage)]),
-      pid: lowerJoin([...entry.genes.map(gene => gene.pid), ...entry.genes.map(gene => gene.internalId), ...entry.genes.map(gene => gene.replaced), ...entry.genes.map(gene => gene.locus)]),
-      nucleotide: lowerJoin([entry.nucleotide]),
-      product: lowerJoin(entry.genes.map(gene => gene.product)),
-      assembly: lowerJoin([entry.assembly, ...entry.genes.map(gene => gene.assembly)]),
-      block: lowerJoin([entry.id])
-    };
-    entry.searchFields.all = lowerJoin(Object.values(entry.searchFields));
+    buildSearchFields(entry);
     return entry;
   }
 
@@ -736,7 +778,7 @@
     const lines = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
     if (lines.length < 2) throw new Error('The TSV is empty or contains no data rows.');
 
-    const headers = parseTsvLine(lines[0]).map(clean);
+    const headers = parseTsvLine(lines[0]).map(value => clean(value).toLocaleLowerCase());
     const column = Object.create(null);
     headers.forEach((name, index) => { column[name] = index; });
     const required = ['block_id', 'pid', 'nucleotide', 'start', 'end', 'strand', 'query', 'dom', 'domp'];
@@ -831,6 +873,17 @@
         gene.query = gene.query || isTruthy(valueAt(values, 'query'));
       }
 
+      // Preserve every input column, including annotations on later rows of a
+      // repeated gene. Store on the gene so continuity filtering cannot retain
+      // searchable annotations from genes that have been removed.
+      if (!gene.filterValues) gene.filterValues = Object.create(null);
+      headers.forEach((header, index) => {
+        const value = clean(values[index]);
+        if (!header || !value) return;
+        const fieldValues = gene.filterValues[header] || (gene.filterValues[header] = []);
+        if (!fieldValues.includes(value)) fieldValues.push(value);
+      });
+
       const rawName = clean(valueAt(values, 'dom')) || '?';
       const displayName = domainDisplayName(rawName, renameLookup);
       const marker = domainMarker(displayName, rawName, markerLookup);
@@ -877,26 +930,7 @@
       entry.anchorStrand = strandScore < 0 ? '-' : anchors[0].strand;
       entry.queryPids = entry.queryGenes.map(gene => gene.pid);
 
-      const domainRaw = genes.flatMap(gene => gene.domains.map(domain => domain.rawName));
-      const domainDisplay = genes.flatMap(gene => gene.domains.map(domain => domain.name));
-      const pfams = genes.map(gene => gene.pfam);
-      const products = genes.map(gene => gene.product);
-      const pids = genes.map(gene => gene.pid);
-      const assemblies = genes.map(gene => gene.assembly);
-
-      const lowerJoin = values => values.filter(Boolean).join(' ').toLocaleLowerCase();
-      entry.searchFields = {
-        domain: lowerJoin([...domainRaw, ...domainDisplay, ...genes.map(gene => gene.arch), ...genes.map(gene => gene.profiledb)]),
-        pfam: lowerJoin(pfams),
-        organism: lowerJoin([entry.organism, ...genes.map(gene => gene.organism)]),
-        taxonomy: lowerJoin([entry.classification, entry.lineage, entry.taxid, ...genes.map(gene => gene.classification), ...genes.map(gene => gene.lineage)]),
-        pid: lowerJoin([...pids, ...genes.map(gene => gene.internalId), ...genes.map(gene => gene.replaced), ...genes.map(gene => gene.locus)]),
-        nucleotide: lowerJoin([entry.nucleotide]),
-        product: lowerJoin(products),
-        assembly: lowerJoin([entry.assembly, ...assemblies]),
-        block: lowerJoin([entry.id])
-      };
-      entry.searchFields.all = lowerJoin(Object.values(entry.searchFields));
+      buildSearchFields(entry);
 
       totalGenes += genes.length;
       for (const gene of genes) {
@@ -969,51 +1003,88 @@
   function tokenizeFilter(input) {
     const tokens = [];
     let current = '';
-    let quote = null;
+    let quoted = false;
     const text = clean(input);
+    const pushValue = () => {
+      if (!clean(current)) throw new Error('Enter a value on each side of a comma or OR.');
+      tokens.push({ value: clean(current) });
+      current = '';
+    };
     for (let i = 0; i < text.length; i += 1) {
       const char = text[i];
-      if (char === '"' || char === "'") {
-        if (quote === char) quote = null;
-        else if (!quote) quote = char;
-        else current += char;
-      } else if (/\s/.test(char) && !quote) {
-        if (current) tokens.push(current);
-        current = '';
+      if (quoted && char === '\\' && ['"', '\\'].includes(text[i + 1])) {
+        current += char + text[++i];
+      } else if (char === '"') {
+        quoted = !quoted;
+        current += char;
+      } else if (!quoted && char === ',') {
+        pushValue();
+        tokens.push({ operator: 'and' });
+      } else if (!quoted && text.slice(i, i + 2).toLowerCase() === 'or'
+        && (i === 0 || /[\s,]/.test(text[i - 1]))
+        && (i + 2 === text.length || /[\s,]/.test(text[i + 2]))) {
+        pushValue();
+        tokens.push({ operator: 'or' });
+        i += 1;
       } else {
         current += char;
       }
     }
-    if (current) tokens.push(current);
+    if (quoted) throw new Error('Close the double quote to finish the exact value.');
+    if (text) pushValue();
     return tokens;
   }
 
-  function compileFilter(input, defaultExclude = false) {
-    return tokenizeFilter(input).map(rawToken => {
-      let token = rawToken;
-      let exclude = defaultExclude;
+  // A comma starts another required group; OR joins alternatives inside a
+  // group. Thus A or B, C always means (A OR B) AND C in either filter box.
+  function compileFilter(input) {
+    const groups = [];
+    let alternatives = [];
+    for (const part of tokenizeFilter(input)) {
+      if (part.operator) {
+        if (part.operator === 'and') {
+          groups.push(alternatives);
+          alternatives = [];
+        }
+        continue;
+      }
+      let token = part.value;
+      let negate = false;
       if (token.startsWith('-') && token.length > 1) {
-        exclude = true;
-        token = token.slice(1);
+        negate = true;
+        token = clean(token.slice(1));
       }
       let field = 'all';
       const colon = token.indexOf(':');
-      if (colon > 0) {
-        const candidate = token.slice(0, colon).toLocaleLowerCase();
-        if (FIELD_ALIASES[candidate]) {
-          field = FIELD_ALIASES[candidate];
-          token = token.slice(colon + 1);
-        }
+      const quote = token.indexOf('"');
+      if (colon >= 0 && (quote < 0 || colon < quote)) {
+        const candidate = clean(token.slice(0, colon)).toLocaleLowerCase();
+        if (!candidate) throw new Error('Enter a column name before the colon.');
+        field = Object.hasOwn(FIELD_ALIASES, candidate) ? FIELD_ALIASES[candidate] : candidate;
+        token = clean(token.slice(colon + 1));
       }
-      return { field, value: token.toLocaleLowerCase(), exclude };
-    }).filter(term => term.value);
+      const exact = token.startsWith('"');
+      if (exact) {
+        if (!/^"(?:[^"\\]|\\.)*"$/.test(token)) {
+          throw new Error('Double quotes must surround the entire value, for example Pfam:"MTase".');
+        }
+        token = token.slice(1, -1).replace(/\\(["\\])/g, '$1');
+      } else if (token.includes('"')) {
+        throw new Error('Put double quotes around the entire value, for example Pfam:"MTase".');
+      }
+      if (!clean(token)) throw new Error('Enter a non-empty search value after the field name.');
+      alternatives.push({ field, value: clean(token).toLocaleLowerCase(), exact, negate });
+    }
+    if (alternatives.length) groups.push(alternatives);
+    return groups;
   }
 
-  function entryMatches(entry, terms) {
-    return terms.every(term => {
-      const matched = (entry.searchFields[term.field] || '').includes(term.value);
-      return term.exclude ? !matched : matched;
-    });
+  function entryMatches(entry, groups) {
+    return groups.every(alternatives => alternatives.some(term => {
+      const values = entry.searchFields[term.field] || [];
+      const matched = values.some(value => term.exact ? value === term.value : value.includes(term.value));
+      return term.negate ? !matched : matched;
+    }));
   }
 
   // --- Source loading: URLs (fetch) or local Files (FileReader) ------------
@@ -2248,13 +2319,27 @@
       }
       const includeQuery = elements.includeInput ? elements.includeInput.value : '';
       const excludeQuery = elements.excludeInput ? elements.excludeInput.value : '';
-      const terms = [
-        ...compileFilter(includeQuery, false),
-        ...compileFilter(excludeQuery, true)
-      ];
-      state.baseFilteredEntries = terms.length
-        ? state.continuityEntries.filter(entry => entryMatches(entry, terms))
-        : state.continuityEntries;
+      const readFilter = (query, input, errorElement) => {
+        let groups = null;
+        let message = '';
+        try { groups = compileFilter(query); }
+        catch (error) { message = `${error.message} No rows are shown until this is corrected.`; }
+        if (input) {
+          input.setCustomValidity(message);
+          input.setAttribute('aria-invalid', message ? 'true' : 'false');
+        }
+        if (errorElement) {
+          errorElement.textContent = message;
+          errorElement.hidden = !message;
+        }
+        return groups;
+      };
+      const include = readFilter(includeQuery, elements.includeInput, elements.includeError);
+      const exclude = readFilter(excludeQuery, elements.excludeInput, elements.excludeError);
+      // Exclude negates its entire expression, not each individual condition.
+      state.baseFilteredEntries = include === null || exclude === null ? []
+        : state.continuityEntries.filter(entry => entryMatches(entry, include)
+          && (!exclude.length || !entryMatches(entry, exclude)));
       const focus = state.analysisFocus;
       state.filteredEntries = focus
         ? state.baseFilteredEntries.filter(entry => focus.entryIds.has(analysisEntryId(entry)) || focus.sourceIds.has(entry.sourceId || entry.id))

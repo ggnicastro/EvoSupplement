@@ -253,7 +253,10 @@ a { color: inherit; }
   right: 0;
   top: calc(100% + 7px);
   z-index: 20;
-  width: min(430px, 82vw);
+  width: min(680px, 82vw);
+  max-height: min(640px, 70vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 13px;
   border: 1px solid #cfd7e3;
   border-radius: 10px;
@@ -274,6 +277,11 @@ a { color: inherit; }
   overflow-wrap: anywhere;
 }
 .filter-help p code { display: inline; padding: 2px 4px; }
+.filter-examples { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 10px 0; }
+.filter-examples th, .filter-examples td { padding: 6px; text-align: left; vertical-align: top; border-bottom: 1px solid #e4e7ec; overflow-wrap: anywhere; }
+.filter-examples code { margin: 0; }
+.filter-error { margin: 5px 0 0; color: #b42318; font-size: 12px; }
+.search-box:has(input[aria-invalid="true"]) { border-color: #b42318; }
 
 .nbh-panel {
   position: relative;
@@ -441,7 +449,8 @@ a { color: inherit; }
   .privacy-badge { display: none; }
   .filter-row { grid-template-columns: 1fr; align-items: stretch; }
   .nbh-status { justify-self: start; padding-left: 2px; }
-  .filter-help { margin-left: 0; }
+  .filter-help { margin-left: 0; width: 100%; }
+  .filter-help[open] > div { left: 0; right: auto; width: 100%; }
   .zoom-field input { width: 105px; }
   .nbh-viewport { height: 68vh; }
 }

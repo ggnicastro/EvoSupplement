@@ -179,15 +179,14 @@ The viewer stops with an error when any required column is missing.
 | `lineage` | Taxonomic lineage and filtering. |
 | `classification` | Alternate taxonomic classification and filtering. |
 | `product` | Product description shown in tooltips and searchable filters. |
-| `locus` | Locus identifier included in accession searches. |
+| `locus` | Locus identifier searchable with `locus:` or unprefixed text. |
 | `internal_id` | Additional internal or protein identifier included in searches. |
 | `replaced` | Replacement accession included in searches. |
-| `arch` | Domain architecture text included in domain searches. |
-| `profiledb` | Profile annotation text included in domain searches. |
+| `arch` | Architecture annotations searchable with `arch:` and unprefixed text. |
 | `pfam` | PFAM annotation used by the PFAM filter. |
-| `profiledb` | Auxiliary profile annotation included in domain/general searches and shown as **ProfileDB** in gene/domain tooltips. |
+| `profiledb` | Auxiliary annotation searchable with `ProfileDB:` and unprefixed text, and shown as **ProfileDB** in tooltips. |
 
-Additional TSV columns are tolerated and remain available in the source data even when the current interface does not display them.
+Additional TSV columns are searchable by their header and through unprefixed text, even when the interface does not display them. The normalized export retains its documented canonical columns; keep the original input to preserve extra metadata outside the current session.
 
 ## Compact architecture input
 
@@ -320,31 +319,71 @@ These controls change only the view. Clear the distance field and uncheck **Same
 
 ### Include and exclude text
 
-The viewer applies separate include and exclude filters to the segments retained by the continuity controls.
+Version 3.7.0 uses the same expression syntax in **Include** and **Exclude**:
 
-- Every include term must match a retained segment.
-- A retained segment is removed when any exclude term matches.
-- Gene and domain searches use the genes still present in that segment; a removed gene does not satisfy or exclude a match.
-- Plain text searches across all indexed fields.
-- Quotation marks preserve phrases containing spaces.
-- Field-specific terms use a field name followed by a colon.
-- A leading minus sign in the include box remains accepted for backward-compatible exclusion.
+- **Include** keeps a retained segment when the entire expression matches.
+- **Exclude** removes a retained segment when the entire expression matches. With both boxes filled, the row must satisfy Include and must not satisfy Exclude.
+- A **comma means AND**. **`or` joins alternatives within each comma-separated group**. `Pfam:oi or Pfam:X, Pfam:DDD` means **(oi OR X) AND DDD**, with all three conditions scoped to Pfam. DDD is required. Parentheses are explanatory here; enter groups using commas and `or`.
+- Conditions can match different genes in the same neighborhood or retained segment. Search runs after the continuity controls: a removed gene cannot satisfy any condition. Clear the intergenic-distance limit and disable **Same direction as query** to search whole neighborhoods.
+- **Unquoted values match partially**; **double-quoted values match exactly**. Field names, values and `or` are case-insensitive. Spaces after a colon are allowed. Other spaces belong to the value, so `product:radical SAM` searches that phrase partially.
+- For `pfam`, `profiledb`, `arch` and `dom`, exact matching accepts a complete `+`-separated domain or the complete cell. Thus `Pfam:"MTase"` matches `SIG+MTase`, but not `MTase_2`. For `lineage` and `classification`, exact matching accepts a complete `>`- or `;`-separated taxon/category or the complete cell. Other columns match the complete cell when quoted.
+- **No prefix searches all input columns**, including extra metadata. `MTase` is a partial all-field search; `"MTase"` is an exact value/list-item search. No `All:` prefix is needed.
+- A field prefix searches only that field. Unknown or missing fields never match and never fall back to all fields. Pfam and ProfileDB values remain separate from `dom` and from each other.
+- Use double quotes around values containing literal commas or the word `or`, such as `product:"alpha, beta or gamma"`. For an unprefixed value containing a colon, quote the whole value: `"AMFJ01034553.1:1-16703"`. A field-qualified value may contain colons after its first colon.
+- Inside double quotes, `\"` represents a literal quote and `\\` a literal backslash. Apostrophes are ordinary characters, not quoting syntax.
+- A leading minus sign still negates one condition, e.g. `Pfam:MTase, -Dom:TM`. Use the Exclude box for ordinary exclusion expressions.
+- An unfinished quote, empty condition or dangling operator displays an error next to the corresponding input and shows no rows until corrected. Clearing the input restores its unfiltered behavior.
 
-Supported filter fields are:
+**Migration from earlier versions:** use commas instead of spaces between conditions. Quotes now require exact matches. To exclude either A or B, use `Pfam:A or Pfam:B`; `Pfam:A, Pfam:B` excludes only rows containing both. Existing saved filter strings should be reviewed against these rules.
 
-| Field | Search target |
-|---|---|
-| `domain` or `dom` | Raw domains, renamed domains, architecture text, and profile text. |
-| `pfam` | PFAM annotations. |
-| `organism` or `org` | Organism names. |
-| `taxon`, `taxonomy`, or `classification` | Taxonomic identifiers and lineage text. |
-| `pid` or `protein` | Protein, locus, internal, and replacement identifiers. |
-| `nucleotide`, `nucc`, or `accession` | Nucleotide accession. |
-| `product` | Product description. |
-| `assembly` | Assembly accession. |
-| `block` or `block_id` | Neighborhood identifier. |
+#### Fields and examples
 
-Representative searches include a domain plus an organism, a PFAM plus a taxonomic group, removal of transmembrane-containing neighborhoods, or exclusion of hypothetical proteins. Test manuscript-relevant searches before publication and document any filters used to derive static conclusions.
+Every standard TSV input column can be addressed by its header, including additional metadata and values appearing on later rows of a repeated gene. Compact input supports the fields it supplies or reconstructs; absent Pfam/ProfileDB data does not acquire matches from Domain.
+
+| Field | Search target | Example |
+|---|---|---|
+| `Pfam` | Only Pfam annotations. | `Pfam:Radical`, `Pfam: MTase`, `Pfam:"MTase"` |
+| `ProfileDB` | Only ProfileDB annotations. | `ProfileDB:"RADICAL-SAM"` |
+| `Dom` or `Domain` | Domain (`dom`), including raw and renamed domain names; excludes other annotation sources. | `Dom:"PHP"` |
+| `arch` | Only the domain architecture column. | `arch:PHP` |
+| `Taxonomy` or `taxon` | Combined `organism`, `taxid`, `single_tax_name`, `single_tax_taxid`, `lineage` and `classification` values. | `Taxonomy:Ignicoccus` |
+| `lineage` | Only lineage. | `lineage:thermoproteota` |
+| `classification` | Only classification. | `classification:"environmental samples"` |
+| `organism` or `org` | Only organism names. | `organism:"uncultured bacterium"` |
+| `taxid` | Only the taxonomic identifier column. | `taxid:"77133"` |
+| `single_tax_name` | Only the selected taxon name column. | `single_tax_name:"FCB group"` |
+| `single_tax_taxid` | Only the selected taxon ID column. | `single_tax_taxid:"1783270"` |
+| `gene` | Only gene names. | `gene:"nadA"` |
+| `product` | Only product descriptions. | `product:"hypothetical protein"` |
+| `pid` or `protein` | Only protein identifiers; use `locus`, `internal_id` or `replaced` for those separate columns. | `pid:"EKD29084.1"` |
+| `nucleotide`, `nucc` or `accession` | Only nucleotide accession. | `nucleotide:"AMFJ01034553.1"` |
+| `assembly` | Only assembly accession. | `assembly:"GCA_000299275.1"` |
+| `block_id` or `block` | Original neighborhood identifier, including when continuity filters split it into segments. | `block_id:"AMFJ01034553.1:1-16703"` |
+| `seq_type` | Only sequence type. | `seq_type:"plasmid"` |
+| Any other input header | Only that input column, without requiring a predefined alias. | `topology:"circular"`, `is_fragment:"1.0"` |
+| No prefix | All input columns and displayed domain names. | `methyltransferase`, `"MTase"` |
+
+#### Combining conditions
+
+```text
+Pfam:Radical_SAM or ProfileDB:RADICAL-SAM, classification:Archaea
+```
+
+Requires either the Pfam or ProfileDB annotation, plus Archaea in classification. In Include it keeps matching rows; in Exclude it removes them.
+
+| Box | Expression | Result |
+|---|---|---|
+| Include | `Pfam:A, Pfam:B` | Keep rows containing both A and B in Pfam. |
+| Include | `Pfam:A or Pfam:B` | Keep rows containing either A or B in Pfam. |
+| Exclude | `Pfam:A, Pfam:B` | Remove only rows containing both A and B in Pfam. |
+| Exclude | `Pfam:A or Pfam:B` | Remove rows containing either A or B in Pfam. |
+| Either | `Pfam:oi or Pfam:X, Pfam:DDD` | Match (oi OR X) AND DDD in Pfam. |
+
+Run the filtering regression tests from the project root with:
+
+```sh
+node --test neighborhood-viewer/tests/filter.test.cjs
+```
 
 ## Labels, tooltips, and links
 

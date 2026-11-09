@@ -6,7 +6,7 @@
   <meta name="description" content="Interactive, virtualized gene-neighborhood viewer.">
   <meta name="theme-color" content="#172033">
   <title>Gene Neighborhood Viewer</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=3.6.0">
+  <link rel="stylesheet" href="../shared/styles.css?v=3.7.0">
 </head>
 <body>
   <header class="app-header">
@@ -35,18 +35,20 @@
           <label class="filter-label" for="nbhInclude">Include</label>
           <div class="search-box include-search">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
-            <input id="nbhInclude" type="search" autocomplete="off" spellcheck="false" placeholder="Include neighborhoods…">
+            <input id="nbhInclude" type="search" aria-describedby="nbhIncludeError" autocomplete="off" spellcheck="false" placeholder="Include neighborhoods…">
             <button class="clear-search" id="nbhIncludeClear" type="button" title="Clear include filter" aria-label="Clear include filter" hidden>×</button>
           </div>
+          <p class="filter-error" id="nbhIncludeError" aria-live="polite" hidden></p>
         </div>
 
         <div class="filter-field">
           <label class="filter-label" for="nbhExclude">Exclude</label>
           <div class="search-box exclude-search">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16ZM7 11h10v2H7v-2Z"/></svg>
-            <input id="nbhExclude" type="search" autocomplete="off" spellcheck="false" placeholder="Exclude neighborhoods…">
+            <input id="nbhExclude" type="search" aria-describedby="nbhExcludeError" autocomplete="off" spellcheck="false" placeholder="Exclude neighborhoods…">
             <button class="clear-search" id="nbhExcludeClear" type="button" title="Clear exclude filter" aria-label="Clear exclude filter" hidden>×</button>
           </div>
+          <p class="filter-error" id="nbhExcludeError" aria-live="polite" hidden></p>
         </div>
 
         <span class="nbh-status" id="nbhStatus" aria-live="polite">Loading…</span>
@@ -85,13 +87,41 @@
         <details class="filter-help">
           <summary>Filter syntax</summary>
           <div>
-            <p><strong>Include:</strong> every term must match a retained segment. <strong>Exclude:</strong> a match to any term removes that segment.</p>
-            <p>Search applies after the continuity filters, using the genes retained in each segment.</p>
-            <p>Plain text searches all indexed fields. Field filters and quoted phrases work in both boxes.</p>
-            <code>domain:RDD organism:Streptomyces</code>
-            <code>pfam:FHA taxon:"Actinomycetota"</code>
-            <code>pid:WP_</code>
-            <p>Fields: <code>domain</code>, <code>pfam</code>, <code>organism</code>, <code>taxon</code>, <code>pid</code>, <code>nucleotide</code>, <code>product</code>, <code>assembly</code>, and <code>block</code>.</p>
+            <p><strong>Include</strong> keeps rows matching the expression. <strong>Exclude</strong> removes rows matching the expression. Both boxes use the same syntax.</p>
+            <p>Use a <strong>comma for AND</strong> and <strong>or for alternatives</strong>. Spaces are part of a value, not separators. Field names, values and OR are case-insensitive.</p>
+            <code>Pfam:oi or Pfam:X, Pfam:DDD</code>
+            <p>Means <strong>(oi OR X) AND DDD</strong> in Pfam. DDD is required. Conditions may match different genes in the same neighborhood or retained segment.</p>
+            <p><strong>Partial by default; double quotes for exact values.</strong> In domain lists, quotes match a complete domain separated by <code>+</code>. In lineage/classification, they match a complete taxon separated by <code>&gt;</code> or <code>;</code>. In other columns, they match the whole cell.</p>
+            <table class="filter-examples">
+              <thead><tr><th scope="col">Example</th><th scope="col">Search target</th></tr></thead>
+              <tbody>
+                <tr><td><code>Pfam:Radical</code></td><td>Partial match only in Pfam.</td></tr>
+                <tr><td><code>Pfam: MTase</code></td><td>Spaces after the colon are allowed; partial Pfam match.</td></tr>
+                <tr><td><code>Pfam:&quot;MTase&quot;</code></td><td>Complete MTase domain, including inside SIG+MTase; not MTase_2.</td></tr>
+                <tr><td><code>ProfileDB:&quot;RADICAL-SAM&quot;</code></td><td>Complete domain only in ProfileDB.</td></tr>
+                <tr><td><code>Dom:&quot;PHP&quot;</code></td><td>Domain column (dom), including renamed domains. Domain: is an alias.</td></tr>
+                <tr><td><code>Taxonomy:Ignicoccus</code></td><td>Combined taxonomy fields listed below.</td></tr>
+                <tr><td><code>lineage:thermoproteota</code></td><td>Only the lineage column.</td></tr>
+                <tr><td><code>classification:&quot;environmental samples&quot;</code></td><td>Complete category only in classification.</td></tr>
+                <tr><td><code>methyltransferase</code></td><td>Partial match across all input columns; no prefix needed.</td></tr>
+                <tr><td><code>&quot;MTase&quot;</code></td><td>Exact value or list item across all columns; no prefix needed.</td></tr>
+                <tr><td><code>arch:PHP</code></td><td>Only the architecture column.</td></tr>
+                <tr><td><code>gene:&quot;nadA&quot;</code></td><td>Exact gene name.</td></tr>
+                <tr><td><code>product:&quot;hypothetical protein&quot;</code></td><td>Exact whole product description.</td></tr>
+                <tr><td><code>pid:&quot;EKD29084.1&quot;</code></td><td>Exact protein identifier.</td></tr>
+                <tr><td><code>assembly:&quot;GCA_000299275.1&quot;</code></td><td>Exact assembly accession.</td></tr>
+                <tr><td><code>block_id:&quot;AMFJ01034553.1:1-16703&quot;</code></td><td>Exact neighborhood identifier; colons inside the value are literal.</td></tr>
+                <tr><td><code>seq_type:&quot;plasmid&quot;</code></td><td>Exact sequence type.</td></tr>
+              </tbody>
+            </table>
+            <p><strong>Taxonomy:</strong> searches <code>organism</code>, <code>taxid</code>, <code>single_tax_name</code>, <code>single_tax_taxid</code>, <code>lineage</code> and <code>classification</code>. Each of those columns can also be searched separately. <code>taxon:</code> is an alias.</p>
+            <p><strong>Combine sources:</strong></p>
+            <code>Pfam:Radical_SAM or ProfileDB:RADICAL-SAM, classification:Archaea</code>
+            <p>Requires a matching Pfam or ProfileDB annotation, plus Archaea in classification.</p>
+            <p><strong>Exclude examples:</strong> <code>Pfam:A, Pfam:B</code> removes rows containing both A and B. <code>Pfam:A or Pfam:B</code> removes rows containing either. When both boxes are filled, a row must pass Include and must not match Exclude.</p>
+            <p><strong>Literal commas or OR:</strong> quote the whole value, e.g. <code>product:&quot;alpha, beta or gamma&quot;</code>. To search a bare identifier containing a colon, quote it: <code>&quot;AMFJ01034553.1:1-16703&quot;</code>.</p>
+            <p>Any input column can be searched by its header, including extra metadata. Missing or unknown fields never match and never fall back to searching other fields. Aliases: <code>org: → organism:</code>, <code>protein: → pid:</code>, <code>nucc:</code> / <code>accession: → nucleotide:</code>, <code>block: → block_id:</code>. A leading minus still negates a condition, e.g. <code>Pfam:MTase, -Dom:TM</code>.</p>
+            <p>Search runs <strong>after continuity filters</strong>, using only retained genes. Clear the intergenic-distance limit and disable “Same direction as query” to search whole neighborhoods.</p>
           </div>
         </details>
       </div>
@@ -132,8 +162,8 @@
     <span>Known nucleotide regions or protein accessions open at NCBI.</span>
   </footer>
 
-  <script src="./config.js?v=3.6.0"></script>
-  <script src="../shared/neighborhood-viewer.js?v=3.6.0"></script>
+  <script src="./config.js?v=3.7.0"></script>
+  <script src="../shared/neighborhood-viewer.js?v=3.7.0"></script>
   <script>
     window.NeighborhoodViewer.init({
       appTitle: 'appTitle',
@@ -144,6 +174,7 @@
       excludeInput: 'nbhExclude',
       includeClearButton: 'nbhIncludeClear',
       excludeClearButton: 'nbhExcludeClear',
+      includeError: 'nbhIncludeError', excludeError: 'nbhExcludeError',
       statusText: 'nbhStatus',
       scaleMode: 'nbhScaleMode',
       alignQueryCheckbox: 'nbhAlignQuery',
