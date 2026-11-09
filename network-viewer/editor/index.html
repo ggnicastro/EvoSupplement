@@ -3,23 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Interactive undirected biological association network with annotation-driven coloring, edge-count filtering, and multiple layouts.">
+  <meta name="description" content="Author workspace for loading, curating, and exporting Gene Neighborhood Viewer inputs.">
   <meta name="theme-color" content="#172033">
-  <title>Network Editor</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=1.2.0">
+  <title>Gene Neighborhood Editor</title>
+  <link rel="stylesheet" href="../shared/styles.css?v=3.7.0">
+  <link rel="stylesheet" href="./editor.css?v=1.1.0">
+  <link rel="stylesheet" href="./analysis.css?v=1.0.0">
 </head>
 <body>
   <header class="app-header">
-    <a class="brand" href="../../" aria-label="EvoSupplement home">
-      <span class="brand-mark" aria-hidden="true">NW</span>
+    <div class="brand" aria-label="Gene Neighborhood Editor">
+      <span class="brand-mark" aria-hidden="true">GN</span>
       <span class="brand-copy">
-        <strong id="appTitle">Network Editor</strong>
-        <small id="appSubtitle" hidden aria-hidden="true"></small>
+        <strong id="appTitle">Gene Neighborhood Editor</strong>
+        
       </span>
-    </a>
-    <span class="privacy-badge" title="The viewer runs entirely in the browser">
+    </div>
+    <span class="privacy-badge" title="Files are loaded and rendered only in this browser tab">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5V11c0 5.05 3.41 9.76 8 11 4.59-1.24 8-5.95 8-11V5.5L12 2Zm0 2.18 6 2.62V11c0 3.98-2.55 7.82-6 8.93C8.55 18.82 6 14.98 6 11V6.8l6-2.62Z"/></svg>
-      Static &amp; browser-based
+      Local &amp; private
     </span>
   </header>
 
@@ -29,262 +31,389 @@
   </section>
 
   <main class="page-shell">
-    <section class="demo-load-card" id="networkDemoLoader" aria-label="Load local network files">
-      <div class="demo-load-row">
-        <span class="file-field">
-          <span class="file-field-label">Edge TSV</span>
-          <label class="file-button" for="networkDemoEdgeInput">Choose TSV</label>
-          <input id="networkDemoEdgeInput" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain" hidden>
-          <span class="file-name" id="networkDemoEdgeName">No file selected</span>
-        </span>
-        <span class="file-field">
-          <span class="file-field-label">Node YAML <em>optional</em></span>
-          <label class="file-button" for="networkDemoNodeInput">Choose YAML</label>
-          <input id="networkDemoNodeInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" hidden>
-          <span class="file-name" id="networkDemoNodeName">Optional</span>
-          <button class="mini-button" id="networkDemoClearNodes" type="button" hidden>Clear</button>
-        </span>
-        <span class="file-field">
-          <span class="file-field-label">Group colors</span>
-          <label class="file-button" for="networkDemoColorInput">Optional YAML</label>
-          <input id="networkDemoColorInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" hidden>
-          <span class="file-name" id="networkDemoColorName">Optional</span>
-          <button class="mini-button" id="networkDemoClearColors" type="button" hidden>Clear</button>
-        </span>
+    <section class="nbh-load-bar" aria-label="Load neighborhood editor inputs">
+      <div class="nbh-file-field">
+        <span>Neighborhood input</span>
+        <button class="nbh-file-button" id="chooseTsvButton" type="button">Choose input</button>
+        <span class="nbh-file-name" id="tsvFileName">No file selected</span>
+        <button class="nbh-file-clear" id="clearTsvButton" type="button" title="Clear TSV">Clear</button>
       </div>
-      <div class="demo-load-row">
-        <button class="action-button primary" id="networkDemoLoad" type="button" disabled>Load local files</button>
-        <button class="action-button" id="networkDemoReload" type="button">Reload bundled example</button>
-        <p class="demo-hint">Files are parsed locally in this browser. Only the edge TSV is required. Without a node YAML, source and target names become independent nodes. Optional node annotations can provide aliases, Display_name values, Include flags, functions, and notes; colors remain optional.</p>
+      <label class="nbh-file-field nbh-format-field">
+        <span>Input format</span>
+        <select class="nbh-format-select" id="neighborhoodInputFormat">
+          <option value="auto" selected>Auto-detect</option>
+          <option value="standard">Standard neighborhood TSV</option>
+          <option value="compact">Compact architecture</option>
+        </select>
+      </label>
+      <div class="nbh-file-field">
+        <span>Rename YAML <span class="nbh-optional">optional</span></span>
+        <button class="nbh-file-button" id="chooseRenameButton" type="button">Choose YAML</button>
+        <span class="nbh-file-name" id="renameFileName">Optional</span>
+        <button class="nbh-file-clear" id="clearRenameButton" type="button" title="Clear rename YAML">Clear</button>
       </div>
+      <div class="nbh-file-field">
+        <span>Color YAML <span class="nbh-optional">optional</span></span>
+        <button class="nbh-file-button" id="chooseColorButton" type="button">Choose YAML</button>
+        <span class="nbh-file-name" id="colorFileName">Optional</span>
+        <button class="nbh-file-clear" id="clearColorButton" type="button" title="Clear color YAML">Clear</button>
+      </div>
+      <button class="nbh-load-button" id="loadFilesButton" type="button" disabled>Load files</button>
+      <span class="nbh-editor-hint">Only the neighborhood input is required. Standard TSV and compact architecture files are both supported. Existing rename and color YAML files can be loaded, edited, and exported as new files. Everything stays in this browser tab.</span>
     </section>
-    <section class="network-toolbar" aria-label="Network controls">
-      <div class="filter-row">
-        <label class="search-field" for="networkSearch">
-          <span class="field-label">Find nodes</span>
-          <span class="search-box">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
-            <input id="networkSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Display name, YAML key, group, or note…">
-            <button class="clear-search" id="networkSearchClear" type="button" aria-label="Clear node search" hidden>×</button>
-          </span>
-        </label>
-        <span class="search-meta" id="networkSearchCount" aria-live="polite"></span>
-        <div class="status-cluster">
-          <span class="network-status" id="networkStatus" aria-live="polite">Loading…</span>
-          <span class="selection-summary" id="networkSelectionSummary">No persistent selection</span>
+
+    <details class="nbh-curation-card" id="domainCurationCard" hidden open>
+      <summary>
+        <span>Domain curation</span>
+        <span class="nbh-curation-summary" id="domainCurationSummary">Waiting for data</span>
+      </summary>
+      <div class="nbh-curation-content">
+        <p class="nbh-curation-intro">Rank domains by frequency, suggest a reproducible color palette for the most frequent domains, rename individual domains, export publication-ready flat YAML dictionaries, and download a canonical normalized TSV from either input format. The original TSV domain identifier always remains the canonical key.</p>
+
+        <div class="nbh-curation-controls">
+          <label class="nbh-editor-field">
+            <span>Find domain</span>
+            <input id="domainSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Search original or display name…">
+          </label>
+          <label class="nbh-editor-field">
+            <span>Rank by</span>
+            <select id="domainRankMetric">
+              <option value="genes" selected>Distinct genes</option>
+              <option value="occurrences">Domain occurrences</option>
+              <option value="neighborhoods">Distinct neighborhoods</option>
+            </select>
+          </label>
+          <label class="nbh-editor-field">
+            <span>Frequency scope</span>
+            <select id="domainRankScope">
+              <option value="visible" selected>Filtered view</option>
+              <option value="all">All loaded data</option>
+            </select>
+            <small>Counts and ranking follow the direction, distance, Include and Exclude filters. Split rows count once per original neighborhood.</small>
+          </label>
+          <label class="nbh-editor-field">
+            <span>Top domains</span>
+            <span class="nbh-top-controls">
+              <input id="domainTopCount" type="number" min="1" max="250" value="15">
+              <button class="nbh-chip" type="button" data-top-count="10">10</button>
+              <button class="nbh-chip" type="button" data-top-count="15">15</button>
+              <button class="nbh-chip" type="button" data-top-count="20">20</button>
+            </span>
+          </label>
+          <button class="nbh-editor-button is-primary" id="suggestDomainColors" type="button" disabled>Suggest colors</button>
         </div>
+
+        <div class="nbh-curation-options">
+          <label><input id="preserveExistingColors" type="checkbox" checked> Preserve existing selected colors when suggesting</label>
+          <label><input id="domainEditMode" type="checkbox" checked> Clicking a domain in the viewer opens it here</label>
+          <label><input id="preserveUnmatchedEntries" type="checkbox" checked> Preserve loaded YAML entries not found in this TSV</label>
+        </div>
+
+        <div class="nbh-curation-grid">
+          <div class="nbh-domain-table-wrap" aria-label="Domain frequencies and curation status">
+            <table class="nbh-domain-table">
+              <thead>
+                <tr>
+                  <th class="is-number">#</th>
+                  <th>Color</th>
+                  <th>Original domain</th>
+                  <th>Display name</th>
+                  <th class="is-number">Occurrences</th>
+                  <th class="is-number">Genes</th>
+                  <th class="is-number">Neighborhoods</th>
+                </tr>
+              </thead>
+              <tbody id="domainTableBody"></tbody>
+            </table>
+            <p id="domainTableEmpty" hidden>No domains match this search.</p>
+          </div>
+
+          <aside class="nbh-domain-editor" aria-label="Selected domain editor">
+            <div class="nbh-domain-editor-empty" id="domainEditorEmpty">Select a domain from the table or click a domain block in the viewer.</div>
+            <div id="domainEditorForm" hidden>
+              <h3 id="selectedDomainTitle">Domain</h3>
+              <p class="domain-id" id="selectedDomainId"></p>
+              <div class="nbh-domain-editor-grid">
+                <label class="nbh-editor-field">
+                  <span>Display name</span>
+                  <span class="nbh-editor-inline">
+                    <input id="selectedDomainRename" type="text" autocomplete="off" spellcheck="false">
+                    <button class="nbh-editor-button" id="resetDomainRename" type="button">Use original</button>
+                  </span>
+                </label>
+
+                <label class="nbh-check-line"><input id="selectedDomainColorEnabled" type="checkbox"> Include this domain in color YAML</label>
+                <label class="nbh-editor-field">
+                  <span>Domain color</span>
+                  <span class="nbh-color-row">
+                    <input id="selectedDomainColorPicker" type="color" value="#4e79a7" aria-label="Domain color picker">
+                    <input id="selectedDomainColorText" type="text" value="#4E79A7" maxlength="7" spellcheck="false" aria-label="Hexadecimal domain color">
+                  </span>
+                </label>
+                <button class="nbh-editor-button" id="resetDomainColor" type="button">Remove from color YAML</button>
+
+                <div class="nbh-domain-counts" aria-label="Selected-domain frequency">
+                  <div class="nbh-count-card"><strong id="selectedDomainOccurrences">0</strong><span>Occurrences</span></div>
+                  <div class="nbh-count-card"><strong id="selectedDomainGenes">0</strong><span>Genes</span></div>
+                  <div class="nbh-count-card"><strong id="selectedDomainNeighborhoods">0</strong><span>Neighborhoods</span></div>
+                </div>
+                <p class="nbh-domain-note" id="selectedDomainMarkerNote" hidden></p>
+                <p class="nbh-domain-note">Renaming changes only the displayed label. Color and rename exports continue to use the original domain identifier as their key.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="nbh-curation-footer">
+          <label class="nbh-check-line"><input id="dummyExportSpacer" type="checkbox" checked disabled hidden><span>Exports contain only selected colors and names changed from their original identifiers.</span></label>
+          <button class="nbh-editor-button" id="downloadRenameYaml" type="button" disabled>Download rename YAML</button>
+          <button class="nbh-editor-button" id="downloadColorYaml" type="button" disabled>Download color YAML</button>
+          <button class="nbh-editor-button" id="downloadNormalizedTsv" type="button" disabled>Download normalized TSV</button>
+          <button class="nbh-editor-button is-primary" id="downloadBothYaml" type="button" disabled>Download package ZIP</button>
+          <p class="nbh-curation-message" id="domainCurationMessage" aria-live="polite"></p>
+        </div>
+      </div>
+    </details>
+
+    <section class="nbh-toolbar" aria-label="Viewer controls">
+      <div class="filter-row">
+        <div class="filter-field">
+          <label class="filter-label" for="nbhInclude">Include</label>
+          <div class="search-box include-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.65-4.65a8 8 0 1 0-1 1L20 21l1-1ZM5 11a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z"/></svg>
+            <input id="nbhInclude" type="search" aria-describedby="nbhIncludeError" autocomplete="off" spellcheck="false" placeholder="Include neighborhoods…">
+            <button class="clear-search" id="nbhIncludeClear" type="button" title="Clear include filter" aria-label="Clear include filter" hidden>×</button>
+          </div>
+          <p class="filter-error" id="nbhIncludeError" aria-live="polite" hidden></p>
+        </div>
+
+        <div class="filter-field">
+          <label class="filter-label" for="nbhExclude">Exclude</label>
+          <div class="search-box exclude-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16ZM7 11h10v2H7v-2Z"/></svg>
+            <input id="nbhExclude" type="search" aria-describedby="nbhExcludeError" autocomplete="off" spellcheck="false" placeholder="Exclude neighborhoods…">
+            <button class="clear-search" id="nbhExcludeClear" type="button" title="Clear exclude filter" aria-label="Clear exclude filter" hidden>×</button>
+          </div>
+          <p class="filter-error" id="nbhExcludeError" aria-live="polite" hidden></p>
+        </div>
+
+        <span class="nbh-status" id="nbhStatus" aria-live="polite">Waiting for files…</span>
       </div>
 
       <div class="control-row">
-        <label class="control-field" for="networkLayout">
-          <span>Layout</span>
-          <select class="layout-select" id="networkLayout">
-            <option value="fruchterman-reingold">Fruchterman–Reingold</option>
-            <option value="spring">Spring (Eades)</option>
-            <option value="kamada-kawai">Kamada–Kawai</option>
-            <option value="grouped-spring">Grouped spring</option>
-            <option value="circle">Circle</option>
-            <option value="concentric">Concentric</option>
-            <option value="grid">Grid</option>
+        <label class="control-field">
+          <span>Sizing</span>
+          <select id="nbhScaleMode">
+            <option value="fixed">Fixed domain widths</option>
+            <option value="fit">Fit window</option>
           </select>
         </label>
-        <div class="action-field">
-          <span>Recalculate</span>
-          <button class="action-button" id="networkRunLayout" type="button">Run layout</button>
-        </div>
-        <span class="layout-progress" id="networkLayoutProgress" hidden>Calculating layout…</span>
-
-        <label class="control-field threshold-field" for="networkThresholdSlider">
-          <span>Minimum total edge count</span>
-          <span class="threshold-controls">
-            <input id="networkThresholdSlider" type="range" min="0" max="1000" step="1" value="0" aria-label="Minimum total edge count">
-            <input id="networkThresholdNumber" type="number" min="0" step="1" value="5" aria-label="Exact minimum total edge count">
-            <output class="threshold-output" id="networkThresholdValue" for="networkThresholdSlider networkThresholdNumber">≥ 5</output>
-          </span>
+        <label class="check-field" title="Align query genes to one shared vertical guide.">
+          <input id="nbhAlignQuery" type="checkbox"><span>Align query</span>
         </label>
-
-        <label class="control-field" for="networkNodeSize">
-          <span>Node size</span>
-          <select class="node-size-select" id="networkNodeSize">
-            <option value="weighted-degree">Weighted degree</option>
-            <option value="degree">Degree</option>
-            <option value="constant">Constant</option>
-          </select>
+        <label class="check-field" title="Mirror a neighborhood when its query gene is on the negative strand">
+          <input id="nbhFlip" type="checkbox"><span>Orient query →</span>
         </label>
-
-        <label class="check-field" title="Show the canonical Display_name next to every visible node">
-          <input id="networkShowLabels" type="checkbox" checked>
-          <span>Labels</span>
+        <label class="check-field">
+          <input id="nbhShowLabels" type="checkbox"><span>Domain labels</span>
         </label>
-        <label class="check-field" title="Keep Include: 1 nodes visible even when they have no relationship above the active threshold">
-          <input id="networkShowIsolates" type="checkbox">
-          <span>Isolated nodes</span>
+        <label class="zoom-field" for="nbhZoom">
+          <span>Zoom</span>
+          <input id="nbhZoom" type="range" min="0.7" max="2.8" step="0.1" value="1">
+          <output id="nbhZoomValue" for="nbhZoom">100%</output>
         </label>
-
-        <span class="control-spacer"></span>
-        <div class="action-field">
-          <span>View</span>
-          <span class="action-group">
-            <button class="icon-button" id="networkZoomOut" type="button" title="Zoom out" aria-label="Zoom out">−</button>
-            <button class="action-button" id="networkFit" type="button">Fit network</button>
-            <button class="icon-button" id="networkZoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
-            <span class="mini-button" id="networkZoomValue" aria-live="polite">100%</span>
-          </span>
-        </div>
-        <div class="action-field">
-          <span>Positions</span>
-          <span class="action-group">
-            <button class="action-button" id="networkReleaseAll" type="button">Release nodes</button>
-            <button class="action-button" id="networkResetPositions" type="button">Reset positions</button>
-          </span>
-        </div>
-        <div class="action-field">
-          <span>Selection</span>
-          <button class="action-button" id="networkClearSelection" type="button" disabled>Clear selection</button>
-        </div>
+        <details class="filter-help">
+          <summary>Filter syntax</summary>
+          <div>
+            <p><strong>Include</strong> keeps rows matching the expression. <strong>Exclude</strong> removes rows matching the expression. Both boxes use the same syntax.</p>
+            <p>Use a <strong>comma for AND</strong> and <strong>or for alternatives</strong>. Spaces are part of a value, not separators. Field names, values and OR are case-insensitive.</p>
+            <code>Pfam:oi or Pfam:X, Pfam:DDD</code>
+            <p>Means <strong>(oi OR X) AND DDD</strong> in Pfam. DDD is required. Conditions may match different genes in the same neighborhood or retained segment.</p>
+            <p><strong>Partial by default; double quotes for exact values.</strong> In domain lists, quotes match a complete domain separated by <code>+</code>. In lineage/classification, they match a complete taxon separated by <code>&gt;</code> or <code>;</code>. In other columns, they match the whole cell.</p>
+            <table class="filter-examples">
+              <thead><tr><th scope="col">Example</th><th scope="col">Search target</th></tr></thead>
+              <tbody>
+                <tr><td><code>Pfam:Radical</code></td><td>Partial match only in Pfam.</td></tr>
+                <tr><td><code>Pfam: MTase</code></td><td>Spaces after the colon are allowed; partial Pfam match.</td></tr>
+                <tr><td><code>Pfam:&quot;MTase&quot;</code></td><td>Complete MTase domain, including inside SIG+MTase; not MTase_2.</td></tr>
+                <tr><td><code>ProfileDB:&quot;RADICAL-SAM&quot;</code></td><td>Complete domain only in ProfileDB.</td></tr>
+                <tr><td><code>Dom:&quot;PHP&quot;</code></td><td>Domain column (dom), including renamed domains. Domain: is an alias.</td></tr>
+                <tr><td><code>Taxonomy:Ignicoccus</code></td><td>Combined taxonomy fields listed below.</td></tr>
+                <tr><td><code>lineage:thermoproteota</code></td><td>Only the lineage column.</td></tr>
+                <tr><td><code>classification:&quot;environmental samples&quot;</code></td><td>Complete category only in classification.</td></tr>
+                <tr><td><code>methyltransferase</code></td><td>Partial match across all input columns; no prefix needed.</td></tr>
+                <tr><td><code>&quot;MTase&quot;</code></td><td>Exact value or list item across all columns; no prefix needed.</td></tr>
+                <tr><td><code>arch:PHP</code></td><td>Only the architecture column.</td></tr>
+                <tr><td><code>gene:&quot;nadA&quot;</code></td><td>Exact gene name.</td></tr>
+                <tr><td><code>product:&quot;hypothetical protein&quot;</code></td><td>Exact whole product description.</td></tr>
+                <tr><td><code>pid:&quot;EKD29084.1&quot;</code></td><td>Exact protein identifier.</td></tr>
+                <tr><td><code>assembly:&quot;GCA_000299275.1&quot;</code></td><td>Exact assembly accession.</td></tr>
+                <tr><td><code>block_id:&quot;AMFJ01034553.1:1-16703&quot;</code></td><td>Exact neighborhood identifier; colons inside the value are literal.</td></tr>
+                <tr><td><code>seq_type:&quot;plasmid&quot;</code></td><td>Exact sequence type.</td></tr>
+              </tbody>
+            </table>
+            <p><strong>Taxonomy:</strong> searches <code>organism</code>, <code>taxid</code>, <code>single_tax_name</code>, <code>single_tax_taxid</code>, <code>lineage</code> and <code>classification</code>. Each of those columns can also be searched separately. <code>taxon:</code> is an alias.</p>
+            <p><strong>Combine sources:</strong></p>
+            <code>Pfam:Radical_SAM or ProfileDB:RADICAL-SAM, classification:Archaea</code>
+            <p>Requires a matching Pfam or ProfileDB annotation, plus Archaea in classification.</p>
+            <p><strong>Exclude examples:</strong> <code>Pfam:A, Pfam:B</code> removes rows containing both A and B. <code>Pfam:A or Pfam:B</code> removes rows containing either. When both boxes are filled, a row must pass Include and must not match Exclude.</p>
+            <p><strong>Literal commas or OR:</strong> quote the whole value, e.g. <code>product:&quot;alpha, beta or gamma&quot;</code>. To search a bare identifier containing a colon, quote it: <code>&quot;AMFJ01034553.1:1-16703&quot;</code>.</p>
+            <p>Any input column can be searched by its header, including extra metadata. Missing or unknown fields never match and never fall back to searching other fields. Aliases: <code>org: → organism:</code>, <code>protein: → pid:</code>, <code>nucc:</code> / <code>accession: → nucleotide:</code>, <code>block: → block_id:</code>. A leading minus still negates a condition, e.g. <code>Pfam:MTase, -Dom:TM</code>.</p>
+            <p>Search runs <strong>after continuity filters</strong>, using only retained genes. Clear the intergenic-distance limit and disable “Same direction as query” to search whole neighborhoods.</p>
+          </div>
+        </details>
       </div>
-
-
-      <details class="community-panel" id="networkCommunityPanel" open>
-        <summary>Community analysis</summary>
-        <div class="community-controls">
-          <label class="check-field scope-toggle" title="When enabled, only canonical nodes with at least one YAML entry marked Include: 1 can enter the visible network">
-            <input id="networkOnlyIncluded" type="checkbox" checked>
-            <span>Only YAML Include = 1</span>
+      <div class="continuity-controls" role="group" aria-label="Query continuity filters">
+        <div class="control-row">
+          <label class="check-field" title="Keep consecutive genes on the same strand as the query; stop at the first different strand.">
+            <input id="nbhSameDirection" type="checkbox" aria-describedby="nbhContinuityRules nbhContinuityHelp">
+            <span>Same direction as query</span>
           </label>
-
-          <label class="control-field" for="networkCommunityMethod">
-            <span>Method</span>
-            <select id="networkCommunityMethod">
-              <option value="none">None</option>
-              <option value="louvain">Louvain</option>
-              <option value="leiden">Leiden</option>
-            </select>
+          <label class="control-field nbh-distance-field" for="nbhMaxIntergenicDistance">
+            <span>Intergenic distance (bp)</span>
+            <input id="nbhMaxIntergenicDistance" type="number" min="0" step="1" value="20" placeholder="Off" aria-describedby="nbhDistanceHelp nbhContinuityRules nbhContinuityHelp">
           </label>
-
-          <label class="control-field resolution-field" for="networkCommunityResolutionSlider">
-            <span>Resolution</span>
-            <span class="resolution-controls">
-              <input id="networkCommunityResolutionSlider" type="range" min="0.05" max="5" step="0.05" value="1" aria-label="Community resolution">
-              <input id="networkCommunityResolutionNumber" type="number" min="0.05" max="10" step="0.05" value="1" aria-label="Exact community resolution">
-            </span>
-          </label>
-
-          <label class="check-field" title="Use the aggregated total edge_count as the relationship weight">
-            <input id="networkCommunityWeighted" type="checkbox" checked>
-            <span>Weight by edge count</span>
-          </label>
-
-          <label class="control-field compact-number" for="networkCommunitySeed">
-            <span>Seed</span>
-            <input id="networkCommunitySeed" type="number" step="1" value="42">
-          </label>
-
-          <label class="control-field compact-number" for="networkCommunityIterations">
-            <span>Iterations</span>
-            <input id="networkCommunityIterations" type="number" min="1" max="250" step="1" value="20">
-          </label>
-
-          <div class="action-field">
-            <span>Detection</span>
-            <button class="action-button" id="networkRecomputeCommunities" type="button" disabled>Recompute</button>
-          </div>
-
-          <label class="control-field" for="networkColorBy">
-            <span>Color nodes by</span>
-            <select id="networkColorBy">
-              <option value="function">YAML function</option>
-              <option value="community" disabled>Detected community</option>
-            </select>
-          </label>
-
-          <label class="control-field" for="networkGroupLayoutBy">
-            <span>Group layout by</span>
-            <select id="networkGroupLayoutBy">
-              <option value="none">None</option>
-              <option value="function">YAML function</option>
-              <option value="community" disabled>Detected community</option>
-            </select>
-          </label>
-
-          <div class="action-field">
-            <span>Grouped layout</span>
-            <button class="action-button" id="networkRelayoutGroups" type="button">Re-layout</button>
-          </div>
-
-          <span class="community-summary" id="networkCommunitySummary" aria-live="polite">Community detection is off</span>
+          <span id="nbhDistanceHelp" class="nbh-continuity-hint">Clear the value to disable the distance limit.</span>
         </div>
-        <p class="community-note">Communities are recalculated only from the nodes and relationships currently visible after the YAML scope, minimum edge-count threshold, and isolated-node controls are applied.</p>
-        <section class="yaml-export-panel" aria-label="Generate node YAML from the current network">
-          <div class="yaml-export-copy">
-            <strong>Generate node YAML</strong>
-            <span>Export every TSV node identifier. Nodes connected in the current filtered network receive Include: 1 and the detected community as Function; other nodes receive Include: 0.</span>
+        <p id="nbhContinuityRules" class="nbh-continuity-rules">Keep the segment connected to each query; stop at the first failed rule on each side. Connected queries share a row; disconnected queries get separate rows.</p>
+        <p id="nbhContinuityHelp" class="nbh-continuity-note" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <details class="nbh-curation-card analysis-card" id="analysisCard">
+      <summary><span>Analyze neighborhoods</span><span class="nbh-curation-summary" id="analysisSummary">Load data to explore similarity, order and alternatives</span></summary>
+      <div class="analysis-content">
+        <p class="analysis-intro">Compare query-centered neighborhoods, inspect conserved gene order, and find candidate alternative domains. Analyses run locally when you choose <strong>Run analysis</strong>.</p>
+        <fieldset class="analysis-setup" id="analysisSetup">
+          <legend>1. Choose what to compare</legend>
+          <div class="analysis-fields">
+            <label class="nbh-editor-field"><span>Neighborhoods</span><select id="analysisScope"><option value="visible">Current filtered view</option><option value="all">All loaded neighborhoods</option></select><small>Both use the current direction and distance rules. “All” ignores Include / Exclude.</small></label>
+            <label class="nbh-editor-field"><span>Domain identity</span><select id="analysisRepresentation"><option value="raw">Original domain IDs</option><option value="display">Renamed domain groups</option></select><small>Renamed groups merge identical display names. Original IDs remain in exports.</small></label>
+            <label class="nbh-editor-field"><span>Similarity</span><select id="analysisMetric"><option value="jaccard">Jaccard · presence / absence</option><option value="weighted">Count-weighted Jaccard · domain occurrences</option></select><small>Order is measured separately from composition.</small></label>
+            <label class="nbh-editor-field"><span>Minimum shared similarity</span><input id="analysisThreshold" type="number" min="0" max="1" step="0.05" value="0.5"><small>Keep links at or above this score, from 0 to 1.</small></label>
           </div>
-          <label class="check-field" title="Also mark currently visible isolated nodes as Include: 1 in the generated YAML">
-            <input id="networkExportIncludeIsolates" type="checkbox">
-            <span>Include visible isolated nodes</span>
-          </label>
-          <span class="action-group">
-            <button class="action-button primary" id="networkDownloadGeneratedYaml" type="button" disabled>Download generated node YAML</button>
-            <button class="action-button" id="networkDownloadCommunityColors" type="button" disabled>Download community colors</button>
-          </span>
-          <span class="yaml-export-summary" id="networkExportSummary" aria-live="polite">Choose Louvain or Leiden to assign communities.</span>
+          <label class="analysis-check"><input id="analysisExcludeQuery" type="checkbox" checked> Exclude query genes from composition and alternative-domain tests</label>
+          <p class="analysis-note">Query genes stay in order patterns. Every segment counts once even when it contains multiple queries; the first query after orienting the neighborhood anchors its positions. Opposing query directions are flagged.</p>
+          <details class="analysis-advanced"><summary>Advanced settings</summary>
+            <div class="analysis-fields">
+              <label class="nbh-editor-field"><span>Minimum distinct domains</span><input id="analysisMinDomains" type="number" min="1" max="10000" step="1" value="1"></label>
+              <label class="nbh-editor-field"><span>Maximum neighbors per node</span><input id="analysisTopK" type="number" min="1" max="100" step="1" value="10"><small>Union of each node’s strongest links; final degree can exceed this value.</small></label>
+              <label class="nbh-editor-field"><span>Group method</span><select id="analysisGrouping"><option value="components">Connected components</option><option value="label-propagation">Deterministic label propagation</option></select></label>
+              <label class="nbh-editor-field"><span>Overlapping regions</span><select id="analysisOverlap"><option value="representative">Use one representative per overlap group</option><option value="keep">Keep separate overlapping observations</option></select></label>
+              <label class="nbh-editor-field"><span>Genes on each side of query</span><input id="analysisWindow" type="number" min="1" max="20" step="1" value="2"><small>Window size for query-centered order patterns.</small></label>
+            </div>
+            <label class="analysis-check"><input id="analysisAlternativesEnabled" type="checkbox" checked> Analyze candidate alternative domains</label>
+            <div class="analysis-fields">
+              <label class="nbh-editor-field"><span>Minimum neighborhoods per domain</span><input id="analysisMinSupport" type="number" min="1" max="1000000" step="1" value="5"></label>
+              <label class="nbh-editor-field"><span>Minimum expected coexistence</span><input id="analysisMinExpected" type="number" min="0" max="1000000" step="0.5" value="1"></label>
+              <label class="nbh-editor-field"><span>Maximum coexistence fraction</span><input id="analysisMaxBoth" type="number" min="0" max="1" step="0.05" value="0.2"><small>Both / the less frequent domain. Allows occasional coexistence.</small></label>
+              <label class="nbh-editor-field"><span>Maximum adjusted p-value (q)</span><input id="analysisMaxQ" type="number" min="0" max="1" step="0.01" value="1"><small>1 shows exploratory candidates; use 0.05 for a stricter screen.</small></label>
+              <label class="nbh-editor-field"><span>Restrict tests to metadata field</span><input id="analysisStratumField" type="text" list="analysisMetadataFields" placeholder="All observations"><datalist id="analysisMetadataFields"></datalist><small>For example taxid, organism, lineage, or an input metadata column.</small></label>
+              <label class="nbh-editor-field"><span>Exact metadata value</span><input id="analysisStratumValue" type="text" placeholder="Required when a field is set"><small>Restriction applies to alternative-domain tests only.</small></label>
+            </div>
+            <details class="analysis-advanced"><summary>Work limits for large projects</summary>
+              <p class="analysis-note">Limits stop a run with an explanation instead of silently dropping comparisons. Larger values require more time and memory. Context assessment retains statistics for every candidate but assesses the strongest candidates first.</p>
+              <div class="analysis-fields">
+                <label class="nbh-editor-field"><span>Maximum similarity comparisons</span><input id="analysisMaxPairs" type="number" min="1" max="25000000" step="1" value="2000000"></label>
+                <label class="nbh-editor-field"><span>Maximum retained links</span><input id="analysisMaxEdges" type="number" min="1" max="250000" step="1" value="25000"></label>
+                <label class="nbh-editor-field"><span>Maximum alternative-domain tests</span><input id="analysisAlternativePairs" type="number" min="1" max="1000000" step="1" value="250000"></label>
+                <label class="nbh-editor-field"><span>Maximum candidate context assessments</span><input id="analysisContextLimit" type="number" min="1" max="5000" step="1" value="500"></label>
+              </div>
+            </details>
+          </details>
+        </fieldset>
+        <div class="analysis-run-row">
+          <button class="nbh-editor-button is-primary" id="analysisRun" type="button" disabled>Run analysis</button>
+          <button class="nbh-editor-button" id="analysisCancel" type="button" hidden>Cancel</button>
+          <progress id="analysisProgress" max="100" value="0" hidden aria-label="Analysis progress"></progress>
+          <span id="analysisStatus" role="status" aria-live="polite">Load neighborhood data above to begin.</span>
+          <button class="nbh-editor-button" id="analysisLoad" type="button">Load analysis JSON</button>
+        </div>
+        <p class="analysis-stale" id="analysisStale" role="status" hidden>These results use earlier data or settings. Run the analysis again before selecting neighborhoods.</p>
+        <section id="analysisResults" hidden aria-label="Neighborhood analysis results">
+          <div class="analysis-result-head"><h2>2. Explore results</h2><div class="analysis-actions"><button class="nbh-editor-button" id="analysisClearFocus" type="button" disabled>Clear selection</button><button class="nbh-editor-button" id="analysisSave" type="button">Save analysis JSON</button><button class="nbh-editor-button" id="analysisExport" type="button">Export results ZIP</button></div></div>
+          <p class="analysis-selection" id="analysisSelection" aria-live="polite"></p>
+          <div class="analysis-tabs" id="analysisTabs" role="tablist" aria-label="Analysis views">
+            <button type="button" id="analysisTabOverview" role="tab" aria-controls="analysisPanel" aria-selected="true" data-analysis-tab="overview">Overview</button>
+            <button type="button" id="analysisTabNetwork" role="tab" aria-controls="analysisPanel" aria-selected="false" tabindex="-1" data-analysis-tab="network">Similarity network</button>
+            <button type="button" id="analysisTabOrders" role="tab" aria-controls="analysisPanel" aria-selected="false" tabindex="-1" data-analysis-tab="orders">Order patterns</button>
+            <button type="button" id="analysisTabAlternatives" role="tab" aria-controls="analysisPanel" aria-selected="false" tabindex="-1" data-analysis-tab="alternatives">Alternative domains</button>
+          </div>
+          <section id="analysisPanel" role="tabpanel" aria-labelledby="analysisTabOverview" tabindex="0">
+            <div id="analysisOverview"></div>
+            <div id="analysisNetwork" hidden><div class="analysis-network-tools"><label class="nbh-editor-field"><span>Draw group</span><select id="analysisNetworkGroup"><option value="">All groups</option></select></label><p id="analysisNetworkNote" class="analysis-note"></p></div><div id="analysisGraph" class="analysis-graph" aria-label="Similarity network"></div></div>
+            <p id="analysisTabDescription" class="analysis-note"></p>
+            <div class="analysis-table-controls">
+              <label class="nbh-editor-field"><span>Find in results</span><input id="analysisSearch" type="search" placeholder="Find a name, domain or neighborhood…"></label>
+              <label class="nbh-editor-field" id="analysisViewField"><span>Show</span><select id="analysisView"></select></label>
+              <label class="nbh-editor-field"><span>Sort</span><select id="analysisSort"></select></label>
+              <span id="analysisRowCount" class="analysis-note"></span>
+            </div>
+            <div class="analysis-table-wrap"><table class="analysis-table"><thead id="analysisTableHead"></thead><tbody id="analysisTableBody"></tbody></table><p class="analysis-empty" id="analysisEmpty" hidden>No results match these settings.</p></div>
+            <div class="analysis-pagination"><button class="nbh-editor-button" id="analysisPrev" type="button">Previous</button><span id="analysisPageInfo" aria-live="polite"></span><button class="nbh-editor-button" id="analysisNext" type="button">Next</button></div>
+            <section id="analysisDetail" class="analysis-detail" hidden aria-label="Selected result details"></section>
+          </section>
+          <details class="analysis-methods"><summary>Methods, limits and provenance</summary><div id="analysisProvenance"></div><p>These exploratory associations identify candidate alternatives, not a direction of evolutionary replacement or proof of functional equivalence. A missing annotation is not evidence of biological absence. Related strains and overlapping samples can inflate support; inspect metadata and independent lineages.</p><p>Network links use Jaccard intersection / union, or weighted Jaccard from domain occurrence counts. Grouping uses the retained sparse graph. The circular drawing shows group membership; distance between nodes has no biological meaning. Order patterns preserve gene boundaries, strand relative to the query, and unknown genes. Compact inputs provide order, not measured genomic distance.</p><p>Alternative-domain tests use one-sided Fisher depletion and Benjamini–Hochberg adjustment across the eligible tested pairs. Context evidence compares query-relative positions and neighboring gene architectures separately from statistical association.</p></details>
         </section>
-      </details>
-
-      <div class="legend-wrap" id="networkLegendWrap" hidden>
-        <span class="legend-title" id="networkLegendTitle">Function</span>
-        <div class="network-legend" id="networkLegend"></div>
       </div>
+    </details>
 
-      <details class="network-diagnostics" id="networkDiagnostics" hidden>
-        <summary>Data processing report</summary>
-        <div class="network-diagnostics-body" id="networkDiagnosticsBody"></div>
-      </details>
+    <section class="nbh-panel" aria-label="Gene neighborhoods">
+      <div class="nbh-viewport" id="nbhViewport" tabindex="0">
+        <div class="nbh-spacer" id="nbhSpacer"><div class="nbh-row-layer" id="nbhRowLayer"></div></div>
+      </div>
+      <div id="nbhTooltipHost"></div>
     </section>
 
-    <section class="network-panel" aria-label="Interactive network">
-      <header class="network-panel-head">
-        <span class="source-summary" id="networkSourceSummary">Loading source files…</span>
-        <span class="source-actions">
-          <a class="mini-button" id="networkDownloadEdges" href="#" hidden>Download edges</a>
-          <a class="mini-button" id="networkDownloadNodes" href="#" hidden>Download node YAML</a>
-          <a class="mini-button" id="networkDownloadColors" href="#" hidden>Download colors</a>
-        </span>
-      </header>
-      <div class="network-viewport" id="networkViewport" tabindex="0" aria-label="Pan and zoom the network">
-        <svg class="network-svg" id="networkSvg" width="1" height="1" aria-label="Undirected association network">
-          <g id="networkRootGroup">
-            <g id="networkEdgesGroup"></g>
-            <g id="networkNodesGroup"></g>
-            <g id="networkLabelsGroup"></g>
-          </g>
-        </svg>
-      </div>
-      <div class="viewer-overlay" id="networkOverlay">
-        <div class="overlay-card">
-          <span class="loading-spinner" id="networkOverlaySpinner"></span>
-          <strong id="networkOverlayTitle">Loading network</strong>
-          <span id="networkOverlayDetail">Reading and aggregating the source files…</span>
-        </div>
-      </div>
-    </section>
-
-    <div class="network-tooltip" id="networkTooltip" role="tooltip" hidden></div>
-    <div class="network-error" id="networkError" role="alert" hidden></div>
-    <div class="network-toast" id="networkToast" role="status" hidden></div>
+    <div class="nbh-error" id="nbhError" role="alert" hidden></div>
   </main>
 
   <footer class="page-footer">
-    <span>Node YAML is optional in the editor; generated YAML can be reviewed and reused for publication.</span>
+    <span>This editor never overwrites selected files; use the export buttons to save YAML dictionaries or a normalized TSV.</span>
     <span aria-hidden="true">•</span>
-    <span>Display-name aliases and all directional edge rows are unified before filtering.</span>
-    <span aria-hidden="true">•</span>
-    <span>Dragging changes only the browser view; source files are never rewritten.</span>
+    <span>Publication figure pages do not include curation controls.</span>
   </footer>
 
-  <script src="./config.js?v=2"></script>
-  <script src="../shared/network-viewer.js?v=1.2.0"></script>
-  <script>window.NetworkViewer.init();</script>
+  <input id="analysisLoadInput" type="file" accept=".json,application/json" hidden>
+  <input id="tsvFileInput" type="file" hidden>
+  <input id="renameFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
+  <input id="colorFileInput" type="file" accept=".yaml,.yml,text/yaml" hidden>
+
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./config.js?v=3.7.0"></script>
+  <script src="../shared/neighborhood-viewer.js?v=3.7.0"></script>
+  <script src="./domain-curation.js?v=1.3.0"></script>
+  <script src="./analysis.js?v=1.0.0"></script>
+  <script>
+    (async () => {
+      await window.NeighborhoodViewer.init({
+        appTitle: 'appTitle', paperHeader: 'paperHeader', paperTitleEl: 'paperTitleEl', figureTitleEl: 'figureTitleEl',
+        includeInput: 'nbhInclude', excludeInput: 'nbhExclude', includeClearButton: 'nbhIncludeClear', excludeClearButton: 'nbhExcludeClear',
+        includeError: 'nbhIncludeError', excludeError: 'nbhExcludeError',
+        statusText: 'nbhStatus', scaleMode: 'nbhScaleMode', alignQueryCheckbox: 'nbhAlignQuery', flipCheckbox: 'nbhFlip',
+        sameDirectionCheckbox: 'nbhSameDirection', maxIntergenicDistanceInput: 'nbhMaxIntergenicDistance', continuityHelp: 'nbhContinuityHelp',
+        labelsCheckbox: 'nbhShowLabels', zoomInput: 'nbhZoom', zoomValue: 'nbhZoomValue', viewport: 'nbhViewport',
+        spacer: 'nbhSpacer', rowLayer: 'nbhRowLayer', tooltipHost: 'nbhTooltipHost', errorBox: 'nbhError'
+      });
+
+      window.neighborhoodAnalysisEditor = window.NeighborhoodAnalysisEditor.init(window.NeighborhoodViewer);
+
+      window.NeighborhoodDomainEditor.init({
+        tsvChoose: 'chooseTsvButton', renameChoose: 'chooseRenameButton', colorChoose: 'chooseColorButton',
+        tsvClear: 'clearTsvButton', renameClear: 'clearRenameButton', colorClear: 'clearColorButton',
+        tsvInput: 'tsvFileInput', renameInput: 'renameFileInput', colorInput: 'colorFileInput',
+        tsvName: 'tsvFileName', renameName: 'renameFileName', colorName: 'colorFileName', loadButton: 'loadFilesButton',
+        card: 'domainCurationCard', summary: 'domainCurationSummary', search: 'domainSearch', metric: 'domainRankMetric',
+        scope: 'domainRankScope', topCount: 'domainTopCount', suggestButton: 'suggestDomainColors', preserveExisting: 'preserveExistingColors',
+        editMode: 'domainEditMode', preserveUnmatched: 'preserveUnmatchedEntries', tableBody: 'domainTableBody', emptyRows: 'domainTableEmpty',
+        editorEmpty: 'domainEditorEmpty', editorForm: 'domainEditorForm', selectedTitle: 'selectedDomainTitle', selectedId: 'selectedDomainId',
+        renameInputEdit: 'selectedDomainRename', resetRename: 'resetDomainRename', colorEnabled: 'selectedDomainColorEnabled',
+        colorPicker: 'selectedDomainColorPicker', colorText: 'selectedDomainColorText', resetColor: 'resetDomainColor',
+        countOccurrences: 'selectedDomainOccurrences', countGenes: 'selectedDomainGenes', countNeighborhoods: 'selectedDomainNeighborhoods',
+        markerNote: 'selectedDomainMarkerNote', renameDownload: 'downloadRenameYaml', colorDownload: 'downloadColorYaml',
+        bothDownload: 'downloadBothYaml', normalizedDownload: 'downloadNormalizedTsv', inputFormat: 'neighborhoodInputFormat', message: 'domainCurationMessage'
+      });
+    })();
+  </script>
 </body>
 </html>

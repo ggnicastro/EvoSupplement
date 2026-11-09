@@ -1,471 +1,513 @@
-# Network Viewer
+# Gene Neighborhood Viewer
 
-**Status: available.**
+The Gene Neighborhood Viewer is the EvoSupplement module for presenting genomic context as interactive, query-centered gene neighborhoods.
 
-The EvoSupplement Network Viewer presents precomputed biological association networks as interactive, browser-based supplementary figures. It is intended for relationships among protein families, domains, genomic-context features, architectures, clades, structural classes, or other author-defined entities.
+It is intended for comparative protein evolution studies in which conserved gene order, domain architecture, operon-like association, taxonomic distribution, or neighboring functional systems contribute to a biological or evolutionary interpretation.
 
-The viewer does not infer the source network. Authors provide node metadata and edge observations produced by their analysis. The browser resolves node names, unifies aliases, aggregates undirected relationships, filters them by summed evidence, optionally restricts the node set through the YAML `Include` field, detects communities from the currently visible graph, and renders the result.
+The viewer reads either the canonical row-per-domain TSV or a compact architecture file directly in the browser, reconstructs genomic neighborhoods, draws one oriented arrow per gene, and displays one or more domains inside each gene.
 
-## Current capabilities
+## Main capabilities
 
-- undirected networks built from a TSV edge table;
-- optional node names, alias unification, inclusion status, curated functions, and notes from a YAML dictionary;
-- automatic unification by `Display_name`;
-- summation of every directional and relationship-type row for the same undirected node pair;
-- minimum-total-edge-count filtering, with a default threshold of 5;
-- a live switch between YAML-curated nodes and all TSV-referenced nodes;
-- Louvain and Leiden community detection;
-- weighted or unweighted community detection;
-- configurable resolution, random seed, and local-moving iterations;
-- community calculation exclusively from the currently visible network;
-- coloring by curated YAML function or detected community;
-- grouping layouts by YAML function, detected community, or no category;
-- same-category edges colored with the active category color;
-- cross-category edges shown as neutral dashed relationships;
-- optional author-supplied function-color dictionary;
-- deterministic automatic colors when no function-color dictionary is supplied;
-- Fruchterman–Reingold, Eades spring, Kamada–Kawai, grouped spring, circle, concentric, and grid layouts;
-- node dragging and pinning;
-- pan, wheel zoom, zoom buttons, and fit-to-network;
-- node search by display name, YAML key, function, detected community, or notes;
-- persistent node and edge selection;
-- hover details for nodes and aggregated relationships;
-- node sizing by degree, weighted degree, or a constant radius;
-- optional display of nodes that become isolated under the active edge threshold;
-- local-file loading in the editor and automatic hosted loading in publication figures;
-- source-file downloads from publication pages;
-- generated node-YAML and community-color downloads from the editor.
-
-All parsing, aggregation, filtering, community detection, layouts, and rendering occur in the browser. The source TSV and YAML files are never rewritten.
+- Renders forward- and reverse-strand genes as oriented arrows.
+- Displays ordered domain architectures inside each gene.
+- Renames domains through a simple YAML dictionary.
+- Applies publication-specific domain colors through a separate YAML dictionary.
+- Highlights one or more query genes in each neighborhood.
+- Filters large datasets by domain, PFAM, organism, taxonomy, accession, product, assembly, or neighborhood identifier.
+- Retains query-connected segments using optional strand continuity and a maximum intergenic gap, with separate rows for disconnected queries.
+- Supports fixed-width schematic domain layouts and genomic-coordinate-based layouts.
+- Can align neighborhoods around their query genes.
+- Can orient negative-strand queries in a common direction.
+- Links canonical genomic neighborhoods to NCBI Nucleotide and compact-format genes with known PIDs to NCBI Protein.
+- Uses virtualized rendering so thousands of neighborhoods do not require thousands of SVG elements at the same time.
+- Provides an editor page for local file loading, automatic format detection, normalized TSV export, and publication pages for automatic hosted-data loading.
 
 ## Module organization
 
+| Path | Purpose |
+|---|---|
+| `shared/neighborhood-viewer.js` | TSV parsing, YAML dictionary parsing, filtering, layout, SVG rendering, tooltips, NCBI links, and virtual scrolling. |
+| `shared/styles.css` | Shared appearance for all neighborhood viewer pages. |
+| `editor/` | Interactive authoring workspace and local file-loading page. |
+| `editor/config.js` | Authoring workspace defaults and manual-loading behavior. |
+| `figure1/`, `figure2/`, and so on | One publication-ready genomic-context figure per folder. |
+| `figureN/config.js` | Figure title, data paths, layout defaults, marker rules, colors, and size limits. |
+| `figureN/data/` | Figure-specific TSV dataset and YAML dictionaries. |
+| `figureN/data/te.tsv` | Example name for the neighborhood dataset. The filename may be changed in the configuration. |
+| `figureN/data/domain_rename.yaml` | Optional mapping from raw domain names to publication display names. |
+| `figureN/data/color_dic.yaml` | Mapping from display names to colors. |
+
+The shared JavaScript and CSS belong to the reusable module. Scientific content belongs to each figure folder.
+
+## Editor page and publication page
+
+### Editor page
+
+The editor is intended for:
+
+- loading a canonical TSV or compact architecture dataset from the local computer;
+- testing rename and color dictionaries;
+- checking filters and layout controls;
+- validating a new dataset before publication;
+- exploring configuration choices without modifying a published figure.
+
+Manual loading is enabled in the editor configuration. Local files remain in the browser session and are not uploaded by the viewer.
+
+### Publication page
+
+A publication folder such as `figure1/` should:
+
+- load its TSV and YAML files automatically;
+- show the final paper or figure title;
+- use stable layout defaults selected by the authors;
+- work without requiring readers to choose local files;
+- retain interactive filters, layout controls, tooltips, and external links.
+
+For a publication page, all configured data paths must refer to files stored with the figure or to accessible hosted resources.
+
+## Creating a new gene neighborhood figure
+
+1. Duplicate a working publication folder and rename it with the next figure number or a descriptive identifier.
+2. Keep the folder inside `neighborhood-viewer/` so its shared-file references remain valid.
+3. Replace the example data file with a canonical neighborhood TSV or a compact architecture file.
+4. Replace or revise the domain rename dictionary.
+5. Replace or revise the domain color dictionary.
+6. Update the figure's `config.js` with the final title, input paths, marker rules, and layout defaults.
+7. Verify the selected input format and review parser warnings; for compact data, export a normalized TSV after checking the reconstruction.
+8. Test filtering, query orientation, query alignment, labels, colors, and NCBI links.
+9. Test performance using the full publication dataset rather than a small subset only.
+10. Add the figure folder to the root `manifest.js` so it appears on the EvoSupplement portal.
+
+The reusable `index.html`, shared JavaScript, and shared CSS normally do not require figure-specific edits.
+
+## Configuration reference
+
+Each figure reads its settings from `config.js`.
+
+### Titles and input sources
+
+| Field | Purpose |
+|---|---|
+| `title` | Browser tab title and internal viewer title. |
+| `paperTitle` | Optional paper citation or title shown above the publication viewer. |
+| `figureTitle` | Figure number and description shown above the publication viewer. |
+| `manualLoad` | Enables editor-style local file loading instead of automatic hosted-data loading. Publication pages normally leave this disabled. |
+| `inputFormat` | `auto`, `standard`, or `compact`. Auto-detection is the recommended default. |
+| `dataUrl` | Relative path to the canonical TSV or compact architecture dataset. |
+| `renameUrl` | Relative path to the domain rename YAML dictionary. |
+| `colorUrl` | Relative path to the domain color YAML dictionary. |
+
+All relative paths are interpreted from the figure's `index.html`.
+
+### Filter text
+
+| Field | Purpose |
+|---|---|
+| `includePlaceholder` | Guidance shown in the include-filter box. |
+| `excludePlaceholder` | Guidance shown in the exclude-filter box. |
+
+### Initial layout
+
+| Field | Purpose |
+|---|---|
+| `defaultScaleMode` | Initial layout mode: fixed-width schematic domains or genomic-coordinate fit. |
+| `defaultAlignQuery` | Initially aligns query-gene centers when enabled. |
+| `defaultFlipNegativeQueries` | Initially mirrors neighborhoods whose query is on the reverse strand. |
+| `defaultSameDirectionOnly` | Initially keeps query-connected genes on the same strand as the query. Default: `false`. |
+| `defaultMaxIntergenicDistance` | Maximum gap between consecutive genes in base pairs. Default: `20`; `null` disables the distance filter. Synthetic compact coordinates do not use this limit. |
+| `defaultShowLabels` | Initially displays domain labels when space permits. |
+| `defaultZoom` | Initial visual zoom level. |
+
+### Fixed-width geometry
+
+| Field | Purpose |
+|---|---|
+| `fixedDomainWidth` | Default screen width for regular domain blocks. |
+| `fixedDomainWidths` | Optional name-specific widths for selected domains. |
+| `fixedGeneGap` | Screen-space gap between neighboring gene arrows. |
+| `fixedMarkerOnlyGeneWidth` | Width used when a gene contains only marker annotations. |
+
+### Colors and markers
+
+| Field | Purpose |
+|---|---|
+| `unknownDomainColor` | Neutral color for domains absent from the color dictionary. |
+| `geneBackgroundColor` | Background body color visible behind domains or in marker-only genes. |
+| `markerDomains` | Definitions for compact visual markers such as transmembrane segments or signal peptides. |
+
+### File-size protection
+
+| Field | Purpose |
+|---|---|
+| `maxDataBytes` | Browser-side maximum size applied independently to the TSV and each YAML dictionary. |
+
+The current figure configuration uses a 64 MB limit per input file.
+
+## TSV data model
+
+The TSV represents neighborhoods, genes, and domains in a flattened form. A gene may occur on multiple rows when it contains multiple domain annotations.
+
+The viewer first groups rows by `block_id`, then groups repeated rows for the same gene using its protein identifier and coordinates. Domain entries are ordered by `domp`.
+
+### Required columns
+
+| Column | Purpose |
+|---|---|
+| `block_id` | Identifier shared by all rows in one genomic neighborhood. |
+| `pid` | Protein identifier for the gene. |
+| `nucleotide` | Nucleotide accession used for labels and NCBI links. |
+| `start` | Gene start coordinate. |
+| `end` | Gene end coordinate. |
+| `strand` | Gene orientation. Reverse strands may be represented as minus or negative one. |
+| `query` | Marks the focal gene or genes. Accepted true-like values include 1, true, yes, and y. |
+| `dom` | Raw domain or marker name. |
+| `domp` | Domain order within the gene. |
+
+The viewer stops with an error when any required column is missing.
+
+### Useful optional columns
+
+| Column | Use in the viewer |
+|---|---|
+| `blockp` | Secondary ordering value for domain records. |
+| `domain_start`, `domain_end` | Optional residue coordinates retained in domain tooltips and normalized compact-format exports. |
+| `coordinate_source` | `synthetic` marks schematic compact-format coordinates so they are not used as biological intergenic distances. |
+| `feature_order` | Stable ordering support for genes. |
+| `assembly` | Display and filtering by assembly accession. |
+| `organism` | Organism label and filtering. |
+| `taxid` | Taxonomic identifier and filtering. |
+| `lineage` | Taxonomic lineage and filtering. |
+| `classification` | Alternate taxonomic classification and filtering. |
+| `product` | Product description shown in tooltips and searchable filters. |
+| `locus` | Locus identifier searchable with `locus:` or unprefixed text. |
+| `internal_id` | Additional internal or protein identifier included in searches. |
+| `replaced` | Replacement accession included in searches. |
+| `arch` | Architecture annotations searchable with `arch:` and unprefixed text. |
+| `pfam` | PFAM annotation used by the PFAM filter. |
+| `profiledb` | Auxiliary annotation searchable with `ProfileDB:` and unprefixed text, and shown as **ProfileDB** in tooltips. |
+
+Additional TSV columns are searchable by their header and through unprefixed text, even when the interface does not display them. The normalized export retains its documented canonical columns; keep the original input to preserve extra metadata outside the current session.
+
+## Compact architecture input
+
+The alternative compact format has no header and uses four tab-separated fields per neighborhood:
+
+1. query protein PID;
+2. the left-to-right gene architecture and orientation string;
+3. organism name;
+4. a semicolon-separated detailed list of genes, protein accessions, domain coordinates, and domain names.
+
+The architecture field is authoritative for visual order. `+` joins domains in one protein, `->` and `<-` describe gene direction, `||` flips the orientation of the next gene, `*` marks the query domain, and `?` preserves an unknown gene or annotation. The PID in the first field must correspond to the gene carrying the starred domain.
+
+The detailed field uses entries such as `PID__start..end&domain,start..end&domain`. Its order may be the same as or the reverse of the architecture field. The parser evaluates both orientations, anchors the query PID, and matches gene domain signatures before reconstructing the neighborhood.
+
+Compact files are schematic. They contain protein-domain coordinates but not genomic coordinates or intergenic distances. The viewer therefore synthesizes stable display coordinates, keeps true domain spans in tooltips, and links known PIDs to NCBI Protein instead of Nucleotide. Use fixed-width mode for the intended presentation.
+
+The editor can export `neighborhoods.normalized.tsv`, a canonical standard-format representation of the reconstructed neighborhoods. Compact exports include `coordinate_source=synthetic`; the viewer also recognizes legacy normalized compact output. This preserves the distinction between display coordinates and measured genomic distances when a normalized file is reloaded. Review the visualization and any parser warnings before using that normalized file in a publication project. Normalized exports contain the full reconstructed input, not only the currently visible segments.
+
+
+## Neighborhood coordinates
+
+When `block_id` follows an accession-and-coordinate pattern, the viewer can use it to determine the complete neighborhood interval. Otherwise, the neighborhood range is inferred from the minimum and maximum gene coordinates.
+
+Gene and neighborhood links are generated from `nucleotide`, `start`, and `end`. Reverse-strand gene links include the reverse-strand parameter when opened at NCBI.
+
+Before publication, verify a sample of forward- and reverse-strand links manually.
+
+## Domain rename dictionary
+
+`domain_rename.yaml` is a flat key-to-value mapping from raw annotation names to the names that should appear in the figure.
+
+Use it to:
+
+- merge synonymous profile names;
+- replace internal profile identifiers with publication labels;
+- standardize capitalization;
+- shorten labels for compact domain blocks;
+- group several source annotations under one biological name.
+
+Matching is case-insensitive when an exact match is not available. The dictionary must remain flat; nested YAML structures are not supported by this viewer.
+
+Renaming is applied before the display color is chosen.
+
+## Domain color dictionary
+
+`color_dic.yaml` is a flat key-to-color mapping. Keys should normally use the final display names produced by the rename dictionary.
+
+Domains without a configured color remain neutral rather than receiving an arbitrary color. This makes incomplete dictionaries visible during quality control and avoids accidental color reuse.
+
+Use colors consistently across related figures and explain biologically meaningful color groupings in the paper legend.
+
+## Marker domains
+
+Some annotations represent compact features rather than full domain blocks. The configuration can define these as markers.
+
+Typical examples include:
+
+- transmembrane segments;
+- signal peptides;
+- lipobox or secretion markers;
+- short sequence features that should not occupy a full domain width.
+
+Each marker definition has a name, screen-space width, color, and position rule.
+
+An ordered marker remains in its `domp` position. A start marker is placed at the protein start, which corresponds to the tail of the oriented gene arrow and changes side when the gene is reversed.
+
+Markers are matched against both raw and renamed domain names without case sensitivity. Their visual width is schematic and does not represent amino acid coordinates because the current TSV format does not provide residue-level domain boundaries.
+
+## Layout modes
+
+### Fixed domain widths
+
+This is the default schematic mode.
+
+- Repeated occurrences of the same regular domain have the same screen width at a given zoom level.
+- Gene spacing is fixed.
+- Long neighborhoods may extend beyond the browser width and use horizontal scrolling.
+- Rows begin near the left label unless query alignment is enabled.
+- The layout emphasizes domain architecture rather than nucleotide distance.
+
+Use this mode when the primary goal is comparing protein architectures and gene content.
+
+### Fit window
+
+This mode uses genomic coordinates.
+
+- Gene lengths and intergenic distances are represented proportionally.
+- Each neighborhood can fill the available display width independently.
+- Very short genes or domains may be visually compressed.
+- The layout emphasizes genomic spacing rather than equal domain visibility.
+
+Use this mode when physical organization of the locus is an important part of the interpretation.
+
+## Query alignment and orientation
+
+Query alignment and query orientation are independent controls.
+
+### Align query
+
+When enabled, neighborhoods are shifted so query-gene centers share a common vertical guide.
+
+In fixed-width mode, this aligns the schematic query positions. In fit-window mode, it uses a shared query-centered genomic scale, so individual rows may no longer fill both sides of the window.
+
+If a neighborhood contains multiple query genes, their combined center is used as the anchor.
+
+### Orient query to the right
+
+When enabled, neighborhoods whose query is on the reverse strand are mirrored. Gene order, strand direction, domain order, and marker placement are mirrored together.
+
+This control is useful for comparing conserved context upstream and downstream of homologous query genes.
+
+## Filters
+
+### Query continuity
+
+Neighborhood Viewer 3.5.0 adds the same controls to both the editor and publication pages:
+
+| Control | Behavior |
+|---|---|
+| **Same direction as query** | Keeps consecutive genes on the query’s strand. Off by default. |
+| **Intergenic distance (bp)** | Maximum allowed gap between consecutive genes, initially **20 bp**. Clear the field to disable this rule. A value of `0` remains an active limit. |
+
+Starting at each query, the viewer follows adjacent genes to the left and right. It stops on each side at the first gene or gap that fails an enabled rule; it does not skip a failing gene and resume farther away. Query genes remain visible. Queries connected under the enabled rules share one row; disconnected query segments appear in separate rows even when they came from the same original neighborhood.
+
+Coordinates are treated as inclusive: the gap is `max(0, next.start - previous.end - 1)`. A gene ending at 100 and the next starting at 121 have a 20 bp gap and remain connected at the default limit. Touching or overlapping genes have a zero gap. The limit applies to each consecutive pair, independently of the total distance from the query.
+
+The distance limit uses genomic coordinates, independently of the schematic spacing shown in fixed-width mode. Fully synthetic compact input disables the distance field because it has no measured intergenic distances; the same-direction control remains available. Runtime notes below the controls explain synthetic coordinates or neighborhoods without a query marker.
+
+These controls change only the view. Clear the distance field and uncheck **Same direction as query** to restore the full neighborhoods before text filtering. The original selected files are unchanged. The editor’s normalized TSV and package exports retain the full source dataset, not just the filtered view. Status counts distinguish original neighborhoods, displayed rows, and visible genes.
+
+### Include and exclude text
+
+Version 3.7.0 uses the same expression syntax in **Include** and **Exclude**:
+
+- **Include** keeps a retained segment when the entire expression matches.
+- **Exclude** removes a retained segment when the entire expression matches. With both boxes filled, the row must satisfy Include and must not satisfy Exclude.
+- A **comma means AND**. **`or` joins alternatives within each comma-separated group**. `Pfam:oi or Pfam:X, Pfam:DDD` means **(oi OR X) AND DDD**, with all three conditions scoped to Pfam. DDD is required. Parentheses are explanatory here; enter groups using commas and `or`.
+- Conditions can match different genes in the same neighborhood or retained segment. Search runs after the continuity controls: a removed gene cannot satisfy any condition. Clear the intergenic-distance limit and disable **Same direction as query** to search whole neighborhoods.
+- **Unquoted values match partially**; **double-quoted values match exactly**. Field names, values and `or` are case-insensitive. Spaces after a colon are allowed. Other spaces belong to the value, so `product:radical SAM` searches that phrase partially.
+- For `pfam`, `profiledb`, `arch` and `dom`, exact matching accepts a complete `+`-separated domain or the complete cell. Thus `Pfam:"MTase"` matches `SIG+MTase`, but not `MTase_2`. For `lineage` and `classification`, exact matching accepts a complete `>`- or `;`-separated taxon/category or the complete cell. Other columns match the complete cell when quoted.
+- **No prefix searches all input columns**, including extra metadata. `MTase` is a partial all-field search; `"MTase"` is an exact value/list-item search. No `All:` prefix is needed.
+- A field prefix searches only that field. Unknown or missing fields never match and never fall back to all fields. Pfam and ProfileDB values remain separate from `dom` and from each other.
+- Use double quotes around values containing literal commas or the word `or`, such as `product:"alpha, beta or gamma"`. For an unprefixed value containing a colon, quote the whole value: `"AMFJ01034553.1:1-16703"`. A field-qualified value may contain colons after its first colon.
+- Inside double quotes, `\"` represents a literal quote and `\\` a literal backslash. Apostrophes are ordinary characters, not quoting syntax.
+- A leading minus sign still negates one condition, e.g. `Pfam:MTase, -Dom:TM`. Use the Exclude box for ordinary exclusion expressions.
+- An unfinished quote, empty condition or dangling operator displays an error next to the corresponding input and shows no rows until corrected. Clearing the input restores its unfiltered behavior.
+
+**Migration from earlier versions:** use commas instead of spaces between conditions. Quotes now require exact matches. To exclude either A or B, use `Pfam:A or Pfam:B`; `Pfam:A, Pfam:B` excludes only rows containing both. Existing saved filter strings should be reviewed against these rules.
+
+#### Fields and examples
+
+Every standard TSV input column can be addressed by its header, including additional metadata and values appearing on later rows of a repeated gene. Compact input supports the fields it supplies or reconstructs; absent Pfam/ProfileDB data does not acquire matches from Domain.
+
+| Field | Search target | Example |
+|---|---|---|
+| `Pfam` | Only Pfam annotations. | `Pfam:Radical`, `Pfam: MTase`, `Pfam:"MTase"` |
+| `ProfileDB` | Only ProfileDB annotations. | `ProfileDB:"RADICAL-SAM"` |
+| `Dom` or `Domain` | Domain (`dom`), including raw and renamed domain names; excludes other annotation sources. | `Dom:"PHP"` |
+| `arch` | Only the domain architecture column. | `arch:PHP` |
+| `Taxonomy` or `taxon` | Combined `organism`, `taxid`, `single_tax_name`, `single_tax_taxid`, `lineage` and `classification` values. | `Taxonomy:Ignicoccus` |
+| `lineage` | Only lineage. | `lineage:thermoproteota` |
+| `classification` | Only classification. | `classification:"environmental samples"` |
+| `organism` or `org` | Only organism names. | `organism:"uncultured bacterium"` |
+| `taxid` | Only the taxonomic identifier column. | `taxid:"77133"` |
+| `single_tax_name` | Only the selected taxon name column. | `single_tax_name:"FCB group"` |
+| `single_tax_taxid` | Only the selected taxon ID column. | `single_tax_taxid:"1783270"` |
+| `gene` | Only gene names. | `gene:"nadA"` |
+| `product` | Only product descriptions. | `product:"hypothetical protein"` |
+| `pid` or `protein` | Only protein identifiers; use `locus`, `internal_id` or `replaced` for those separate columns. | `pid:"EKD29084.1"` |
+| `nucleotide`, `nucc` or `accession` | Only nucleotide accession. | `nucleotide:"AMFJ01034553.1"` |
+| `assembly` | Only assembly accession. | `assembly:"GCA_000299275.1"` |
+| `block_id` or `block` | Original neighborhood identifier, including when continuity filters split it into segments. | `block_id:"AMFJ01034553.1:1-16703"` |
+| `seq_type` | Only sequence type. | `seq_type:"plasmid"` |
+| Any other input header | Only that input column, without requiring a predefined alias. | `topology:"circular"`, `is_fragment:"1.0"` |
+| No prefix | All input columns and displayed domain names. | `methyltransferase`, `"MTase"` |
+
+#### Combining conditions
+
 ```text
-network-viewer/
-├── README.md
-├── group-colors.example.yaml
-├── shared/
-│   ├── network-viewer.js
-│   └── styles.css
-├── editor/
-│   ├── index.html
-│   ├── config.js
-│   └── data/
-│       ├── interactions.tsv
-│       └── nodes.yaml
-└── figure1/
-    ├── index.html
-    ├── config.js
-    └── data/
-        ├── interactions.tsv
-        └── nodes.yaml
+Pfam:Radical_SAM or ProfileDB:RADICAL-SAM, classification:Archaea
 ```
 
-`shared/` contains the reusable implementation. `editor/` accepts local files and also loads a bundled example. Each `figureN/` folder is a publication instance that loads its configured files automatically and does not expose upload controls.
+Requires either the Pfam or ProfileDB annotation, plus Archaea in classification. In Include it keeps matching rows; in Exclude it removes them.
 
-## Input files
+| Box | Expression | Result |
+|---|---|---|
+| Include | `Pfam:A, Pfam:B` | Keep rows containing both A and B in Pfam. |
+| Include | `Pfam:A or Pfam:B` | Keep rows containing either A or B in Pfam. |
+| Exclude | `Pfam:A, Pfam:B` | Remove only rows containing both A and B in Pfam. |
+| Exclude | `Pfam:A or Pfam:B` | Remove rows containing either A or B in Pfam. |
+| Either | `Pfam:oi or Pfam:X, Pfam:DDD` | Match (oi OR X) AND DDD in Pfam. |
 
-The edge TSV is the only required file in the editor. A node YAML is optional and adds aliases, display names, curated inclusion, functions, and notes. A third YAML containing function colors is also optional. Publication figures normally provide a node YAML so their curated defaults and labels are reproducible, but the shared viewer can load a configured edge TSV without one.
+Run the filtering regression tests from the project root with:
 
-### Edge TSV
-
-The default columns are:
-
-| Column | Meaning |
-|---|---|
-| `source` | Name or YAML key of the first endpoint. |
-| `target` | Name or YAML key of the second endpoint. |
-| `edge_type` | Directional or relationship annotation retained for hover details. |
-| `edge_count` | Numeric evidence count contributed by this row. |
-
-The column names can be changed through `edgeColumns` in `config.js`.
-
-The input may contain reciprocal rows, multiple relationship types, or repeated observations. The viewer deliberately treats the final network as undirected. After resolving both endpoints to canonical display-name nodes, it groups every row for the same unordered pair and sums all `edge_count` values.
-
-For example, all of the following contribute to one displayed relationship between A and B:
-
-```text
-A    B    Upstream      6
-B    A    Downstream    6
-A    B    Cterminal     3
-B    A    Nterminal     3
+```sh
+node --test neighborhood-viewer/tests/filter.test.cjs
 ```
 
-The resulting undirected relationship has a total edge count of 18. The four original rows, their types, directions, and individual counts remain available in the edge hover card.
+## Labels, tooltips, and links
 
-### Node YAML
+Viewer 3.5.1 displays the gene's `profiledb` annotation in the tooltip, alongside PFAM and the other gene information. For example, a gene drawn with `HsdM_N` and `N6_Mtase` can have `MTase+HAD` in **ProfileDB**; that annotation explains why it matches a search for `HAD`. Search behavior is unchanged. Empty values and `-` are omitted from the tooltip.
 
-The YAML is a top-level dictionary. Each key identifies one input node and contains scalar metadata fields:
+- Domain labels appear when enabled and when sufficient width is available.
+- Hovering over a domain or gene reveals its protein identifier, organism, product, coordinates, and other available metadata.
+- Clicking a gene opens its nucleotide interval at NCBI.
+- Clicking the region link below a row label opens the complete neighborhood interval.
+- Query genes receive a distinct visual outline.
 
-```yaml
-Internal_node_key:
-  Display_name: Reader-facing label
-  Include: 1
-  Function: Functional_group
-  Notes: Optional note
-```
+The viewer links to external NCBI pages; therefore, those links require internet access even when EvoSupplement itself is hosted locally.
 
-The default field names can be changed through `nodeFields` in `config.js`.
+## Virtualized rendering
 
-| Field | Default behavior |
-|---|---|
-| `Display_name` | Canonical reader-facing label and the identity used for unification. If blank, the YAML key is used. |
-| `Include` | Curated inclusion flag. Entries interpreted as `1`, `true`, or `yes` enter the default node scope. |
-| `Function` | Curated category used for function coloring and function-grouped layouts. Blank or `.nan` values become `Unassigned`. |
-| `Notes` | Optional text displayed in node hover details. |
+The viewer renders only the rows visible in the browser plus a small buffer. This allows large datasets to remain responsive without creating an SVG for every neighborhood at once.
 
-The parser intentionally accepts the simple two-level YAML schema shown above. It supports quoted strings, double-quoted Unicode escapes, booleans, numbers, nulls, and comments. Nested lists or deeper arbitrary YAML structures are outside the module schema.
+Performance still depends on TSV size, number of neighborhoods, number of genes and domain records, filter complexity, browser memory, and the width of fixed-layout tracks.
 
-## Node scope and `Include`
+Always test the complete publication dataset in at least one current desktop browser.
 
-The toolbar contains:
+## Shared files and versioning
 
-> **Only YAML Include = 1**
+All gene-neighborhood figures use the same files in `shared/`. A bug fix or interface change applied there affects every neighborhood figure.
 
-It is enabled by default when a node YAML is present. When no node YAML is loaded, the control is disabled and every TSV-referenced node is eligible.
+When shared JavaScript or CSS is updated, maintainers should ensure that all figure pages reference the same current asset version. This is a framework-maintenance task rather than a normal figure-authoring task.
 
-When enabled:
+## Local testing
 
-- a canonical node is eligible if at least one YAML entry merged into it has `Include: 1`;
-- relationships are retained only when both endpoints are eligible;
-- the active edge-count threshold is then applied;
-- isolated eligible nodes appear only when **Isolated nodes** is enabled.
+Serve the repository root through HTTP and open the neighborhood figure through its portal link or full site path. Direct filesystem access may prevent the browser from loading TSV and YAML files.
 
-When disabled:
+Test at least:
 
-- every node referenced by the TSV may enter the graph, including YAML entries with `Include: 0`;
-- TSV endpoints not found in the YAML are retained as `Unassigned` nodes;
-- YAML entries that are never referenced by the TSV are not added merely because the scope switch is off;
-- `Display_name`, `Function`, and `Notes` are still used whenever YAML metadata exists.
+- automatic loading on publication pages;
+- manual loading on the editor page;
+- neighborhood and gene counts;
+- query identification;
+- forward and reverse orientation;
+- fixed and fit layouts;
+- query alignment;
+- include and exclude filters;
+- domain renaming and colors;
+- marker placement;
+- gene and neighborhood NCBI links;
+- performance with the full dataset;
+- the final portal link from `manifest.js`.
 
-This design lets the author publish a curated default while allowing readers to inspect the broader TSV network without rendering thousands of unrelated YAML entries.
+## Domain curation in `editor/`
 
-## Display-name unification
+The Gene Neighborhood Editor can start from either supported neighborhood input alone. The rename and color YAML dictionaries are optional inputs. After the input is loaded, the **Domain curation** panel provides an author-facing workflow that is intentionally absent from publication `figureN/` pages.
 
-The viewer uses this sequence:
+The editor computes three frequency measures for every canonical domain identifier:
 
-1. read the scalar metadata for every valid top-level YAML entry;
-2. choose `Display_name` as the canonical node label;
-3. merge YAML entries that have the same normalized display name;
-4. resolve each TSV endpoint first as a YAML key and then as a display name;
-5. retain an unmatched TSV endpoint as an unannotated node;
-6. replace every endpoint with its canonical display name;
-7. aggregate all rows for each unordered canonical pair;
-8. apply the active YAML inclusion scope;
-9. apply the minimum total edge-count threshold.
+- **Distinct genes** — the default ranking, counting a domain at most once per gene;
+- **Occurrences** — every domain segment in the TSV;
+- **Distinct neighborhoods** — the number of neighborhood blocks containing the domain.
 
-This permits several internal keys to become one displayed node. All original YAML keys and functions remain available in the node hover card.
+Editor 1.2.0 defaults **Frequency scope** to **Filtered view**. Counts, ranks, the summary, and Top-N color suggestions use only the genes retained after the direction, intergenic-distance, Include, and Exclude filters. They update automatically whenever those filters change, across the entire filtered dataset, including rows outside the scrolling viewport. Domains with no remaining occurrences are hidden from this scope. **All loaded data** remains available for comparing the original dataset.
 
-If merged entries provide more than one non-empty `Function`, the first included function is used as the primary curated function. When none of the merged entries is included, the first non-empty function is used. All supplied functions remain visible in hover details, and the processing report records the conflict. Authors should correct the YAML when this merge is not biologically intended.
+The neighborhood frequency counts distinct original neighborhoods: two displayed segments from one source neighborhood contribute at most one neighborhood for a given domain. Occurrences count domain instances, while Genes counts each retained gene containing that domain once. The domain-name search only narrows the table; it does not change these counts or the statistical scope used by Top-N suggestions.
 
-Relationships that become self-loops after display-name unification are omitted from the drawing and reported.
+Filtering preserves all domain name and color edits. If the selected domain leaves the filtered view, the editor displays a note and restores its form when it returns. YAML and normalized TSV exports retain the complete curated data. Special markers such as TM, SIG, and SIF appear when present in the selected scope but remain excluded from automatic Top-N color suggestions.
 
-## Edge filtering
+Choose Top 10, 15, 20, or a custom number and use **Suggest colors** to assign a deterministic high-contrast palette. Existing selected colors can be preserved. Selecting a row, or clicking a domain block while editor mode is enabled, opens controls for:
 
-The default publication configuration uses:
+- changing the display name without changing the original domain identifier;
+- including or excluding that domain from the color dictionary;
+- selecting a color visually or entering a hexadecimal color;
+- reviewing occurrence, gene, and neighborhood counts.
 
-```text
-minimum total edge count = 5
-```
+The original TSV value remains the canonical key for both exported dictionaries. This means renaming a domain never breaks its color association. The editor can export:
 
-The threshold is applied **after** all directions, edge types, aliases, and repeated rows have been unified and summed. A relationship is visible when its aggregate total is greater than or equal to the active threshold.
+- `domain_rename.yaml`;
+- `color_dic.yaml`;
+- a ZIP containing both files.
 
-The toolbar provides:
+Only names that differ from their original identifiers are included in the rename YAML. Only explicitly selected colors are included in the color YAML. Entries loaded from an existing YAML but not found in the current TSV are preserved by default and can be omitted with the corresponding editor option. Selected files are never overwritten.
 
-- a logarithmic slider for rapid exploration across a wide count range;
-- a numeric field for an exact threshold;
-- a live summary of visible nodes and relationships.
+## Analyze neighborhoods (editor only)
 
-Changing the threshold does not automatically rearrange positions. This avoids unexpected movement while a reader is examining the graph. Use **Run layout** or **Re-layout** after a major change.
+Version 3.6.0 adds a collapsed **Analyze neighborhoods** workspace in the editor. Load your input, adjust the continuity and text filters, open the panel and run the analysis. Choose the filtered cohort or all loaded query-connected segments. Results link back to the corresponding neighborhood rows without rewriting Include/Exclude filters.
 
-When community detection is active, changing the threshold immediately recalculates the communities from the newly visible nodes and relationships.
+The workspace provides binary or abundance-weighted Jaccard similarity, a sparse similarity network with explicit grouping rules, complete and local order patterns, and exploratory candidate alternative-domain pairs with coexistence exceptions. Gene order is oriented relative to the query, while domain order within each protein is retained. Original domain IDs are the default; curated display-name grouping is an explicit option with its mapping recorded.
 
-### Isolated nodes
+Use the analysis JSON to save or reopen a calculation and the analysis ZIP for tables, parameters and provenance. **Download package** also includes the current analysis session when one exists. Analysis sessions are separate from Builder states and do not become interactive tools in published reader pages. Results are marked stale when their inputs or settings change. See [analysis methods, controls and limits](editor/ANALYSIS.md).
 
-By default, nodes with no relationship above the active threshold are hidden so the connected graph can be fitted at a readable scale. The **Isolated nodes** checkbox reveals every eligible node in the current YAML scope.
+Calculations run locally in a Web Worker. Open the Studio through its local HTTP server or a hosted site; an unsupported or blocked worker produces an actionable error. Statistical associations are exploratory: incomplete annotation, related taxa and overlapping loci can influence apparent alternatives, and low co-occurrence alone does not demonstrate functional replacement.
 
-When community detection is active, a visible isolated node forms a singleton community because it has no visible relationship to another node.
-
-## Community detection
-
-The community panel offers three methods:
-
-| Method | Behavior |
-|---|---|
-| `None` | No detected partition. Curated YAML functions remain available for color and layout. |
-| `Louvain` | Multilevel modularity optimization using local node moves and graph aggregation. |
-| `Leiden` | Local moving followed by connectivity refinement and aggregation, preventing disconnected detected groups in the rendered partition. |
-
-Community detection is descriptive and depends on the active graph and parameters. It does not replace the author's biological interpretation.
-
-### Visible-network rule
-
-Communities are always calculated from the graph currently shown to the reader, in this order:
-
-1. resolve and unify all names;
-2. select either YAML `Include: 1` nodes or all TSV-referenced nodes;
-3. retain relationships whose summed total meets the minimum edge-count threshold;
-4. include or hide isolated nodes according to the checkbox;
-5. run Louvain or Leiden on exactly those visible nodes and relationships.
-
-Search, hover, selection, pan, zoom, and manual node movement do not change community membership because they do not hide graph elements.
-
-### Parameters
-
-| Control | Meaning |
-|---|---|
-| `Resolution` | Controls granularity. Lower values generally favor fewer, larger communities; higher values favor more, smaller communities. |
-| `Weight by edge count` | When enabled, each relationship uses its aggregated total `edge_count`; when disabled, every visible relationship has weight 1. |
-| `Seed` | Controls deterministic node-processing order for reproducible runs with the same browser implementation, data, and parameters. |
-| `Iterations` | Maximum local-moving passes at each multilevel stage. |
-| `Recompute` | Runs the selected method again on the current visible graph. |
-
-The default resolution is 1.0, the default seed is 42, and edge weights are enabled.
-
-The summary reports the method, number of communities, weighting mode, resolution, and modularity value `Q`. Community numbers are display identifiers ordered primarily by community size. They should not be interpreted as stable biological names across different filters or parameter settings.
-
-## Colors
-
-### Color nodes by YAML function
-
-This preserves the original behavior:
-
-- each node uses the color associated with its curated `Function`;
-- an edge between two nodes with the same non-empty function uses that function color;
-- an edge between different functions is neutral gray and dashed;
-- `Unassigned` receives a neutral color.
-
-### Color nodes by detected community
-
-This option becomes available after Louvain or Leiden is selected:
-
-- each detected community receives a deterministic automatic color;
-- an edge within one community uses that community color;
-- an edge between communities is neutral gray and dashed;
-- the legend changes from functions to communities;
-- YAML functions remain visible in node and edge hover details.
-
-Community colors are generated by the viewer because the number and composition of communities can change with node scope, threshold, resolution, weighting, or algorithm.
-
-### Optional function-color dictionary
-
-When no color file is supplied, the viewer assigns deterministic colors to each distinct YAML function. Common groups in the bundled example use a publication-oriented palette, while unseen names receive colors from a stable fallback palette.
-
-A function-color YAML may be configured through `colorUrl` or selected in the editor. The simplest form is:
-
-```yaml
-Arc2_FHA: "#86b7e8"
-Arc2_classical: "#ef8e91"
-Conflict: "#b99bd3"
-```
-
-The following nested form is also accepted:
-
-```yaml
-colors:
-  Arc2_FHA: "#86b7e8"
-  Arc2_classical: "#ef8e91"
-```
-
-A dictionary may be partial. Missing functions continue to receive automatic colors. See `group-colors.example.yaml` for a complete example.
-
-The edge width follows a logarithmic transformation of aggregate `edge_count`, preventing very large counts from overwhelming the graph.
-
-## Layouts
-
-| Layout | Intended use |
-|---|---|
-| Fruchterman–Reingold | General force-directed overview; the publication default. |
-| Spring (Eades) | Alternative force model using logarithmic spring attraction. |
-| Kamada–Kawai | Graph-distance-based arrangement that emphasizes topological distances. |
-| Grouped spring | Force-directed layout with additional attraction toward the active layout category. |
-| Circle | Deterministic circular ordering by the active layout category and label. |
-| Concentric | High weighted-degree nodes near the center. |
-| Grid | Stable inspection layout independent of network topology. |
-
-`Group layout by` is independent of node color and can be set to:
-
-- `None`;
-- `YAML function`;
-- `Detected community`.
-
-This permits comparisons such as function colors inside community-grouped positions or community colors inside function-grouped positions.
-
-**Re-layout** selects the grouped-spring layout and recalculates positions with the active grouping choice. Manually pinned nodes remain fixed. **Reset positions** releases all nodes, restores the configured layout and seed, and recalculates the network.
-
-## Interaction
-
-### Nodes
-
-- Hover to inspect the canonical display name, YAML function, detected community, inclusion state, original YAML keys, notes, visible degree, and weighted counts.
-- Click to select a node persistently.
-- Ctrl/Cmd-click to add or remove a node from the selection.
-- Drag to move and pin a node.
-- Double-click a node to release its fixed position.
-- Use **Release nodes** to release every pinned node without immediately rearranging the graph.
-
-Selecting a node emphasizes its direct neighbors and connected edges while dimming unrelated elements.
-
-### Edges
-
-Hovering an edge shows:
-
-- canonical source and target display names;
-- summed total edge count;
-- endpoint YAML functions;
-- endpoint detected communities;
-- whether the relationship is within or between the active categories;
-- totals by `edge_type`;
-- totals by original direction;
-- the contributing TSV rows.
-
-Clicking an edge selects it and its two endpoints.
-
-### Search
-
-Free text searches display names, YAML keys, functions, detected communities, and notes. Field-qualified searches are also available:
-
-```text
-group:Conflict
-community:"Community 2"
-key:Sigma70_r2
-notes:membrane
-```
-
-Press Enter to select and center the first matching node.
-
-### View controls
-
-- mouse wheel or trackpad: zoom around the pointer;
-- drag the background: pan;
-- `+` and `−`: zoom around the viewport center;
-- **Fit network**: fit the visible graph and labels;
-- **Labels**: show or hide display names;
-- **Node size**: constant, degree, or weighted degree.
-
-## Figure configuration
-
-A publication `config.js` has this structure:
-
-```javascript
-window.NETWORK_VIEWER_CONFIG = {
-  autoLoad: true,
-  edgeUrl: './data/interactions.tsv',
-  nodeUrl: './data/nodes.yaml',
-  colorUrl: '',
-
-  defaultMinimumCount: 5,
-  defaultLayout: 'fruchterman-reingold',
-  defaultNodeSize: 'weighted-degree',
-  defaultShowLabels: true,
-  defaultShowIsolates: false,
-
-  defaultOnlyIncluded: true,
-  defaultCommunityMethod: 'none',
-  defaultCommunityResolution: 1.0,
-  defaultCommunityWeighted: true,
-  defaultCommunitySeed: 42,
-  defaultCommunityIterations: 20,
-  defaultColorBy: 'function',
-  defaultGroupLayoutBy: 'function'
-};
-```
-
-Allowed community methods are `none`, `louvain`, and `leiden`. `defaultColorBy` accepts `function` or `community`; community coloring requires an active community method. `defaultGroupLayoutBy` accepts `none`, `function`, or `community`.
-
-The complete example configurations document column mappings, limits, titles, layout seed, and download behavior.
-
-## Creating another publication figure
-
-1. Duplicate `figure1/` as `figure2/` or another figure folder.
-2. Replace the files in its `data/` directory.
-3. Update `edgeUrl` and, when used, `nodeUrl` and `colorUrl` in its `config.js`.
-4. Set the paper and figure titles.
-5. Select the initial threshold, node scope, community method and parameters, color mode, layout, node-size mode, label behavior, and isolate behavior.
-6. Keep the current `index.html` template and shared asset version.
-7. Add the figure path to the root `manifest.js`.
-8. Test endpoint resolution, merged display names, aggregate counts, scope switching, community recalculation, colors, hover details, layouts, and downloads through an HTTP server.
-
-## Editor behavior
-
-The editor exposes three file selectors:
-
-- edge TSV — required;
-- node YAML — optional;
-- function-color YAML — optional.
-
-The files are read with the browser File API and are not uploaded. With an edge TSV alone, each unique endpoint name becomes an independent node. The bundled annotated example can be restored at any time.
-
-Publication pages intentionally omit all upload controls and load their configured files automatically.
-
-## Validation and troubleshooting
+## Troubleshooting
 
 | Symptom | Likely cause or check |
 |---|---|
-| A curated node is missing | Its YAML entry is absent, none of its merged aliases has `Include: 1`, or the active threshold leaves it isolated while **Isolated nodes** is off. |
-| An excluded node is missing after turning off the Include switch | It is not referenced by any TSV row, so it is not part of the network input. |
-| An edge is missing | Its summed total is below the active threshold, or one endpoint is outside the current YAML scope. |
-| Two expected nodes became one | Their YAML entries share the same `Display_name`; use distinct display names if they should remain separate. |
-| A merged node has an unexpected function color | Its aliases provide different `Function` values; inspect the hover card and processing report, then correct the YAML. |
-| A same-function edge is gray | The endpoint functions differ after unification, or one endpoint is `Unassigned`. |
-| Community colors changed | The visible graph, algorithm, resolution, weighting, seed, or iteration setting changed. Community numbers and colors are analysis-state labels, not permanent identifiers. |
-| Louvain and Leiden disagree | They use different refinement behavior; report the chosen method and parameters rather than treating either partition as a fixed annotation. |
-| Community detection produces many singletons | Lower the resolution, lower the edge threshold, hide isolated nodes, or inspect whether the visible graph is fragmented. |
-| Colors change between papers | Provide an explicit function-color dictionary for YAML function coloring. Community colors remain generated dynamically. |
-| The graph becomes very small | Lower the threshold, turn off the YAML-only scope, reveal isolates, or use **Fit network** after selecting the desired layout. |
-| A force layout appears unstable | Release pinned nodes, reset positions, or use a deterministic circle/grid layout for inspection. |
-| Local files do not load | Confirm the edge-table column names and file-size limits. When a node YAML is supplied, also confirm its two-level schema and browser console messages. |
+| The page loads but no data appear | One or more configured paths are invalid, automatic loading is disabled, or a source file exceeds the size limit. |
+| The viewer reports missing columns | The TSV header lacks one or more required names or uses different capitalization. |
+| A gene is duplicated | Rows for the same gene do not share the same `pid`, start, and end values. |
+| Domains appear in the wrong order | Check `domp` and, when present, `blockp`. |
+| A domain has the neutral color | Its final display name is absent from the color dictionary. |
+| A rename does not apply | Check the raw `dom` value and the flat YAML mapping. |
+| A marker appears as a full domain | Its raw or renamed name does not match a configured marker name. |
+| Query alignment looks incorrect | Check which genes are marked as query and whether multiple queries occur in the same block. |
+| A row is mirrored unexpectedly | Check the query gene's strand and the query-orientation control. |
+| NCBI links open the wrong interval | Check nucleotide accessions, coordinates, strand values, and the interval encoded by `block_id`. |
+| Filters return unexpected results | Check quoting, field names, renamed domain values, and whether terms are in the include or exclude box. |
+| Large datasets feel slow | Reduce unnecessary rows, simplify the displayed dataset, or verify that the source is below browser and hosting limits. |
+| The page is unstyled or inactive | Check the shared CSS and JavaScript paths and exact filename capitalization. |
 
-The **Data processing report** summarizes input rows, YAML entries, included and TSV-referenced nodes, display-name merges, function conflicts, unannotated endpoints, invalid rows, self-loops, final undirected relationships, and the current visible graph used by community detection.
+## Figure publication checklist
 
-## Scientific reporting
+- The TSV contains all required columns.
+- Each neighborhood has a stable `block_id`.
+- Repeated rows for one gene use consistent identifiers and coordinates.
+- Query genes are marked correctly.
+- Strand values and genomic coordinates have been validated.
+- Domain ordering matches the intended architecture.
+- Rename and color dictionaries use the final publication terminology.
+- Marker domains are configured intentionally.
+- Fixed or fit layout has been selected for a scientific reason.
+- Default query alignment and orientation support the intended comparison.
+- Include and exclude filters behave as documented.
+- A sample of gene and neighborhood NCBI links has been checked.
+- The complete dataset performs acceptably.
+- The publication page loads without local file selection.
+- The root manifest links to the correct figure folder.
 
-The viewer does not define what `edge_count` means or whether a detected community represents a biological module. The methods and figure legend should state:
+## Current template note
 
-- how the original rows were generated;
-- whether reciprocal rows represent independent observations or mirrored descriptions;
-- why summing all rows is appropriate for the analysis;
-- what edge-count threshold was used in the published default;
-- what `edge_type` represents;
-- how `Function` groups and YAML `Include` values were assigned;
-- whether merged `Display_name` aliases are biologically equivalent;
-- whether node sizes represent degree or weighted degree;
-- whether Louvain or Leiden was used;
-- whether relationships were weighted by aggregated `edge_count`;
-- the resolution, seed, and iteration setting;
-- whether isolated nodes were included;
-- which visible node scope and threshold were active when the reported communities were calculated.
-
-The source edge table, YAML metadata, and any explicit function-color dictionary should remain downloadable beside the visualization.
-
-## Browser limits
-
-The default configuration permits up to:
-
-- 32 MB per input file;
-- 5,000 relevant canonical nodes;
-- 30,000 aggregated undirected relationships.
-
-The bundled example is far below these limits. Force-directed layouts and iterative community methods scale less efficiently than circle or grid layouts; large figures should be tested on ordinary reader hardware.
-
-
-## Editor without a node YAML
-
-The editor requires only the edge TSV. When no node YAML is supplied, every unique value found in the configured `source` and `target` columns becomes an independent node, and that identifier is also used as its initial display name. The viewer does not guess biological aliases. A node YAML remains useful when authors need to merge aliases through a common `Display_name`, retain notes, curate `Include`, or provide a manual `Function` classification.
-
-The optional group-color YAML remains supported. Without it, deterministic colors are assigned automatically.
-
-## Generate a node YAML from the visible network
-
-After choosing Louvain or Leiden, the editor can export a publication-ready starting YAML from the current analysis. Community detection and export use the network after undirected aggregation, the active minimum total `edge_count`, the optional YAML `Include` scope, and the isolated-node setting.
-
-The generated file contains every unique node identifier found in the TSV:
-
-- nodes participating in at least one currently visible relationship receive `Include: 1`;
-- other TSV nodes receive `Include: 0`;
-- included nodes receive a deterministic `Function` label such as `Community_01`;
-- excluded nodes receive an empty `Function`;
-- `Display_name` and `Notes` are preserved from an optional input YAML when available;
-- checking **Include visible isolated nodes** also marks currently displayed isolates as included.
-
-Community labels are ordered deterministically by community size and then by member composition. The export header records the method, threshold, resolution, weighting mode, seed, and iteration limit used to create the file. A second download produces a matching community-color dictionary. Both downloads are generated locally; the original TSV and YAML files are never modified.
+The existing `figure1/` folder contains a large example TSV and associated rename and color dictionaries. Treat these files as example or project-specific material until their provenance and intended publication role are confirmed for the new paper instance.

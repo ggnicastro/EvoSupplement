@@ -1,59 +1,69 @@
 /**
- * Network Viewer configuration — publication figure.
+ * Gene Neighborhood Viewer configuration.
  *
- * The viewer treats the edge table as undirected after resolving every TSV
- * endpoint to an included YAML node and unifying entries by Display_name.
- * All edge_count values between the same display-name pair are summed before
- * the minimum-count filter is applied.
+ * All paths are relative to index.html. The viewer reads the original neighborhood input
+ * directly and applies the rename/color dictionaries in the browser.
  */
-window.NETWORK_VIEWER_CONFIG = {
-  title: 'Network Viewer',
-  subtitle: 'Interactive association network',
-
+window.NEIGHBORHOOD_VIEWER_CONFIG = {
+  title: 'Gene Neighborhood Viewer',
   paperTitle: '',
-  figureTitle: 'Domain-association network',
+  figureTitle: 'Genomic neighborhoods',
 
-  autoLoad: true,
-  edgeUrl: './data/interactions.tsv',
-  nodeUrl: './data/nodes.yaml',
-  colorUrl: '', // Optional YAML dictionary: group name -> color.
+  // 'auto' recognizes the canonical TSV or the compact architecture format.
+  inputFormat: 'auto',
 
-  delimiter: '\t',
-  edgeColumns: {
-    source: 'source',
-    target: 'target',
-    type: 'edge_type',
-    count: 'edge_count'
-  },
-  nodeFields: {
-    label: 'Display_name',
-    include: 'Include',
-    group: 'Function',
-    notes: 'Notes'
-  },
+  dataUrl: './data/te.tsv',
+  colorUrl: './data/color_dic.yaml',
+  renameUrl: './data/domain_rename.yaml',
 
-  defaultMinimumCount: 5,
-  defaultLayout: 'fruchterman-reingold',
-  defaultNodeSize: 'weighted-degree',
+  includePlaceholder: 'Pfam:Radical or ProfileDB:RADICAL-SAM, Taxonomy:Archaea',
+  excludePlaceholder: 'Dom:"TM" or product:"hypothetical protein"',
+
+  // "fixed" (default): regular domain blocks keep fixed screen widths and
+  // each row starts at the left edge; the track can extend horizontally.
+  // "fit": each genomic neighborhood fills the available window.
+  defaultScaleMode: 'fixed',
+
+  // Optional query alignment is independent of the sizing mode. When false,
+  // every row begins near the left label.
+  defaultAlignQuery: false,
+  defaultFlipNegativeQueries: true,
+  // Continuity filters retain query-connected segments. Same-direction filtering
+  // is optional; a null distance disables the maximum intergenic gap.
+  defaultSameDirectionOnly: false,
+  defaultMaxIntergenicDistance: 20,
   defaultShowLabels: true,
-  defaultShowIsolates: false,
+  defaultZoom: 1,
 
-  // Node scope and community analysis. Communities are always computed from
-  // the currently visible network after scope, threshold, and isolate filters.
-  defaultOnlyIncluded: true,
-  defaultCommunityMethod: 'none', // none | louvain | leiden
-  defaultCommunityResolution: 1.0,
-  defaultCommunityWeighted: true,
-  defaultCommunitySeed: 42,
-  defaultCommunityIterations: 20,
-  defaultColorBy: 'function', // function | community
-  defaultGroupLayoutBy: 'function', // none | function | community
+  // Used only by the fixed-domain-width layout. Every regular domain gets the
+  // same width at 100% zoom, so all MoxR-AAA blocks (and all other repeated
+  // domains) are exactly identical in width. Optional name-specific overrides
+  // can be added to fixedDomainWidths.
+  fixedDomainWidth: 64,
+  fixedDomainWidths: {
+    // 'MoxR-AAA': 72
+  },
+  fixedGeneGap: 10,
+  fixedMarkerOnlyGeneWidth: 34,
 
-  layoutSeed: 20260929,
-  fitAfterLayout: true,
+  // Domains absent from color_dic.yaml remain neutral instead of receiving
+  // an arbitrary color.
+  unknownDomainColor: '#d7dce2',
 
-  maxFileBytes: 32 * 1024 * 1024,
-  maxNodes: 5000,
-  maxAggregatedEdges: 30000,
-  showDownloads: true
+  // Visual markers that are not treated as full domain blocks.
+  // - TM: a minimal yellow bar, kept in domp order.
+  // - SIG/SIF: a red bar forced to the beginning (tail) of the gene arrow.
+  // Marker names are matched case-insensitively against both raw and renamed
+  // domain names. Width is in screen pixels and does not grow with zoom.
+  markerDomains: {
+    TM:  { width: 4, color: '#f4cf3a', position: 'ordered' },
+    SIG: { width: 5, color: '#d62828', position: 'start' },
+    SIF: { width: 5, color: '#d62828', position: 'start' }
+  },
+
+  // Neutral gene body visible when a gene contains only marker annotations.
+  geneBackgroundColor: '#f4f6f8',
+
+  // Browser-side safety limit for the TSV and the two dictionaries.
+  maxDataBytes: 64 * 1024 * 1024
 };
