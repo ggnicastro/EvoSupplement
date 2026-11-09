@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILDER_VERSION = '1.15.1';
+  const BUILDER_VERSION = '1.15.0';
   const PROJECT_SCHEMA_VERSION = 1;
   // State archives contain authoring data and original uploads, never Builder code.
   // Keep this version independent of UI/releases; add migrations before changing it.
@@ -27,7 +27,7 @@
   };
   const MODULE_VERSIONS = {
     protein: '2.13.0',
-    neighborhood: '3.7.0',
+    neighborhood: '3.6.0',
     phylogeny: '2.1.0',
     network: '1.2.0',
     taxonomy: '1.4.1',
@@ -2017,8 +2017,8 @@
         dataUrl: './data/neighborhoods.tsv',
         colorUrl: './data/color_dic.yaml',
         renameUrl: './data/domain_rename.yaml',
-        includePlaceholder: 'Pfam:Radical or ProfileDB:RADICAL-SAM, Taxonomy:Archaea',
-        excludePlaceholder: 'Dom:"TM" or product:"hypothetical protein"',
+        includePlaceholder: 'Include by domain, PFAM, organism, taxonomy, PID…',
+        excludePlaceholder: 'Exclude by the same syntax…',
         defaultScaleMode: item.config.defaultScaleMode || 'fixed',
         defaultAlignQuery: Boolean(item.config.defaultAlignQuery),
         defaultFlipNegativeQueries: item.config.defaultFlipNegativeQueries !== false,

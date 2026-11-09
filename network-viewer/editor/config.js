@@ -1,51 +1,58 @@
 /**
- * Gene Neighborhood Viewer configuration — EDITOR page.
+ * Network Viewer configuration — editor.
  *
- * manualLoad: true means the viewer waits for files selected in index.html.
- * Only the neighborhood input is required. Rename and color YAML dictionaries
- * are optional and can be created or revised in the Domain curation panel.
- *
- * Publication figure pages leave manualLoad false and load hosted files from
- * their own data/ directories.
+ * The bundled example is loaded automatically. The editor page additionally
+ * allows a local edge TSV plus optional node and group-color YAML files to be
+ * selected without uploading data to a server.
  */
-window.NEIGHBORHOOD_VIEWER_CONFIG = {
-  title: 'Gene Neighborhood Editor',
+window.NETWORK_VIEWER_CONFIG = {
+  title: 'Network Editor',
+  subtitle: 'Load, unify, filter, detect communities, and prepare publication YAML',
+
   paperTitle: '',
-  figureTitle: '',
+  figureTitle: 'Interactive network editor',
 
-  manualLoad: true,
-  // 'auto' recognizes the canonical TSV or the compact architecture format.
-  inputFormat: 'auto',
-
-  dataUrl: '',
+  autoLoad: true,
+  edgeUrl: './data/interactions.tsv',
+  nodeUrl: './data/nodes.yaml',
   colorUrl: '',
-  renameUrl: '',
 
-  includePlaceholder: 'Pfam:Radical or ProfileDB:RADICAL-SAM, Taxonomy:Archaea',
-  excludePlaceholder: 'Dom:"TM" or product:"hypothetical protein"',
-
-  defaultScaleMode: 'fixed',
-  defaultAlignQuery: false,
-  defaultFlipNegativeQueries: true,
-  defaultSameDirectionOnly: false,
-  // Maximum gap between consecutive genes; null disables the distance filter.
-  defaultMaxIntergenicDistance: 20,
-  defaultShowLabels: true,
-  defaultZoom: 1,
-
-  fixedDomainWidth: 64,
-  fixedDomainWidths: {},
-  fixedGeneGap: 10,
-  fixedMarkerOnlyGeneWidth: 34,
-
-  unknownDomainColor: '#d7dce2',
-
-  markerDomains: {
-    TM:  { width: 4, color: '#f4cf3a', position: 'ordered' },
-    SIG: { width: 5, color: '#d62828', position: 'start' },
-    SIF: { width: 5, color: '#d62828', position: 'start' }
+  delimiter: '\t',
+  edgeColumns: {
+    source: 'source',
+    target: 'target',
+    type: 'edge_type',
+    count: 'edge_count'
+  },
+  nodeFields: {
+    label: 'Display_name',
+    include: 'Include',
+    group: 'Function',
+    notes: 'Notes'
   },
 
-  geneBackgroundColor: '#f4f6f8',
-  maxDataBytes: 64 * 1024 * 1024
+  defaultMinimumCount: 5,
+  defaultLayout: 'fruchterman-reingold',
+  defaultNodeSize: 'weighted-degree',
+  defaultShowLabels: true,
+  defaultShowIsolates: false,
+
+  // Node scope and community analysis. Communities are always computed from
+  // the currently visible network after scope, threshold, and isolate filters.
+  defaultOnlyIncluded: true,
+  defaultCommunityMethod: 'none', // none | louvain | leiden
+  defaultCommunityResolution: 1.0,
+  defaultCommunityWeighted: true,
+  defaultCommunitySeed: 42,
+  defaultCommunityIterations: 20,
+  defaultColorBy: 'function', // function | community
+  defaultGroupLayoutBy: 'function', // none | function | community
+
+  layoutSeed: 20260929,
+  fitAfterLayout: true,
+
+  maxFileBytes: 32 * 1024 * 1024,
+  maxNodes: 5000,
+  maxAggregatedEdges: 30000,
+  showDownloads: false
 };
