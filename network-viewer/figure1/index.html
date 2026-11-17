@@ -6,7 +6,7 @@
   <meta name="description" content="Interactive undirected biological association network with annotation-driven coloring, edge-count filtering, and multiple layouts.">
   <meta name="theme-color" content="#172033">
   <title>Network Viewer</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=1.2.0">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.3.0">
 </head>
 <body>
   <header class="app-header">
@@ -83,6 +83,14 @@
           </select>
         </label>
 
+        <div class="action-field edge-thickness-control">
+          <span>Edge thickness</span>
+          <span class="action-group">
+            <button class="icon-button" id="networkEdgeWidthDecrease" type="button" title="Make edges thinner" aria-label="Make edges thinner">−</button>
+            <output class="mini-button" id="networkEdgeWidthValue" aria-live="polite">1.0×</output>
+            <button class="icon-button" id="networkEdgeWidthIncrease" type="button" title="Make edges thicker" aria-label="Make edges thicker">+</button>
+          </span>
+        </div>
         <label class="check-field" title="Show the canonical Display_name next to every visible node">
           <input id="networkShowLabels" type="checkbox" checked>
           <span>Labels</span>
@@ -240,7 +248,7 @@
   </footer>
 
   <script src="./config.js?v=2"></script>
-  <script src="../shared/network-viewer.js?v=1.2.0"></script>
+  <script src="../shared/network-viewer.js?v=1.3.0"></script>
   <script>window.NetworkViewer.init();</script>
 </body>
 </html>

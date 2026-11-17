@@ -466,7 +466,7 @@ a:focus-visible,
 .network-edge.is-hovered .network-edge-line,
 .network-edge.is-selected .network-edge-line {
   filter: drop-shadow(0 0 2px rgb(15 23 42 / 30%));
-  stroke-width: 7;
+  stroke-width: var(--network-edge-highlight-width, 7px);
 }
 .network-edge.is-dimmed { opacity: 0.045; }
 
@@ -733,7 +733,7 @@ a:focus-visible,
 }
 
 
-/* Network YAML generation, v1.2.0 */
+/* Network YAML generation, v1.3.0 */
 .file-field-label em {
   font-style: normal;
   font-weight: 600;

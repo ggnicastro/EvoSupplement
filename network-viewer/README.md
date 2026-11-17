@@ -31,6 +31,8 @@ The viewer does not infer the source network. Authors provide node metadata and 
 - persistent node and edge selection;
 - hover details for nodes and aggregated relationships;
 - node sizing by degree, weighted degree, or a constant radius;
+- adjustable edge thickness that preserves the relative logarithmic edge-count scaling;
+- standalone SVG export from the Editor;
 - optional display of nodes that become isolated under the active edge threshold;
 - local-file loading in the editor and automatic hosted loading in publication figures;
 - source-file downloads from publication pages;
@@ -269,7 +271,9 @@ colors:
 
 A dictionary may be partial. Missing functions continue to receive automatic colors. See `group-colors.example.yaml` for a complete example.
 
-The edge width follows a logarithmic transformation of aggregate `edge_count`, preventing very large counts from overwhelming the graph.
+Edge width follows a logarithmic transformation of aggregate `edge_count`, preventing very large counts from overwhelming the graph. The **Edge thickness** −/+ controls multiply all edge widths from `0.4×` to `2.4×` in `0.2×` steps without changing the relative count-based differences. This is a display setting and does not affect filtering, layout, or community detection.
+
+The Editor's **Export SVG** button downloads a standalone vector image of the full currently visible network, including labels when enabled. It uses the current node positions, colors, edge threshold, YAML inclusion scope, isolated-node setting, and edge-thickness scale. The export is fitted to all visible nodes and labels, so pan and screen zoom do not crop the SVG. Hover, selection, and drag handles are omitted. The published `figureN/` viewer does not expose the export button.
 
 ## Layouts
 
