@@ -772,3 +772,11 @@ a:focus-visible,
   .yaml-export-panel .action-group,
   .yaml-export-panel .action-button { width: 100%; }
 }
+.conversion-panel { margin-top: 12px; border-top: 1px solid #dce2ea; padding-top: 10px; }
+.conversion-panel > summary { cursor: pointer; font-weight: 650; }
+.conversion-panel .community-controls { margin-top: 12px; }
+.conversion-summary { max-width: 100%; font-size: 0.85rem; color: #475569; overflow-wrap: anywhere; }
+.conversion-summary:empty { display: none; }
+.conversion-summary details { max-height: 220px; overflow: auto; }
+.relation-type-options { display: flex; flex-wrap: wrap; gap: 12px 20px; width: 100%; }
+#networkFrequencyNote { margin: 8px 0 14px; }

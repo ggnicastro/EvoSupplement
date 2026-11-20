@@ -1,103 +1,109 @@
 # Network Viewer
 
-**Status: available.**
+**Status: available — version 1.4.1.**
 
-The EvoSupplement Network Viewer presents precomputed biological association networks as interactive, browser-based supplementary figures. It is intended for relationships among protein families, domains, genomic-context features, architectures, clades, structural classes, or other author-defined entities.
+The EvoSupplement Network Viewer presents biological association networks as interactive supplementary figures. Authors can load a precomputed edge TSV or generate domain relationships from either Gene Neighborhood Viewer input format. All parsing, aggregation, filtering, community detection, layouts, and rendering run locally in the browser. Source files are never rewritten.
 
-The viewer does not infer the source network. Authors provide node metadata and edge observations produced by their analysis. The browser resolves node names, unifies aliases, aggregates undirected relationships, filters them by summed evidence, optionally restricts the node set through the YAML `Include` field, detects communities from the currently visible graph, and renders the result.
+There is always **one undirected edge per displayed node pair**. Relation types and directional observations remain available in the hover card. Same-protein and genomic-context associations describe the supplied annotations; they do not establish physical interaction or a historical fusion event.
 
-## Current capabilities
+## Capabilities and organization
 
-- undirected networks built from a TSV edge table;
-- optional node names, alias unification, inclusion status, curated functions, and notes from a YAML dictionary;
-- automatic unification by `Display_name`;
-- summation of every directional and relationship-type row for the same undirected node pair;
-- minimum-total-edge-count filtering, with a default threshold of 5;
-- a live switch between YAML-curated nodes and all TSV-referenced nodes;
-- Louvain and Leiden community detection;
-- weighted or unweighted community detection;
-- configurable resolution, random seed, and local-moving iterations;
-- community calculation exclusively from the currently visible network;
-- coloring by curated YAML function or detected community;
-- grouping layouts by YAML function, detected community, or no category;
-- same-category edges colored with the active category color;
-- cross-category edges shown as neutral dashed relationships;
-- optional author-supplied function-color dictionary;
-- deterministic automatic colors when no function-color dictionary is supplied;
-- Fruchterman–Reingold, Eades spring, Kamada–Kawai, grouped spring, circle, concentric, and grid layouts;
-- node dragging and pinning;
-- pan, wheel zoom, zoom buttons, and fit-to-network;
-- node search by display name, YAML key, function, detected community, or notes;
-- persistent node and edge selection;
-- hover details for nodes and aggregated relationships;
-- node sizing by degree, weighted degree, or a constant radius;
-- adjustable edge thickness that preserves the relative logarithmic edge-count scaling;
-- standalone SVG export from the Editor;
-- optional display of nodes that become isolated under the active edge threshold;
-- local-file loading in the editor and automatic hosted loading in publication figures;
-- source-file downloads from publication pages;
-- generated node-YAML and community-color downloads from the editor.
+- optional node YAML with display names, alias unification, inclusion, functions, notes, and individual colors;
+- a collapsed node editor with Include/Exclude, Rename, Color, search, frequency sorting, and pagination;
+- standard and compact neighborhood conversion, alongside the existing edge TSV input;
+- relation-family and subtype filters before aggregation thresholds and community detection;
+- node sizing by degree, weighted degree, constant radius, or available input frequency;
+- Louvain and Leiden community analysis of the currently visible graph;
+- function or community colors and grouped layouts;
+- seven layouts, node dragging/pinning, pan/zoom, search, and persistent selection;
+- adjustable edge thickness and standalone SVG export in the editor;
+- converted-edge, curated node-YAML, and community-YAML/color downloads.
 
-All parsing, aggregation, filtering, community detection, layouts, and rendering occur in the browser. The source TSV and YAML files are never rewritten.
+| Path | Purpose |
+|---|---|
+| `shared/network-viewer.js` | Parsing, alias resolution, aggregation, filtering, communities, layouts, and rendering. |
+| `shared/neighborhood-network.js` | Converts neighborhood parser output into an edge ledger and node evidence. |
+| `shared/styles.css` | Shared network appearance. |
+| `editor/index.html`, `editor/config.js` | Local authoring page and defaults. |
+| `editor/node-curation.js`, `editor/node-curation.css` | Collapsed searchable node editor. |
+| `editor/data/` | Bundled edge and node example. |
+| `figure1/` | Automatically loaded publication example. |
 
-## Module organization
-
-```text
-network-viewer/
-├── README.md
-├── group-colors.example.yaml
-├── shared/
-│   ├── network-viewer.js
-│   └── styles.css
-├── editor/
-│   ├── index.html
-│   ├── config.js
-│   └── data/
-│       ├── interactions.tsv
-│       └── nodes.yaml
-└── figure1/
-    ├── index.html
-    ├── config.js
-    └── data/
-        ├── interactions.tsv
-        └── nodes.yaml
-```
-
-`shared/` contains the reusable implementation. `editor/` accepts local files and also loads a bundled example. Each `figureN/` folder is a publication instance that loads its configured files automatically and does not expose upload controls.
+The editor reuses `neighborhood-viewer/shared/neighborhood-viewer.js` as its neighborhood parser. Keep that module available when distributing the editor. Publication pages using exported edge tables do not need to run the converter.
 
 ## Input files
 
-The edge TSV is the only required file in the editor. A node YAML is optional and adds aliases, display names, curated inclusion, functions, and notes. A third YAML containing function colors is also optional. Publication figures normally provide a node YAML so their curated defaults and labels are reproducible, but the shared viewer can load a configured edge TSV without one.
+The editor requires one data file: an edge TSV, a standard row-per-domain neighborhood TSV, or the compact neighborhood architecture format. Node YAML and function-color YAML are optional. Publication figures load their configured edge/YAML files automatically.
 
 ### Edge TSV
 
-The default columns are:
+Default columns:
 
 | Column | Meaning |
 |---|---|
 | `source` | Name or YAML key of the first endpoint. |
 | `target` | Name or YAML key of the second endpoint. |
-| `edge_type` | Directional or relationship annotation retained for hover details. |
+| `edge_type` | Directional or relation annotation retained in hover details. |
 | `edge_count` | Numeric evidence count contributed by this row. |
 
 The column names can be changed through `edgeColumns` in `config.js`.
 
-The input may contain reciprocal rows, multiple relationship types, or repeated observations. The viewer deliberately treats the final network as undirected. After resolving both endpoints to canonical display-name nodes, it groups every row for the same unordered pair and sums all `edge_count` values.
+For legacy rows without an `event_id`, every `edge_count` is summed for the same unordered canonical pair, including reciprocal rows. These rows:
 
-For example, all of the following contribute to one displayed relationship between A and B:
-
-```text
-A    B    Upstream      6
-B    A    Downstream    6
-A    B    Cterminal     3
-B    A    Nterminal     3
+```tsv
+source	target	edge_type	edge_count
+A	B	Upstream	6
+B	A	Downstream	6
+A	B	Cterminal	3
+B	A	Nterminal	3
 ```
 
-The resulting undirected relationship has a total edge count of 18. The four original rows, their types, directions, and individual counts remain available in the edge hover card.
+produce one edge with total 18. Their directions, types, and counts remain visible in the hover card. Whether reciprocal rows are independent observations is the author's responsibility.
+
+Additional generated-ledger columns have these meanings:
+
+| Column | Meaning |
+|---|---|
+| `event_id` | Shared identity for descriptions of one observation. That event contributes once to a canonical pair's total, including after alias merging. |
+| `relation` | Explicit family, such as `fusion` or `neighborhood`. |
+| `block_id` | Input neighborhood identity. |
+| `source_pid`, `target_pid` | Protein identifiers supporting the observation. |
+
+Without explicit `relation`, N/C-terminal types are recognized as fusion, upstream/downstream as neighborhood, and unfamiliar types as other. Do not assign the same event ID to independent evidence. Rows without event identities retain legacy summation behavior.
+
+### Generate a network from neighborhood input
+
+The editor accepts the same formats as the Gene Neighborhood Viewer:
+
+| Format | Required information | Available context |
+|---|---|---|
+| Standard TSV | `block_id`, `pid`, `nucleotide`, `start`, `end`, `strand`, `query`, `dom`, `domp` | Protein membership, domain order, genomic gene order, and strand. |
+| Compact | Query PID; architecture/orientation string; organism; detailed gene/domain list | Protein membership, domain order, schematic gene order, and orientation. |
+
+Use automatic detection or explicitly choose the expected format. Compact input does not provide real genomic distances. Reconstructed coordinates are schematic and must not be interpreted as measured base-pair gaps.
+
+Each annotated domain name becomes a node; unknown annotations (`?`) are omitted. Conversion options select:
+
+- **Scope:** all proteins, or only relations involving at least one query protein;
+- **Proximity:** every pair in scope, or consecutive domain positions and adjacent genes only;
+- **Markers:** include or omit features such as transmembrane segments and signal peptides.
+
+The converter preserves input order when deciding adjacency. Omitting unknown or marker annotations does not make previously separated genes/domain positions adjacent.
+
+| Relation family | Observation unit | Position annotation |
+|---|---|---|
+| Fusion / same protein | A domain pair within one protein | Target is N-terminal or C-terminal relative to source, according to domain order. |
+| Neighborhood | A domain pair across two proteins in one block | Target gene is upstream or downstream relative to the source gene's strand. |
+
+“Fusion” here means co-presence in one protein, not an inferred historical event. N/C-terminal indicates relative order, not necessarily a protein extremity. A negative-strand gene retains its protein N-to-C domain order; protein order and genomic order are separate. Unknown or tied orientation/order is reported without inventing a directional subtype. Overlapping genes retain a generic neighborhood relation because their spans do not establish an unambiguous upstream/downstream separation.
+
+The converter emits reciprocal descriptions sharing an `event_id`. The undirected total counts each observation once. Repeated instances of a domain within the same observation unit do not inflate that domain pair's count; distinct proteins or gene pairs remain distinct observations. Counts by type or direction can overlap because they describe the same underlying events and need not sum to the undirected total.
+
+Keep parser warnings with the analysis and inspect reconstructed neighborhoods when compact annotations or query assignments are ambiguous. Repeated or overlapping blocks can still contain repeated biological evidence: event IDs do not infer independence between different blocks.
 
 ### Node YAML
 
-The YAML is a top-level dictionary. Each key identifies one input node and contains scalar metadata fields:
+The YAML is a top-level dictionary whose entries contain scalar fields:
 
 ```yaml
 Internal_node_key:
@@ -105,251 +111,131 @@ Internal_node_key:
   Include: 1
   Function: Functional_group
   Notes: Optional note
+  Color: "#4e79a7"
 ```
 
-The default field names can be changed through `nodeFields` in `config.js`.
-
-| Field | Default behavior |
+| Field | Meaning |
 |---|---|
-| `Display_name` | Canonical reader-facing label and the identity used for unification. If blank, the YAML key is used. |
-| `Include` | Curated inclusion flag. Entries interpreted as `1`, `true`, or `yes` enter the default node scope. |
-| `Function` | Curated category used for function coloring and function-grouped layouts. Blank or `.nan` values become `Unassigned`. |
-| `Notes` | Optional text displayed in node hover details. |
+| `Display_name` | Canonical label and identity used for unification; defaults to the YAML key when blank. |
+| `Include` | Curated inclusion. Values such as `1`, `true`, or `yes` enter the default scope. |
+| `Function` | Existing curated category for function colors/layouts; blank or `.nan` becomes `Unassigned`. |
+| `Notes` | Optional hover text. |
+| `Color` | Optional six-digit hex node-color override for either function or community coloring. |
+| `Evidence_blocks`, `Evidence_proteins`, `Evidence_occurrences` | Scalar strings holding JSON identity arrays, written by curated YAML export to preserve exact frequency unions. |
 
-The parser intentionally accepts the simple two-level YAML schema shown above. It supports quoted strings, double-quoted Unicode escapes, booleans, numbers, nulls, and comments. Nested lists or deeper arbitrary YAML structures are outside the module schema.
+Default display/include/function/notes field names are configurable through `nodeFields`. The simple two-level parser supports quoted strings, JSON-style escapes, booleans, numbers, nulls, and comments. Arbitrary deeper YAML structures and lists are outside its schema; saved evidence arrays are encoded inside scalar strings.
 
-## Node scope and `Include`
+## Collapsed node editor
 
-The toolbar contains:
+The **Node editor** panel starts collapsed near the beginning of the editor. Search original or display names, sort by name or available frequency, and use paginated rows rather than expanding every node at once.
 
-> **Only YAML Include = 1**
+Each row offers Include, Rename, and Color with a clear-color action. Include/Exclude can also be applied to all matching search results. There is no additional group editor: assigning the same normalized display name is what merges nodes and their connections. Existing Function/Notes metadata remain available.
 
-It is enabled by default when a node YAML is present. When no node YAML is loaded, the control is disabled and every TSV-referenced node is eligible.
+Edits remain drafts until **Apply changes**. **Reset draft** returns to the applied state. Curated YAML downloads contain applied settings; apply pending changes first. When a color is assigned to a merged name, matching draft aliases share that color.
 
-When enabled:
+The curated YAML download preserves applied display names, inclusion, explicit colors, and available evidence identities. Keep it with the exported edge ledger to restore frequency sizing and future alias unions. The converted-edge download contains the complete conversion output, before the display-only relation/subtype and minimum-count filters; record those controls separately when reproducing a view. This is separate from community-generated YAML, which assigns Function labels from a detected partition.
 
-- a canonical node is eligible if at least one YAML entry merged into it has `Include: 1`;
-- relationships are retained only when both endpoints are eligible;
-- the active edge-count threshold is then applied;
-- isolated eligible nodes appear only when **Isolated nodes** is enabled.
+## Name unification and inclusion
 
-When disabled:
+The viewer resolves endpoints as YAML keys and then display names, merges normalized display names, and collects evidence for each unordered canonical pair. Unmatched endpoints retain their original names. All aliases and functions remain visible in hover details.
 
-- every node referenced by the TSV may enter the graph, including YAML entries with `Include: 0`;
-- TSV endpoints not found in the YAML are retained as `Unassigned` nodes;
-- YAML entries that are never referenced by the TSV are not added merely because the scope switch is off;
-- `Display_name`, `Function`, and `Notes` are still used whenever YAML metadata exists.
+The **Only YAML Include = 1** switch restricts the graph to canonical nodes with at least one included alias. Applying editor inclusion uses this same rule: if A and B both become X, X remains included when either alias is included. Disable the scope intentionally to inspect excluded, input-referenced nodes. With no node YAML or editor inclusion, all input nodes are eligible.
 
-This design lets the author publish a curated default while allowing readers to inspect the broader TSV network without rendering thousands of unrelated YAML entries.
+An edge requires both endpoints to be eligible. Isolated eligible nodes are shown only when **Isolated nodes** is enabled. Evidence-only nodes reconstructed from neighborhood input are retained in the model even when they have no edge.
 
-## Display-name unification
+When aliases supply conflicting non-empty functions, the first included function is preferred, otherwise the first non-empty function. The hover card and processing report retain conflicts. Relationships that become self-loops after renaming are omitted from the drawing and reported.
 
-The viewer uses this sequence:
+## Relation and count filters
 
-1. read the scalar metadata for every valid top-level YAML entry;
-2. choose `Display_name` as the canonical node label;
-3. merge YAML entries that have the same normalized display name;
-4. resolve each TSV endpoint first as a YAML key and then as a display name;
-5. retain an unmatched TSV endpoint as an unannotated node;
-6. replace every endpoint with its canonical display name;
-7. aggregate all rows for each unordered canonical pair;
-8. apply the active YAML inclusion scope;
-9. apply the minimum total edge-count threshold.
+Choose **All relations**, **Fusion only**, **Neighborhood only**, or **Other**, then choose the desired subtypes. Filtering selects supporting rows before the pair's total is recalculated and compared with the minimum count. The drawing still has one edge per pair, and hover details show its active supporting evidence.
 
-This permits several internal keys to become one displayed node. All original YAML keys and functions remain available in the node hover card.
+For a pair supported by 10 same-protein events and 20 neighborhood events:
 
-If merged entries provide more than one non-empty `Function`, the first included function is used as the primary curated function. When none of the merged entries is included, the first non-empty function is used. All supplied functions remain visible in hover details, and the processing report records the conflict. Authors should correct the YAML when this merge is not biologically intended.
+| Selection | Active edge count |
+|---|---:|
+| All relations | 30 |
+| Fusion only | 10 |
+| Neighborhood only | 20 |
 
-Relationships that become self-loops after display-name unification are omitted from the drawing and reported.
+If no selected observation remains, the edge disappears. Generated event identities prevent reciprocal descriptions from counting twice even when both directional subtypes are selected. Legacy inputs without those identities still sum their rows.
 
-## Edge filtering
+The publication default minimum total is 5. A newly converted neighborhood input starts at minimum 1 and neighborhood-frequency sizing so its initial evidence is visible. The toolbar offers a logarithmic slider, an exact numeric threshold, and a visible-network summary. Changing filters does not rearrange positions automatically; use **Run layout** or **Re-layout** when desired. Active community detection is recalculated after node scope, relation/subtype, threshold, and isolate changes.
 
-The default publication configuration uses:
+## Node frequency and size
 
-```text
-minimum total edge count = 5
-```
+Neighborhood conversion stores identity sets for distinct input blocks, proteins, and annotated domain occurrences. A renamed node uses the union of those sets. If A and B occur in the same block and merge into X, that block contributes once. Multiple domain copies in a protein can still count separately as domain occurrences.
 
-The threshold is applied **after** all directions, edge types, aliases, and repeated rows have been unified and summed. A relationship is visible when its aggregate total is greater than or equal to the active threshold.
+Frequency is measured from the loaded conversion input, independently of the displayed relation family. Filtering relations changes degrees and edge totals, but does not redefine input occurrence frequency. A plain edge table cannot establish node occurrence frequency; frequency modes stay unavailable unless its curated node YAML supplies saved evidence identities. The viewer does not substitute degree for frequency.
 
-The toolbar provides:
+Node-size choices are constant, degree, weighted degree, and the available block/protein/occurrence frequencies. Minimum and maximum frequency-radius controls bound the display scaling. Frequency is scaled through circle area: the radius is the square root of the minimum squared radius plus the frequency fraction of the available squared-radius range. Frequency counts and the chosen unit are also available for inspection in the editor/hover details.
 
-- a logarithmic slider for rapid exploration across a wide count range;
-- a numeric field for an exact threshold;
-- a live summary of visible nodes and relationships.
-
-Changing the threshold does not automatically rearrange positions. This avoids unexpected movement while a reader is examining the graph. Use **Run layout** or **Re-layout** after a major change.
-
-When community detection is active, changing the threshold immediately recalculates the communities from the newly visible nodes and relationships.
-
-### Isolated nodes
-
-By default, nodes with no relationship above the active threshold are hidden so the connected graph can be fitted at a readable scale. The **Isolated nodes** checkbox reveals every eligible node in the current YAML scope.
-
-When community detection is active, a visible isolated node forms a singleton community because it has no visible relationship to another node.
-
-## Community detection
-
-The community panel offers three methods:
+## Community analysis
 
 | Method | Behavior |
 |---|---|
-| `None` | No detected partition. Curated YAML functions remain available for color and layout. |
-| `Louvain` | Multilevel modularity optimization using local node moves and graph aggregation. |
-| `Leiden` | Local moving followed by connectivity refinement and aggregation, preventing disconnected detected groups in the rendered partition. |
+| None | No detected partition; curated functions remain available. |
+| Louvain | Multilevel modularity optimization with local node moves and aggregation. |
+| Leiden | Local moving with connectivity refinement before aggregation. |
 
-Community detection is descriptive and depends on the active graph and parameters. It does not replace the author's biological interpretation.
+These are descriptive partitions, not proof of biological modules. Community labels are display identifiers and are not stable biological names across filters/settings.
 
-### Visible-network rule
+Communities use exactly the graph currently shown, after:
 
-Communities are always calculated from the graph currently shown to the reader, in this order:
+1. alias unification and inclusion scope;
+2. relation-family and subtype selection;
+3. recalculation of each pair's active total and minimum-count filtering;
+4. optional isolated-node retention.
 
-1. resolve and unify all names;
-2. select either YAML `Include: 1` nodes or all TSV-referenced nodes;
-3. retain relationships whose summed total meets the minimum edge-count threshold;
-4. include or hide isolated nodes according to the checkbox;
-5. run Louvain or Leiden on exactly those visible nodes and relationships.
+Search, hover, selection, pan/zoom, and dragging do not hide elements and do not change membership. A visible isolate forms a singleton community.
 
-Search, hover, selection, pan, zoom, and manual node movement do not change community membership because they do not hide graph elements.
-
-### Parameters
-
-| Control | Meaning |
+| Parameter | Meaning |
 |---|---|
-| `Resolution` | Controls granularity. Lower values generally favor fewer, larger communities; higher values favor more, smaller communities. |
-| `Weight by edge count` | When enabled, each relationship uses its aggregated total `edge_count`; when disabled, every visible relationship has weight 1. |
-| `Seed` | Controls deterministic node-processing order for reproducible runs with the same browser implementation, data, and parameters. |
-| `Iterations` | Maximum local-moving passes at each multilevel stage. |
-| `Recompute` | Runs the selected method again on the current visible graph. |
+| Resolution | Granularity; lower values generally favor larger communities. Default 1.0. |
+| Weight by edge count | Use active aggregate totals; otherwise each edge has weight 1. Enabled by default. |
+| Seed | Deterministic processing order. Default 42. |
+| Iterations | Maximum local-moving passes at each multilevel stage. Default 20. |
+| Recompute | Repeat analysis on the current visible graph. |
 
-The default resolution is 1.0, the default seed is 42, and edge weights are enabled.
+The summary reports method, community count, weighting, resolution, and modularity Q.
 
-The summary reports the method, number of communities, weighting mode, resolution, and modularity value `Q`. Community numbers are display identifiers ordered primarily by community size. They should not be interpreted as stable biological names across different filters or parameter settings.
+## Colors, layouts, and interaction
 
-## Colors
+An individual node's explicit `Color` takes priority in both coloring modes. Without an explicit override, function coloring uses its `Function` palette and community coloring uses the detected partition palette. The existing function metadata remain visible in either mode. Same-category edges use the category color; cross-category edges are neutral and dashed. Individual node colors do not create new groups.
 
-### Color nodes by YAML function
-
-This preserves the original behavior:
-
-- each node uses the color associated with its curated `Function`;
-- an edge between two nodes with the same non-empty function uses that function color;
-- an edge between different functions is neutral gray and dashed;
-- `Unassigned` receives a neutral color.
-
-### Color nodes by detected community
-
-This option becomes available after Louvain or Leiden is selected:
-
-- each detected community receives a deterministic automatic color;
-- an edge within one community uses that community color;
-- an edge between communities is neutral gray and dashed;
-- the legend changes from functions to communities;
-- YAML functions remain visible in node and edge hover details.
-
-Community colors are generated by the viewer because the number and composition of communities can change with node scope, threshold, resolution, weighting, or algorithm.
-
-### Optional function-color dictionary
-
-When no color file is supplied, the viewer assigns deterministic colors to each distinct YAML function. Common groups in the bundled example use a publication-oriented palette, while unseen names receive colors from a stable fallback palette.
-
-A function-color YAML may be configured through `colorUrl` or selected in the editor. The simplest form is:
+An optional partial color dictionary can use either form:
 
 ```yaml
 Arc2_FHA: "#86b7e8"
-Arc2_classical: "#ef8e91"
 Conflict: "#b99bd3"
 ```
-
-The following nested form is also accepted:
 
 ```yaml
 colors:
   Arc2_FHA: "#86b7e8"
-  Arc2_classical: "#ef8e91"
+  Conflict: "#b99bd3"
 ```
 
-A dictionary may be partial. Missing functions continue to receive automatic colors. See `group-colors.example.yaml` for a complete example.
+Missing functions receive deterministic automatic colors. Community colors are generated dynamically. See `group-colors.example.yaml`.
 
-Edge width follows a logarithmic transformation of aggregate `edge_count`, preventing very large counts from overwhelming the graph. The **Edge thickness** −/+ controls multiply all edge widths from `0.4×` to `2.4×` in `0.2×` steps without changing the relative count-based differences. This is a display setting and does not affect filtering, layout, or community detection.
-
-The Editor's **Export SVG** button downloads a standalone vector image of the full currently visible network, including labels when enabled. It uses the current node positions, colors, edge threshold, YAML inclusion scope, isolated-node setting, and edge-thickness scale. The export is fitted to all visible nodes and labels, so pan and screen zoom do not crop the SVG. Hover, selection, and drag handles are omitted. The published `figureN/` viewer does not expose the export button.
-
-## Layouts
-
-| Layout | Intended use |
+| Layout | Use |
 |---|---|
-| Fruchterman–Reingold | General force-directed overview; the publication default. |
-| Spring (Eades) | Alternative force model using logarithmic spring attraction. |
-| Kamada–Kawai | Graph-distance-based arrangement that emphasizes topological distances. |
-| Grouped spring | Force-directed layout with additional attraction toward the active layout category. |
-| Circle | Deterministic circular ordering by the active layout category and label. |
+| Fruchterman–Reingold | General force-directed overview. |
+| Spring (Eades) | Logarithmic spring attraction. |
+| Kamada–Kawai | Graph-distance-based arrangement. |
+| Grouped spring | Additional attraction within the selected grouping. |
+| Circle | Deterministic circular ordering. |
 | Concentric | High weighted-degree nodes near the center. |
-| Grid | Stable inspection layout independent of network topology. |
+| Grid | Stable inspection independent of topology. |
 
-`Group layout by` is independent of node color and can be set to:
+**Group layout by** retains the existing options None, YAML function, or Detected community, independently of node color. **Re-layout** selects grouped spring; pinned nodes remain fixed. **Reset positions** releases nodes and recalculates the configured default. Double-click a node to release it, or **Release nodes** to unpin all without rearranging them.
 
-- `None`;
-- `YAML function`;
-- `Detected community`.
+Click a node or edge for persistent selection; Ctrl/Cmd-click adds/removes nodes. Drag nodes to pin positions; drag the background to pan. Wheel/trackpad zooms around the pointer. Fit network and zoom buttons adjust the view. Node hover shows aliases, functions, inclusion, communities, degrees, frequencies where known, and notes. Edge hover shows active totals, types, directions, and supporting input rows. Event-based type/direction counts may overlap.
 
-This permits comparisons such as function colors inside community-grouped positions or community colors inside function-grouped positions.
+Free-text search covers labels, YAML keys, functions, communities, and notes. Field searches such as `group:Conflict`, `community:"Community 2"`, `key:Sigma70_r2`, and `notes:membrane` remain available. Enter centers the first match.
 
-**Re-layout** selects the grouped-spring layout and recalculates positions with the active grouping choice. Manually pinned nodes remain fixed. **Reset positions** releases all nodes, restores the configured layout and seed, and recalculates the network.
+Edge width uses logarithmic active-count scaling. The thickness buttons multiply widths from 0.4× to 2.4× in 0.2× steps without changing evidence or analysis. **Export SVG** in the editor exports the full visible network with current positions, colors, sizes, labels, relation filters, scope, threshold, and widths. Screen pan/zoom does not crop the SVG; interaction handles are omitted.
 
-## Interaction
-
-### Nodes
-
-- Hover to inspect the canonical display name, YAML function, detected community, inclusion state, original YAML keys, notes, visible degree, and weighted counts.
-- Click to select a node persistently.
-- Ctrl/Cmd-click to add or remove a node from the selection.
-- Drag to move and pin a node.
-- Double-click a node to release its fixed position.
-- Use **Release nodes** to release every pinned node without immediately rearranging the graph.
-
-Selecting a node emphasizes its direct neighbors and connected edges while dimming unrelated elements.
-
-### Edges
-
-Hovering an edge shows:
-
-- canonical source and target display names;
-- summed total edge count;
-- endpoint YAML functions;
-- endpoint detected communities;
-- whether the relationship is within or between the active categories;
-- totals by `edge_type`;
-- totals by original direction;
-- the contributing TSV rows.
-
-Clicking an edge selects it and its two endpoints.
-
-### Search
-
-Free text searches display names, YAML keys, functions, detected communities, and notes. Field-qualified searches are also available:
-
-```text
-group:Conflict
-community:"Community 2"
-key:Sigma70_r2
-notes:membrane
-```
-
-Press Enter to select and center the first matching node.
-
-### View controls
-
-- mouse wheel or trackpad: zoom around the pointer;
-- drag the background: pan;
-- `+` and `−`: zoom around the viewport center;
-- **Fit network**: fit the visible graph and labels;
-- **Labels**: show or hide display names;
-- **Node size**: constant, degree, or weighted degree.
-
-## Figure configuration
-
-A publication `config.js` has this structure:
+## Publication configuration
 
 ```javascript
 window.NETWORK_VIEWER_CONFIG = {
@@ -357,13 +243,11 @@ window.NETWORK_VIEWER_CONFIG = {
   edgeUrl: './data/interactions.tsv',
   nodeUrl: './data/nodes.yaml',
   colorUrl: '',
-
   defaultMinimumCount: 5,
   defaultLayout: 'fruchterman-reingold',
   defaultNodeSize: 'weighted-degree',
   defaultShowLabels: true,
   defaultShowIsolates: false,
-
   defaultOnlyIncluded: true,
   defaultCommunityMethod: 'none',
   defaultCommunityResolution: 1.0,
@@ -375,101 +259,28 @@ window.NETWORK_VIEWER_CONFIG = {
 };
 ```
 
-Allowed community methods are `none`, `louvain`, and `leiden`. `defaultColorBy` accepts `function` or `community`; community coloring requires an active community method. `defaultGroupLayoutBy` accepts `none`, `function`, or `community`.
+Community methods: `none`, `louvain`, `leiden`. Color modes: `function`, `community`; community mode requires detection. Layout groups: `none`, `function`, `community`. Existing configurations continue to work with edge TSVs.
 
-The complete example configurations document column mappings, limits, titles, layout seed, and download behavior.
+To publish a figure, duplicate `figure1/`, replace its data, update its configuration/titles, and register its path in the root `manifest.js`. Use the exported edge ledger and matching curated node YAML for converted networks. Keep the current template and shared asset versions. Publication pages omit upload and curation controls.
 
-## Creating another publication figure
+The separate **Generate node YAML** action requires Louvain/Leiden. It exports every input endpoint: nodes with visible edges receive Include 1 and a deterministic Function such as Community_01; others receive Include 0. **Include visible isolated nodes** extends inclusion to displayed isolates. Existing display names, notes, explicit colors, and frequency evidence are preserved when available. A matching community-color dictionary can also be downloaded. The export records analysis parameters, including active relation and subtype selection. These comments document the view; loading the YAML does not automatically change the relation controls. This community export has different inclusion/function semantics from the node editor's curated-settings export.
 
-1. Duplicate `figure1/` as `figure2/` or another figure folder.
-2. Replace the files in its `data/` directory.
-3. Update `edgeUrl` and, when used, `nodeUrl` and `colorUrl` in its `config.js`.
-4. Set the paper and figure titles.
-5. Select the initial threshold, node scope, community method and parameters, color mode, layout, node-size mode, label behavior, and isolate behavior.
-6. Keep the current `index.html` template and shared asset version.
-7. Add the figure path to the root `manifest.js`.
-8. Test endpoint resolution, merged display names, aggregate counts, scope switching, community recalculation, colors, hover details, layouts, and downloads through an HTTP server.
+## Validation, limits, and reporting
 
-## Editor behavior
-
-The editor exposes three file selectors:
-
-- edge TSV — required;
-- node YAML — optional;
-- function-color YAML — optional.
-
-The files are read with the browser File API and are not uploaded. With an edge TSV alone, each unique endpoint name becomes an independent node. The bundled annotated example can be restored at any time.
-
-Publication pages intentionally omit all upload controls and load their configured files automatically.
-
-## Validation and troubleshooting
-
-| Symptom | Likely cause or check |
+| Symptom | Check |
 |---|---|
-| A curated node is missing | Its YAML entry is absent, none of its merged aliases has `Include: 1`, or the active threshold leaves it isolated while **Isolated nodes** is off. |
-| An excluded node is missing after turning off the Include switch | It is not referenced by any TSV row, so it is not part of the network input. |
-| An edge is missing | Its summed total is below the active threshold, or one endpoint is outside the current YAML scope. |
-| Two expected nodes became one | Their YAML entries share the same `Display_name`; use distinct display names if they should remain separate. |
-| A merged node has an unexpected function color | Its aliases provide different `Function` values; inspect the hover card and processing report, then correct the YAML. |
-| A same-function edge is gray | The endpoint functions differ after unification, or one endpoint is `Unassigned`. |
-| Community colors changed | The visible graph, algorithm, resolution, weighting, seed, or iteration setting changed. Community numbers and colors are analysis-state labels, not permanent identifiers. |
-| Louvain and Leiden disagree | They use different refinement behavior; report the chosen method and parameters rather than treating either partition as a fixed annotation. |
-| Community detection produces many singletons | Lower the resolution, lower the edge threshold, hide isolated nodes, or inspect whether the visible graph is fragmented. |
-| Colors change between papers | Provide an explicit function-color dictionary for YAML function coloring. Community colors remain generated dynamically. |
-| The graph becomes very small | Lower the threshold, turn off the YAML-only scope, reveal isolates, or use **Fit network** after selecting the desired layout. |
-| A force layout appears unstable | Release pinned nodes, reset positions, or use a deterministic circle/grid layout for inspection. |
-| Local files do not load | Confirm the edge-table column names and file-size limits. When a node YAML is supplied, also confirm its two-level schema and browser console messages. |
+| A node is missing | Inclusion scope, alias inclusion, active edges, and Isolated nodes setting. |
+| An edge is missing | Selected relation/subtypes, active total versus threshold, and endpoint scope. |
+| Two nodes merged | Their normalized display names are equal. |
+| Frequency sizing is unavailable | Use neighborhood input or its matching saved evidence identities. |
+| Type counts exceed total | Complementary event descriptions overlap; total counts each event once. |
+| A function color is unexpected | Inspect merged aliases/functions and any explicit Color override. |
+| Community numbers/colors changed | The active graph or analysis parameters changed. |
+| The force layout is hard to inspect | Release pins, reset, or choose circle/grid. |
+| Input will not load | Confirm format, required columns, YAML schema, file limits, and displayed parser warnings. |
 
-The **Data processing report** summarizes input rows, YAML entries, included and TSV-referenced nodes, display-name merges, function conflicts, unannotated endpoints, invalid rows, self-loops, final undirected relationships, and the current visible graph used by community detection.
+The processing report summarizes original rows, aliases, inclusion, conflicts, invalid rows, self-loops, and the visible network used by communities.
 
-## Scientific reporting
+Default limits are 32 MB per input file, 5,000 relevant nodes, and 30,000 aggregated edges. Neighborhood conversion also limits generated ledger rows; when expansion reaches that limit, reduce input, choose adjacent pairs, or restrict to query proteins. Force layouts and iterative community methods should be checked on ordinary reader hardware.
 
-The viewer does not define what `edge_count` means or whether a detected community represents a biological module. The methods and figure legend should state:
-
-- how the original rows were generated;
-- whether reciprocal rows represent independent observations or mirrored descriptions;
-- why summing all rows is appropriate for the analysis;
-- what edge-count threshold was used in the published default;
-- what `edge_type` represents;
-- how `Function` groups and YAML `Include` values were assigned;
-- whether merged `Display_name` aliases are biologically equivalent;
-- whether node sizes represent degree or weighted degree;
-- whether Louvain or Leiden was used;
-- whether relationships were weighted by aggregated `edge_count`;
-- the resolution, seed, and iteration setting;
-- whether isolated nodes were included;
-- which visible node scope and threshold were active when the reported communities were calculated.
-
-The source edge table, YAML metadata, and any explicit function-color dictionary should remain downloadable beside the visualization.
-
-## Browser limits
-
-The default configuration permits up to:
-
-- 32 MB per input file;
-- 5,000 relevant canonical nodes;
-- 30,000 aggregated undirected relationships.
-
-The bundled example is far below these limits. Force-directed layouts and iterative community methods scale less efficiently than circle or grid layouts; large figures should be tested on ordinary reader hardware.
-
-
-## Editor without a node YAML
-
-The editor requires only the edge TSV. When no node YAML is supplied, every unique value found in the configured `source` and `target` columns becomes an independent node, and that identifier is also used as its initial display name. The viewer does not guess biological aliases. A node YAML remains useful when authors need to merge aliases through a common `Display_name`, retain notes, curate `Include`, or provide a manual `Function` classification.
-
-The optional group-color YAML remains supported. Without it, deterministic colors are assigned automatically.
-
-## Generate a node YAML from the visible network
-
-After choosing Louvain or Leiden, the editor can export a publication-ready starting YAML from the current analysis. Community detection and export use the network after undirected aggregation, the active minimum total `edge_count`, the optional YAML `Include` scope, and the isolated-node setting.
-
-The generated file contains every unique node identifier found in the TSV:
-
-- nodes participating in at least one currently visible relationship receive `Include: 1`;
-- other TSV nodes receive `Include: 0`;
-- included nodes receive a deterministic `Function` label such as `Community_01`;
-- excluded nodes receive an empty `Function`;
-- `Display_name` and `Notes` are preserved from an optional input YAML when available;
-- checking **Include visible isolated nodes** also marks currently displayed isolates as included.
-
-Community labels are ordered deterministically by community size and then by member composition. The export header records the method, threshold, resolution, weighting mode, seed, and iteration limit used to create the file. A second download produces a matching community-color dictionary. Both downloads are generated locally; the original TSV and YAML files are never modified.
+Methods/legends should state the source inputs, conversion scope/proximity/marker settings, event unit or legacy summation rule, selected relation/subtypes, threshold, alias mapping, inclusion scope, frequency unit, layout, community method, weighting, resolution, seed, iterations, and isolate handling. Related taxa, overlapping neighborhoods, and annotation completeness affect interpretation. Keep source input, exported edge ledger, curated YAML, and supplied color dictionaries with the figure.

@@ -1,7 +1,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.1';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_CONFIG = {
     title: 'Network Viewer',
@@ -110,7 +110,16 @@
     sourceUrls: { edges: '', nodes: '', colors: '' },
     localNames: { edges: '', nodes: '', colors: '' },
     lastInputTexts: null,
-    layoutRunning: false
+    layoutRunning: false,
+    relationFilter: 'all',
+    selectedTypes: null,
+    nodeMinRadius: 7,
+    nodeMaxRadius: 24,
+    nodeEvidence: [],
+    loadGeneration: 0,
+    loading: false,
+    conversion: null,
+    curation: null
   };
 
   function mergeConfig(base, extra) {
@@ -225,7 +234,7 @@
    * quotes, booleans, numbers, nulls, and comments.
    */
   function parseFlatYaml(text) {
-    const root = {};
+    const root = Object.create(null);
     let currentKey = null;
     const lines = String(text == null ? '' : text).replace(/^\uFEFF/, '').split(/\r?\n/);
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -244,7 +253,7 @@
 
       if (indent === 0) {
         if (!rawValue.trim()) {
-          root[key] = {};
+          root[key] = Object.create(null);
           currentKey = key;
         } else {
           root[key] = parseYamlScalar(rawValue);
@@ -347,15 +356,66 @@
     return a.localeCompare(b) <= 0 ? `${a}\u0000${b}` : `${b}\u0000${a}`;
   }
 
+  function relationCategory(type, relation) {
+    const value = normalizeToken(relation || type).replace(/[\s_-]/g, '');
+    if (['fusion', 'nterminal', 'cterminal', 'sameprotein'].includes(value)) return 'fusion';
+    if (['neighborhood', 'neighbourhood', 'upstream', 'downstream'].includes(value)) return 'neighborhood';
+    return 'other';
+  }
+
+  // Generated reciprocal descriptions share an event ID. Legacy TSV rows
+  // without an event ID keep their original additive interpretation.
+  function aggregateRelationshipRows(rows, id, source, target) {
+    const edge = { id, source, target, totalCount: 0, typeTotals: new Map(), directionTotals: new Map(), rows };
+    const totalEvents = new Set();
+    const eventCounts = new Map();
+    const typeEvents = new Set();
+    const directionEvents = new Set();
+    rows.forEach((row) => {
+      if (row.eventId && eventCounts.has(row.eventId) && eventCounts.get(row.eventId) !== row.count) {
+        throw new Error(`Event ${row.eventId} has inconsistent counts for ${source} / ${target}. Rows describing the same event must use the same edge_count.`);
+      }
+      if (row.eventId) eventCounts.set(row.eventId, row.count);
+      if (!row.eventId || !totalEvents.has(row.eventId)) edge.totalCount += row.count;
+      if (row.eventId) totalEvents.add(row.eventId);
+      const typeKey = JSON.stringify([row.type, row.eventId]);
+      if (!row.eventId || !typeEvents.has(typeKey)) edge.typeTotals.set(row.type, (edge.typeTotals.get(row.type) || 0) + row.count);
+      typeEvents.add(typeKey);
+      const direction = `${row.source} → ${row.target}`;
+      const directionKey = JSON.stringify([direction, row.eventId]);
+      if (!row.eventId || !directionEvents.has(directionKey)) edge.directionTotals.set(direction, (edge.directionTotals.get(direction) || 0) + row.count);
+      directionEvents.add(directionKey);
+    });
+    return edge;
+  }
+
+  function filterRelationship(edge, filters) {
+    const relation = filters.relation || 'all';
+    const rows = edge.rows.filter((row) => (relation === 'all' || relationCategory(row.type, row.relation) === relation)
+      && (!filters.types || filters.types.has(row.type)));
+    return rows.length ? aggregateRelationshipRows(rows, edge.id, edge.source, edge.target) : null;
+  }
+
   function buildGraph(edgeText, nodeText, colorText, config) {
-    const nodeYaml = cleanText(nodeText) ? parseFlatYaml(nodeText) : {};
+    const nodeYaml = cleanText(nodeText) ? parseFlatYaml(nodeText) : Object.create(null);
+    const fields = config.nodeFields;
+    const originalKeyByName = new Map(Object.keys(nodeYaml).map((key) => [normalizeToken(key), key]));
+    (config.nodeEdits || []).forEach((edit) => {
+      const key = originalKeyByName.get(normalizeToken(edit.id)) || edit.id;
+      const previous = nodeYaml[key] && typeof nodeYaml[key] === 'object' ? nodeYaml[key] : {};
+      nodeYaml[key] = Object.assign(Object.create(null), previous, {
+        [fields.label]: cleanText(edit.label) || edit.id,
+        [fields.include]: edit.included ? 1 : 0,
+        Color: edit.color || ''
+      });
+    });
     const yamlEntries = [];
     const canonicalByNormalizedLabel = new Map();
     const allCanonicalNodes = new Map();
     const keyLookup = new Map();
     const yamlEntryLookup = new Map();
+    const rawYamlLookup = new Map(Object.entries(nodeYaml).map(([key, raw]) => [normalizeToken(key), raw]));
     const tsvEndpointLookup = new Map();
-    const fields = config.nodeFields;
 
     function createNode(displayName, hasYaml) {
       return {
@@ -368,6 +428,11 @@
         sourceEntries: [],
         group: 'Unassigned',
         color: '',
+        customColor: '',
+        blockFrequency: null,
+        proteinFrequency: null,
+        occurrenceFrequency: null,
+        evidence: { blocks: new Set(), proteins: new Set(), occurrences: new Set() },
         x: 0,
         y: 0,
         pinned: false,
@@ -409,6 +474,7 @@
       if (!node.groups.includes(group)) node.groups.push(group);
       if (notes && !node.notes.includes(notes)) node.notes.push(notes);
       node.sourceEntries.push({ key: yamlKey, displayName, group, notes, included });
+      if (/^#[0-9a-f]{6}$/i.test(raw.Color || '')) node.customColor = raw.Color;
       node.yamlIncluded = node.yamlIncluded || included;
       const entry = { key: yamlKey, displayName, group, notes, included, canonicalId: node.id };
       keyLookup.set(normalizeToken(yamlKey), node.id);
@@ -484,28 +550,53 @@
         return;
       }
       const key = pairKey(source, target);
-      let edge = aggregated.get(key);
-      if (!edge) {
-        const ordered = source.localeCompare(target) <= 0 ? [source, target] : [target, source];
-        edge = {
-          id: key,
-          source: ordered[0],
-          target: ordered[1],
-          totalCount: 0,
-          typeTotals: new Map(),
-          directionTotals: new Map(),
-          rows: []
-        };
-        aggregated.set(key, edge);
-      }
-      edge.totalCount += count;
-      edge.typeTotals.set(type, (edge.typeTotals.get(type) || 0) + count);
-      const directionKey = `${source} → ${target}`;
-      edge.directionTotals.set(directionKey, (edge.directionTotals.get(directionKey) || 0) + count);
-      edge.rows.push({ source, target, rawSource, rawTarget, type, count, line: row.__line });
+      if (!aggregated.has(key)) aggregated.set(key, []);
+      aggregated.get(key).push({ source, target, rawSource, rawTarget, type, count, line: row.__line,
+        eventId: cleanText(row.event_id), relation: cleanText(row.relation), blockId: cleanText(row.block_id),
+        sourcePid: cleanText(row.source_pid), targetPid: cleanText(row.target_pid) });
     });
 
-    const relevantNodes = Array.from(allCanonicalNodes.values()).filter((node) => node.yamlIncluded || node.referencedInEdges);
+    const rawEvidence = new Map();
+    function appendEvidence(item) {
+      if (!item || !cleanText(item.id)) return;
+      const key = normalizeToken(item.id);
+      if (!rawEvidence.has(key)) rawEvidence.set(key, { id: item.id, blocks: new Set(), proteins: new Set(), occurrences: new Set() });
+      const evidence = rawEvidence.get(key);
+      ['blocks', 'proteins', 'occurrences'].forEach((field) => {
+        (item[field] || []).forEach((value) => evidence[field].add(String(value)));
+      });
+    }
+    (config.nodeEvidence || []).forEach(appendEvidence);
+    Object.entries(nodeYaml).forEach(([id, raw]) => {
+      if (!raw || typeof raw !== 'object') return;
+      const item = { id };
+      let supplied = false;
+      ['blocks', 'proteins', 'occurrences'].forEach((field) => {
+        const value = raw[`Evidence_${field}`];
+        if (value === undefined) return;
+        let parsed;
+        try { parsed = JSON.parse(value); } catch (_error) { throw new Error(`Invalid Evidence_${field} for ${id}: expected a JSON array of identifiers.`); }
+        if (!Array.isArray(parsed) || parsed.some((v) => typeof v !== 'string')) throw new Error(`Invalid Evidence_${field} for ${id}: expected a JSON array of identifiers.`);
+        item[field] = parsed;
+        supplied = true;
+      });
+      if (supplied) appendEvidence(item);
+    });
+    rawEvidence.forEach((item) => {
+      const node = allCanonicalNodes.get(resolveEndpoint(item.id));
+      node.referencedInData = true;
+      node.hasFrequency = true;
+      ['blocks', 'proteins', 'occurrences'].forEach((field) => item[field].forEach((value) => node.evidence[field].add(value)));
+    });
+    allCanonicalNodes.forEach((node) => {
+      if (node.hasFrequency) {
+        node.blockFrequency = node.evidence.blocks.size;
+        node.proteinFrequency = node.evidence.proteins.size;
+        node.occurrenceFrequency = node.evidence.occurrences.size;
+      }
+    });
+
+    const relevantNodes = Array.from(allCanonicalNodes.values()).filter((node) => node.yamlIncluded || node.referencedInEdges || node.referencedInData);
     if (relevantNodes.length > config.maxNodes) {
       throw new Error(`The edge table and YAML produce ${relevantNodes.length.toLocaleString()} relevant display-name nodes; the configured limit is ${config.maxNodes.toLocaleString()}.`);
     }
@@ -514,13 +605,32 @@
     }
 
     const canonicalNodes = new Map(relevantNodes.map((node) => [node.id, node]));
-    const edges = Array.from(aggregated.values()).filter((edge) => canonicalNodes.has(edge.source) && canonicalNodes.has(edge.target));
+    const edges = Array.from(aggregated.entries()).map(([id, rows]) => {
+      const ordered = rows[0].source.localeCompare(rows[0].target) <= 0 ? [rows[0].source, rows[0].target] : [rows[0].target, rows[0].source];
+      return aggregateRelationshipRows(rows, id, ordered[0], ordered[1]);
+    }).filter((edge) => canonicalNodes.has(edge.source) && canonicalNodes.has(edge.target));
     const groups = new Set(relevantNodes.map((node) => node.group));
     const suppliedColors = colorText ? readColorMap(parseFlatYaml(colorText)) : new Map();
     const colors = createAutoColorMap(groups, suppliedColors);
     relevantNodes.forEach((node) => {
-      node.color = colors.get(node.group) || AUTO_COLOR_HINTS.Unassigned;
+      node.color = node.customColor || colors.get(node.group) || AUTO_COLOR_HINTS.Unassigned;
     });
+
+    const rawNames = new Map();
+    [...yamlEntries.map((entry) => entry.key), ...Array.from(tsvEndpointLookup.values(), (entry) => entry.token)].forEach((id) => {
+      if (!rawNames.has(normalizeToken(id))) rawNames.set(normalizeToken(id), id);
+    });
+    const curationEntries = Array.from(rawNames.values()).map((id) => {
+      const normalized = normalizeToken(id);
+      const entry = yamlEntryLookup.get(normalized);
+      const node = allCanonicalNodes.get(keyLookup.get(normalized) || canonicalByNormalizedLabel.get(normalized));
+      const raw = rawYamlLookup.get(normalized);
+      const evidence = rawEvidence.get(normalized);
+      return { id, label: node ? node.label : id, included: entry ? entry.included : (yamlEntries.length ? Boolean(node && node.yamlIncluded) : true),
+        color: raw && /^#[0-9a-f]{6}$/i.test(raw.Color || '') ? raw.Color : '',
+        blocks: evidence ? evidence.blocks.size : null, proteins: evidence ? evidence.proteins.size : null,
+        occurrences: evidence ? evidence.occurrences.size : null };
+    }).sort((a, b) => a.id.localeCompare(b.id));
 
     const totalAdjacency = new Map(relevantNodes.map((node) => [node.id, new Set()]));
     const totalWeighted = new Map(relevantNodes.map((node) => [node.id, 0]));
@@ -550,6 +660,8 @@
       maxEdgeCount,
       metadata: {
         hasNodeYaml: yamlEntries.length > 0,
+        curationEntries,
+        rawEvidence,
         yamlEntryCount: yamlEntries.length,
         includedEntryCount: includedEntries.length,
         tsvEndpointCount: tsvEndpointLookup.size,
@@ -818,6 +930,7 @@
   }
 
   function activeNodeColor(node) {
+    if (node.customColor) return node.customColor;
     if (state.colorBy === 'community' && node.communityLabel) {
       return state.communityColors.get(node.communityLabel) || AUTO_COLOR_HINTS.Unassigned;
     }
@@ -1003,7 +1116,9 @@
         displayName: node ? node.label : endpoint.token,
         include: included ? 1 : 0,
         functionName: included ? (communityNameByNode.get(endpoint.canonicalId) || '') : '',
-        notes
+        notes,
+        color: node ? node.customColor : '',
+        evidence: state.graph.metadata.rawEvidence.get(normalizeToken(endpoint.token))
       };
     }).sort((a, b) => a.key.localeCompare(b.key));
 
@@ -1021,6 +1136,7 @@
       `# Generated by EvoSupplement Network Viewer ${VERSION}`,
       `# Community method: ${method}`,
       `# Minimum total edge count: ${state.threshold}`,
+      `# Relationship filter: ${state.relationFilter}; subtypes: ${state.selectedTypes ? Array.from(state.selectedTypes).join(', ') : 'all'}`,
       `# Resolution: ${state.communityResolution}`,
       `# Edge weights: ${state.communityWeighted ? 'aggregated edge_count' : 'unweighted'}`,
       `# Seed: ${state.communitySeed}`,
@@ -1036,6 +1152,10 @@
       lines.push(`  Include: ${entry.include}`);
       lines.push(`  Function: ${yamlQuoted(entry.functionName)}`);
       lines.push(`  Notes: ${yamlQuoted(entry.notes)}`);
+      if (entry.color) lines.push(`  Color: ${yamlQuoted(entry.color)}`);
+      if (entry.evidence) ['blocks', 'proteins', 'occurrences'].forEach((field) => {
+        lines.push(`  Evidence_${field}: ${yamlQuoted(JSON.stringify(Array.from(entry.evidence[field])))}`);
+      });
     });
     return `${lines.join('\n')}\n`;
   }
@@ -1415,7 +1535,12 @@
     }
   }
 
-  function nodeRadius(node, mode, maxDegree, maxWeighted) {
+  function nodeRadius(node, mode, maxDegree, maxWeighted, maxFrequency) {
+    const frequencyField = { 'frequency-blocks': 'blockFrequency', 'frequency-proteins': 'proteinFrequency', 'frequency-occurrences': 'occurrenceFrequency' }[mode];
+    if (frequencyField) {
+      const fraction = Math.max(0, Number(node[frequencyField]) || 0) / maxFrequency;
+      return Math.sqrt(state.nodeMinRadius ** 2 + fraction * (state.nodeMaxRadius ** 2 - state.nodeMinRadius ** 2));
+    }
     if (mode === 'degree') {
       const normalized = maxDegree ? Math.sqrt(node.degree / maxDegree) : 0;
       return 7 + normalized * 14;
@@ -1429,11 +1554,15 @@
 
   function refreshVisibleGraph(options) {
     if (!state.graph) return;
+    state.hoveredNode = null;
+    state.hoveredEdge = null;
+    hideTooltip();
     const threshold = state.threshold;
     const hasNodeYaml = Boolean(state.graph.metadata && state.graph.metadata.hasNodeYaml);
     const eligibleNodes = state.graph.nodes.filter((node) => !hasNodeYaml || !state.onlyIncluded || node.yamlIncluded);
     const eligibleIds = new Set(eligibleNodes.map((node) => node.id));
-    const scopeEdges = state.graph.edges.filter((edge) => eligibleIds.has(edge.source) && eligibleIds.has(edge.target));
+    const scopeEdges = state.graph.edges.filter((edge) => eligibleIds.has(edge.source) && eligibleIds.has(edge.target))
+      .map((edge) => filterRelationship(edge, { relation: state.relationFilter, types: state.selectedTypes })).filter(Boolean);
     const thresholdEdges = scopeEdges.filter((edge) => edge.totalCount >= threshold);
     const incident = new Set();
     thresholdEdges.forEach((edge) => {
@@ -1459,8 +1588,10 @@
       maxDegree = Math.max(maxDegree, node.degree);
       maxWeighted = Math.max(maxWeighted, node.weightedDegree);
     });
+    const frequencyField = { 'frequency-blocks': 'blockFrequency', 'frequency-proteins': 'proteinFrequency', 'frequency-occurrences': 'occurrenceFrequency' }[state.nodeSizeMode];
+    const maxFrequency = frequencyField ? state.graph.nodes.reduce((max, node) => Math.max(max, node[frequencyField] || 0), 1) : 1;
     visibleNodes.forEach((node) => {
-      node.radius = nodeRadius(node, state.nodeSizeMode, maxDegree, maxWeighted);
+      node.radius = nodeRadius(node, state.nodeSizeMode, maxDegree, maxWeighted, maxFrequency);
     });
     state.visibleNodes = visibleNodes;
     state.visibleEdges = filteredEdges;
@@ -1869,6 +2000,7 @@
       `<dt>YAML key${node.aliases.length === 1 ? '' : 's'}</dt><dd>${escapeHtml(aliases)}</dd>`,
       `<dt>Visible degree</dt><dd>${node.degree.toLocaleString()}</dd>`,
       `<dt>Visible edge count</dt><dd>${formatNumber(node.weightedDegree)}</dd>`,
+      node.hasFrequency ? `<dt>Frequency (input)</dt><dd>${formatNumber(node.blockFrequency)} neighborhoods · ${formatNumber(node.proteinFrequency)} proteins · ${formatNumber(node.occurrenceFrequency)} occurrences</dd>` : '',
       `<dt>All relationships</dt><dd>${node.totalDegree.toLocaleString()} · ${formatNumber(node.totalWeightedDegree)} total count</dd>`,
       notes ? `<dt>Notes</dt><dd>${escapeHtml(notes)}</dd>` : '',
       `</dl>`,
@@ -1895,7 +2027,8 @@
       `</dl>`,
       `<div class="tooltip-section"><strong>By edge type</strong>${typeRows.map(([type, count]) => `<span>${escapeHtml(type)} <b>${formatNumber(count)}</b></span>`).join('')}</div>`,
       `<div class="tooltip-section"><strong>By direction</strong>${directionRows.map(([direction, count]) => `<span>${escapeHtml(direction)} <b>${formatNumber(count)}</b></span>`).join('')}</div>`,
-      `<div class="tooltip-section tooltip-details"><strong>Input-row details</strong>${rawRows.map((row) => `<span>${escapeHtml(row.rawSource)} → ${escapeHtml(row.rawTarget)} · ${escapeHtml(row.type)} · <b>${formatNumber(row.count)}</b></span>`).join('')}${edge.rows.length > rawRows.length ? `<em>+ ${edge.rows.length - rawRows.length} more rows</em>` : ''}</div>`
+      `<div class="tooltip-section tooltip-details"><strong>Input-row details</strong>${rawRows.map((row) => `<span>${escapeHtml(row.rawSource)} → ${escapeHtml(row.rawTarget)} · ${escapeHtml(row.type)} · <b>${formatNumber(row.count)}</b>${row.blockId ? ` · block ${escapeHtml(row.blockId)} · ${escapeHtml(row.sourcePid)} / ${escapeHtml(row.targetPid)}` : ''}</span>`).join('')}${edge.rows.length > rawRows.length ? `<em>+ ${edge.rows.length - rawRows.length} more rows</em>` : ''}</div>`,
+      edge.rows.some((row) => row.eventId) ? '<div class="tooltip-hint">Total counts each event once. Reciprocal type/direction descriptions can overlap. Positions describe target relative to source.</div>' : ''
     ].join('');
     showTooltip(html, event);
   }
@@ -2009,7 +2142,7 @@
       yamlDiagnostic,
       `${meta.includedCanonicalNodeCount.toLocaleString()} included display-name nodes and ${meta.referencedCanonicalNodeCount.toLocaleString()} TSV-referenced display-name nodes contribute to ${meta.canonicalNodeCount.toLocaleString()} relevant nodes.`,
       `${meta.mergedLabels.length.toLocaleString()} display names merge more than one YAML key.`,
-      `${state.graph.edges.length.toLocaleString()} undirected relationships remain after summing all directions and edge types.`,
+      `${state.graph.edges.length.toLocaleString()} undirected relationships remain after combining directions and edge types; event IDs, when supplied, prevent reciprocal double counting.`,
       `Community detection, when active, uses only the ${state.visibleNodes.length.toLocaleString()} nodes and ${state.visibleEdges.length.toLocaleString()} relationships currently visible.`
     ];
     if (meta.groupConflicts.length) lines.push(`${meta.groupConflicts.length.toLocaleString()} merged display name has more than one non-empty function; the first included function is used for function coloring and all functions remain visible in hover details.`);
@@ -2236,6 +2369,8 @@
       showOverlay('Choose network files', 'Load an edge TSV to begin. Node annotations are optional.', false);
       return;
     }
+    const generation = ++state.loadGeneration;
+    state.loading = true;
     clearError();
     showOverlay('Loading network', 'Reading the edge table and included-node annotations…', true);
     try {
@@ -2244,64 +2379,76 @@
         config.nodeUrl ? fetchText(config.nodeUrl, 'Node YAML') : Promise.resolve(''),
         config.colorUrl ? fetchText(config.colorUrl, 'Group color dictionary') : Promise.resolve('')
       ]);
-      state.sourceUrls = { edges: config.edgeUrl, nodes: config.nodeUrl || '', colors: config.colorUrl || '' };
-      state.localNames = { edges: '', nodes: '', colors: '' };
-      await loadTexts(edgeText, nodeText, colorText, false);
-      configureDownloads();
+      await loadTexts(edgeText, nodeText, colorText, false, { generation,
+        sourceUrls: { edges: config.edgeUrl, nodes: config.nodeUrl || '', colors: config.colorUrl || '' },
+        localNames: { edges: '', nodes: '', colors: '' } });
     } catch (error) {
-      showError(error);
+      if (generation === state.loadGeneration) showError(error);
+    } finally {
+      if (generation === state.loadGeneration) state.loading = false;
     }
   }
 
-  async function loadTexts(edgeText, nodeText, colorText, fromLocal) {
+  async function loadTexts(edgeText, nodeText, colorText, fromLocal, options = {}) {
+    const generation = options.generation;
+    if (generation !== state.loadGeneration) return;
     clearError();
     showOverlay('Building network', 'Unifying display names and summing undirected relationships…', true);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    try {
-      const graph = buildGraph(edgeText, nodeText, colorText, state.config);
-      state.graph = graph;
-      state.lastInputTexts = { edgeText, nodeText, colorText };
-      state.selectedNodes.clear();
-      state.selectedEdge = null;
-      state.hoveredNode = null;
-      state.hoveredEdge = null;
-      state.searchMatches.clear();
-      state.threshold = Math.max(0, Number(state.config.defaultMinimumCount) || 0);
-      state.showLabels = Boolean(state.config.defaultShowLabels);
-      state.showIsolates = Boolean(state.config.defaultShowIsolates);
-      state.onlyIncluded = graph.metadata.hasNodeYaml && state.config.defaultOnlyIncluded !== false;
-      state.exportIncludeIsolates = false;
-      state.communityMethod = ['none', 'louvain', 'leiden'].includes(state.config.defaultCommunityMethod) ? state.config.defaultCommunityMethod : 'none';
-      state.communityResolution = Math.max(0.0001, Number(state.config.defaultCommunityResolution) || 1);
-      state.communityWeighted = state.config.defaultCommunityWeighted !== false;
-      state.communitySeed = Number(state.config.defaultCommunitySeed) || 42;
-      state.communityIterations = Math.max(1, Number(state.config.defaultCommunityIterations) || 20);
-      state.colorBy = state.config.defaultColorBy === 'community' && state.communityMethod !== 'none' ? 'community' : 'function';
-      state.groupLayoutBy = ['none', 'function', 'community'].includes(state.config.defaultGroupLayoutBy) ? state.config.defaultGroupLayoutBy : 'function';
-      if (state.groupLayoutBy === 'community' && state.communityMethod === 'none') state.groupLayoutBy = 'function';
-      state.nodeSizeMode = state.config.defaultNodeSize;
-      state.edgeWidthScale = 1;
-      state.layoutName = state.config.defaultLayout;
-      state.els.layoutSelect.value = state.layoutName;
-      state.els.nodeSizeSelect.value = state.nodeSizeMode;
-      state.els.showLabels.checked = state.showLabels;
-      state.els.showIsolates.checked = state.showIsolates;
-      updateCommunityControls();
-      state.els.searchInput.value = '';
-      state.els.searchClear.hidden = true;
-      initializePositions(graph.nodes, state.config.layoutSeed);
-      updateThresholdControls();
-      refreshVisibleGraph();
-      updateEdgeWidthControl();
-      if (state.els.exportSvg) state.els.exportSvg.disabled = false;
-      updateSelectionSummary();
-      updateSourceSummary(fromLocal);
-      hideOverlay();
-      runCurrentLayout({ instant: true, fit: true });
-    } catch (error) {
-      showError(error);
-      throw error;
-    }
+    if (generation !== state.loadGeneration) return;
+    const graph = buildGraph(edgeText, nodeText, colorText, Object.assign({}, state.config, { nodeEvidence: options.nodeEvidence || [] }));
+    state.sourceUrls = options.sourceUrls;
+    state.localNames = options.localNames;
+    state.graph = graph;
+    state.lastInputTexts = { edgeText, nodeText, colorText };
+    state.nodeEvidence = options.nodeEvidence || [];
+    state.conversion = options.conversion || null;
+    state.relationFilter = 'all';
+    state.selectedTypes = null;
+    state.selectedNodes.clear();
+    state.selectedEdge = null;
+    state.hoveredNode = null;
+    state.hoveredEdge = null;
+    state.searchMatches.clear();
+    state.threshold = Math.max(0, Number(state.config.defaultMinimumCount) || 0);
+    if (state.conversion) state.threshold = 1;
+    state.showLabels = Boolean(state.config.defaultShowLabels);
+    state.showIsolates = Boolean(state.config.defaultShowIsolates);
+    state.onlyIncluded = graph.metadata.hasNodeYaml && state.config.defaultOnlyIncluded !== false;
+    state.exportIncludeIsolates = false;
+    state.communityMethod = ['none', 'louvain', 'leiden'].includes(state.config.defaultCommunityMethod) ? state.config.defaultCommunityMethod : 'none';
+    state.communityResolution = Math.max(0.0001, Number(state.config.defaultCommunityResolution) || 1);
+    state.communityWeighted = state.config.defaultCommunityWeighted !== false;
+    state.communitySeed = Number(state.config.defaultCommunitySeed) || 42;
+    state.communityIterations = Math.max(1, Number(state.config.defaultCommunityIterations) || 20);
+    state.colorBy = state.config.defaultColorBy === 'community' && state.communityMethod !== 'none' ? 'community' : 'function';
+    state.groupLayoutBy = ['none', 'function', 'community'].includes(state.config.defaultGroupLayoutBy) ? state.config.defaultGroupLayoutBy : 'function';
+    if (state.groupLayoutBy === 'community' && state.communityMethod === 'none') state.groupLayoutBy = 'function';
+    state.nodeSizeMode = state.config.defaultNodeSize;
+    if (state.conversion) state.nodeSizeMode = 'frequency-blocks';
+    state.edgeWidthScale = 1;
+    state.layoutName = state.config.defaultLayout;
+    state.els.layoutSelect.value = state.layoutName;
+    state.els.nodeSizeSelect.value = state.nodeSizeMode;
+    state.els.showLabels.checked = state.showLabels;
+    state.els.showIsolates.checked = state.showIsolates;
+    updateCommunityControls();
+    state.els.searchInput.value = '';
+    state.els.searchClear.hidden = true;
+    initializePositions(graph.nodes, state.config.layoutSeed);
+    updateRelationControls();
+    updateFrequencyControls();
+    updateConversionSummary();
+    if (state.curation) state.curation.reload();
+    updateThresholdControls();
+    refreshVisibleGraph();
+    updateEdgeWidthControl();
+    if (state.els.exportSvg) state.els.exportSvg.disabled = false;
+    updateSelectionSummary();
+    updateSourceSummary(fromLocal);
+    configureDownloads();
+    hideOverlay();
+    runCurrentLayout({ instant: true, fit: true });
   }
 
   function updateSourceSummary(fromLocal) {
@@ -2358,28 +2505,207 @@
       updateDemoState();
     });
     state.els.demoLoad.addEventListener('click', async () => {
+      const generation = ++state.loadGeneration;
+      state.loading = true;
+      const edgeFile = edgeInput.files[0];
+      const nodeFile = nodeInput.files[0];
+      const colorFile = colorInput.files[0];
+      const format = document.getElementById('networkInputFormat')?.value || 'auto';
+      const conversionOptions = {
+        scope: document.getElementById('networkConversionScope').value,
+        proximity: document.getElementById('networkConversionProximity').value,
+        includeMarkers: document.getElementById('networkConversionMarkers').checked
+      };
       clearError();
       showOverlay('Reading local files', 'All processing remains in this browser tab.', true);
       try {
         const [edgeText, nodeText, colorText] = await Promise.all([
-          readLocalFile(edgeInput.files[0], 'Edge table'),
-          readLocalFile(nodeInput.files[0], 'Node YAML'),
-          readLocalFile(colorInput.files[0], 'Group color dictionary')
+          readLocalFile(edgeFile, 'Edge table'),
+          readLocalFile(nodeFile, 'Node YAML'),
+          readLocalFile(colorFile, 'Group color dictionary')
         ]);
-        state.localNames = {
-          edges: edgeInput.files[0].name,
-          nodes: nodeInput.files[0] ? nodeInput.files[0].name : '',
-          colors: colorInput.files[0] ? colorInput.files[0].name : ''
-        };
-        state.sourceUrls = { edges: '', nodes: '', colors: '' };
-        configureDownloads();
-        await loadTexts(edgeText, nodeText, colorText, true);
+        if (generation !== state.loadGeneration) return;
+        let conversion = null;
+        const detected = global.NeighborhoodViewer ? global.NeighborhoodViewer.detectInputFormat(edgeText) : 'unknown';
+        if (format === 'standard' || format === 'compact' || (format === 'auto' && ['standard', 'compact'].includes(detected))) {
+          if (!global.NetworkNeighborhood) throw new Error('The neighborhood converter could not be loaded. Reload the editor.');
+          conversion = global.NetworkNeighborhood.convert(edgeText, Object.assign({}, conversionOptions, {
+            format: format === 'auto' ? detected : format
+          }));
+        }
+        await loadTexts(conversion ? conversion.edgeText : edgeText, nodeText, colorText, true,
+          { generation, conversion, nodeEvidence: conversion ? conversion.nodeEvidence : [],
+            sourceUrls: { edges: '', nodes: '', colors: '' },
+            localNames: { edges: edgeFile.name, nodes: nodeFile ? nodeFile.name : '', colors: colorFile ? colorFile.name : '' } });
       } catch (error) {
-        showError(error);
+        if (generation === state.loadGeneration) showError(error);
+      } finally {
+        if (generation === state.loadGeneration) state.loading = false;
       }
     });
     state.els.demoReload.addEventListener('click', loadHostedInputs);
     updateDemoState();
+  }
+
+  function updateConversionSummary() {
+    const host = document.getElementById('networkConversionSummary');
+    const download = document.getElementById('networkDownloadConverted');
+    if (download) download.disabled = !state.conversion;
+    if (!host) return;
+    host.replaceChildren();
+    if (!state.conversion) return;
+    const conversion = state.conversion;
+    const summary = document.createElement('p');
+    summary.textContent = `${conversion.inputFormat} neighborhood input converted locally. ${state.nodeEvidence.length.toLocaleString()} domain names. Edge counts use distinct protein/gene-pair events within each neighborhood; node frequencies use the whole loaded input. Repeated/overlapping blocks can contribute repeated edge evidence. Minimum edge count set to 1.`;
+    host.appendChild(summary);
+    if (conversion.warnings.length) {
+      const details = document.createElement('details');
+      const title = document.createElement('summary');
+      title.textContent = `${conversion.warnings.length.toLocaleString()} conversion notice(s)`;
+      details.appendChild(title);
+      const list = document.createElement('ul');
+      conversion.warnings.slice(0, 50).forEach((warning) => {
+        const item = document.createElement('li');
+        item.textContent = warning;
+        list.appendChild(item);
+      });
+      details.appendChild(list);
+      host.appendChild(details);
+    }
+  }
+
+  function updateRelationControls() {
+    const family = document.getElementById('networkRelationFilter');
+    if (family) family.value = state.relationFilter;
+    const host = document.getElementById('networkRelationTypes');
+    if (!host) return;
+    host.replaceChildren();
+    if (!state.graph) return;
+    const types = Array.from(new Set(state.graph.edges.flatMap((edge) => Array.from(edge.typeTotals.keys())))).sort();
+    types.forEach((type) => {
+      const label = document.createElement('label');
+      label.className = 'check-field';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !state.selectedTypes || state.selectedTypes.has(type);
+      input.addEventListener('change', () => {
+        if (!state.selectedTypes) state.selectedTypes = new Set(types);
+        if (input.checked) state.selectedTypes.add(type); else state.selectedTypes.delete(type);
+        hideTooltip();
+        refreshVisibleGraph();
+      });
+      label.append(input, document.createTextNode(type));
+      host.appendChild(label);
+    });
+  }
+
+  function updateFrequencyControls() {
+    if (!state.els.nodeSizeSelect) return;
+    const available = state.graph && state.graph.nodes.some((node) => node.hasFrequency);
+    Array.from(state.els.nodeSizeSelect.options).forEach((option) => {
+      if (option.value.startsWith('frequency-')) option.disabled = !available;
+    });
+    if (state.nodeSizeMode.startsWith('frequency-') && !available) {
+      state.nodeSizeMode = 'weighted-degree';
+      state.els.nodeSizeSelect.value = state.nodeSizeMode;
+    }
+    const host = document.getElementById('networkFrequencyNote');
+    if (host) host.textContent = available
+      ? 'Frequency uses distinct identifiers in the loaded input, before relation filters. Renamed aliases share the union of their evidence.'
+      : 'Occurrence frequencies require neighborhood input or an exported node YAML with frequency evidence. Edge count is not occurrence frequency.';
+  }
+
+  function serializeCuratedNodeYaml(graph, inputNodeText, config) {
+    const base = inputNodeText ? parseFlatYaml(inputNodeText) : {};
+    const baseByName = new Map(Object.entries(base).map(([key, value]) => [normalizeToken(key), value]));
+    const fields = config.nodeFields;
+    const lines = [`# EvoSupplement Network Viewer ${VERSION} — applied node annotations`, '# Same Display_name merges nodes. Frequency evidence stores exact sets for later alias merges.', ''];
+    graph.metadata.curationEntries.forEach((entry) => {
+      const raw = Object.assign(Object.create(null), baseByName.get(normalizeToken(entry.id)) || {});
+      raw[fields.label] = entry.label;
+      raw[fields.include] = entry.included ? 1 : 0;
+      raw.Color = entry.color || '';
+      const evidence = graph.metadata.rawEvidence.get(normalizeToken(entry.id));
+      if (evidence) ['blocks', 'proteins', 'occurrences'].forEach((field) => { raw[`Evidence_${field}`] = JSON.stringify(Array.from(evidence[field])); });
+      lines.push(`${yamlQuoted(entry.id)}:`);
+      Object.entries(raw).forEach(([key, value]) => {
+        if (value && typeof value === 'object') return;
+        lines.push(`  ${yamlQuoted(key)}: ${value === null || typeof value === 'number' || typeof value === 'boolean' ? value : yamlQuoted(value == null ? '' : value)}`);
+      });
+    });
+    return `${lines.join('\n')}\n`;
+  }
+
+  function curatedNodeYaml() {
+    if (!state.graph || !state.lastInputTexts) throw new Error('Load data before exporting node annotations.');
+    return serializeCuratedNodeYaml(state.graph, state.lastInputTexts.nodeText, state.config);
+  }
+
+  async function applyNodeEdits(entries) {
+    if (!state.graph || !state.lastInputTexts) return;
+    if (state.loading) throw new Error('Wait for the input to finish loading before applying node edits.');
+    if (state.layoutRunning) throw new Error('Wait for the current layout to finish before applying node edits.');
+    const generation = state.loadGeneration;
+    const input = state.lastInputTexts;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (generation !== state.loadGeneration) throw new Error('The input changed while applying edits. Review the current node editor before applying again.');
+    const graph = buildGraph(input.edgeText, input.nodeText, input.colorText, Object.assign({}, state.config, { nodeEvidence: state.nodeEvidence, nodeEdits: entries }));
+    const previous = state.graph;
+    initializePositions(graph.nodes, state.config.layoutSeed);
+    graph.nodes.forEach((node) => {
+      const old = previous.nodeMap.get(node.id) || previous.nodes.find((item) => item.aliases.some((alias) => node.aliases.includes(alias)));
+      if (old) { node.x = old.x; node.y = old.y; node.pinned = old.pinned; }
+    });
+    state.graph = graph;
+    state.onlyIncluded = true;
+    state.selectedNodes.clear();
+    state.selectedEdge = null;
+    hideTooltip();
+    updateCommunityControls();
+    updateThresholdControls();
+    updateFrequencyControls();
+    refreshVisibleGraph({ fit: true });
+    applySearch();
+    updateSourceSummary(Boolean(state.localNames.edges));
+  }
+
+  function setupEditorExtensions() {
+    if (global.NetworkNodeCuration) state.curation = global.NetworkNodeCuration.init({
+      getEntries: () => state.graph ? state.graph.metadata.curationEntries : [],
+      apply: applyNodeEdits,
+      download: () => downloadTextFile('nodes.curated.yaml', curatedNodeYaml(), 'text/yaml')
+    });
+    const family = document.getElementById('networkRelationFilter');
+    if (family) family.addEventListener('change', () => {
+      state.relationFilter = family.value;
+      hideTooltip();
+      refreshVisibleGraph();
+    });
+    const reset = document.getElementById('networkRelationReset');
+    if (reset) reset.addEventListener('click', () => {
+      state.relationFilter = 'all';
+      state.selectedTypes = null;
+      updateRelationControls();
+      hideTooltip();
+      refreshVisibleGraph();
+    });
+    const download = document.getElementById('networkDownloadConverted');
+    if (download) download.addEventListener('click', () => {
+      if (state.conversion) downloadTextFile('neighborhood-network.edges.tsv', state.conversion.edgeText, 'text/tab-separated-values');
+    });
+    ['networkNodeMinSize', 'networkNodeMaxSize'].forEach((id) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      input.addEventListener('change', () => {
+        const low = document.getElementById('networkNodeMinSize');
+        const high = document.getElementById('networkNodeMaxSize');
+        state.nodeMinRadius = Math.max(2, Math.min(40, Number(low.value) || 7));
+        state.nodeMaxRadius = Math.max(state.nodeMinRadius, Math.min(80, Number(high.value) || 24));
+        low.value = state.nodeMinRadius;
+        high.value = state.nodeMaxRadius;
+        refreshVisibleGraph();
+      });
+    });
   }
 
   function bindElements() {
@@ -2674,6 +3000,7 @@
     bindControls();
     updateEdgeWidthControl();
     setupDemoLoader();
+    setupEditorExtensions();
     if (state.config.autoLoad) loadHostedInputs();
     else showOverlay('Choose network files', 'Load an edge TSV to begin. Node YAML and colors are optional.', false);
   }
@@ -2688,6 +3015,9 @@
     computeLayout,
     normalizeToken,
     parseInclude,
+    aggregateRelationshipRows,
+    filterRelationship,
+    serializeCuratedNodeYaml,
     currentExportModel,
     generatedNodeYaml,
     generatedCommunityColorYaml,

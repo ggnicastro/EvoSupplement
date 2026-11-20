@@ -6,7 +6,8 @@
   <meta name="description" content="Interactive undirected biological association network with annotation-driven coloring, edge-count filtering, and multiple layouts.">
   <meta name="theme-color" content="#172033">
   <title>Network Editor</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=1.3.0">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.4.1">
+  <link rel="stylesheet" href="./node-curation.css?v=1.4.1">
 </head>
 <body>
   <header class="app-header">
@@ -32,8 +33,8 @@
     <section class="demo-load-card" id="networkDemoLoader" aria-label="Load local network files">
       <div class="demo-load-row">
         <span class="file-field">
-          <span class="file-field-label">Edge TSV</span>
-          <label class="file-button" for="networkDemoEdgeInput">Choose TSV</label>
+          <span class="file-field-label">Network / neighborhood input</span>
+          <label class="file-button" for="networkDemoEdgeInput">Choose input</label>
           <input id="networkDemoEdgeInput" type="file" accept=".tsv,.txt,text/tab-separated-values,text/plain" hidden>
           <span class="file-name" id="networkDemoEdgeName">No file selected</span>
         </span>
@@ -55,9 +56,22 @@
       <div class="demo-load-row">
         <button class="action-button primary" id="networkDemoLoad" type="button" disabled>Load local files</button>
         <button class="action-button" id="networkDemoReload" type="button">Reload bundled example</button>
-        <p class="demo-hint">Files are parsed locally in this browser. Only the edge TSV is required. Without a node YAML, source and target names become independent nodes. Optional node annotations can provide aliases, Display_name values, Include flags, functions, and notes; colors remain optional.</p>
+        <p class="demo-hint">Files are parsed locally in this browser. Load an edge TSV or either gene-neighborhood format. Without a node YAML, input names become independent nodes. Optional node annotations can provide aliases, Display_name values, Include flags, functions, and notes; colors remain optional.</p>
       </div>
+      <details class="conversion-panel">
+        <summary>Neighborhood input options</summary>
+        <div class="community-controls">
+          <label class="control-field" for="networkInputFormat"><span>Input format</span><select id="networkInputFormat"><option value="auto">Auto-detect</option><option value="edges">Edge TSV</option><option value="standard">Neighborhood TSV (standard)</option><option value="compact">Neighborhood (compact)</option></select></label>
+          <label class="control-field" for="networkConversionScope"><span>Relationships from</span><select id="networkConversionScope"><option value="all">All proteins</option><option value="query">Query proteins and their neighbors</option></select></label>
+          <label class="control-field" for="networkConversionProximity"><span>Pair selection</span><select id="networkConversionProximity"><option value="all">All domain/gene pairs</option><option value="adjacent">Consecutive domains / adjacent genes</option></select></label>
+          <label class="check-field"><input id="networkConversionMarkers" type="checkbox"><span>Include markers (TM, signal peptides)</span></label>
+          <button class="action-button" id="networkDownloadConverted" type="button" disabled>Download converted edge TSV</button>
+        </div>
+        <p class="demo-hint">Options apply when you click Load local files. Fusion means domains in the same protein; terminal labels describe relative domain order. Compact input supplies order and orientation, without genomic distances. Node frequencies cover all loaded neighborhoods, independent of query scope.</p>
+      </details>
+      <div class="conversion-summary" id="networkConversionSummary" aria-live="polite"></div>
     </section>
+    <div id="networkNodeCuration"></div>
     <section class="network-toolbar" aria-label="Network controls">
       <div class="filter-row">
         <label class="search-field" for="networkSearch">
@@ -109,9 +123,14 @@
             <option value="weighted-degree">Weighted degree</option>
             <option value="degree">Degree</option>
             <option value="constant">Constant</option>
+            <option value="frequency-blocks">Frequency: neighborhoods</option>
+            <option value="frequency-proteins">Frequency: proteins</option>
+            <option value="frequency-occurrences">Frequency: domain occurrences</option>
           </select>
         </label>
 
+        <label class="control-field compact-number" for="networkNodeMinSize"><span>Frequency min radius</span><input id="networkNodeMinSize" type="number" min="2" max="40" step="1" value="7"></label>
+        <label class="control-field compact-number" for="networkNodeMaxSize"><span>Frequency max radius</span><input id="networkNodeMaxSize" type="number" min="2" max="80" step="1" value="24"></label>
         <div class="action-field edge-thickness-control">
           <span>Edge thickness</span>
           <span class="action-group">
@@ -152,6 +171,25 @@
         </div>
       </div>
 
+
+      <details class="community-panel relation-panel" id="networkRelationPanel">
+        <summary>Relationship filters</summary>
+        <div class="community-controls">
+          <label class="control-field" for="networkRelationFilter"><span>Use relationships</span>
+            <select id="networkRelationFilter">
+              <option value="all">All relationships</option>
+              <option value="fusion">Fusion / same protein only</option>
+              <option value="neighborhood">Neighborhood only</option>
+              <option value="other">Other types only</option>
+            </select>
+          </label>
+          <button class="action-button" id="networkRelationReset" type="button">Reset relationship filters</button>
+          <div class="relation-type-options" id="networkRelationTypes" aria-label="Relationship subtypes"></div>
+        </div>
+        <p class="community-note">One undirected edge per pair. Selected relationship types are combined before the minimum count and community analysis. Hover shows contributing counts. N/C-terminal and upstream/downstream describe target relative to source.</p>
+      </details>
+
+      <p class="community-note" id="networkFrequencyNote"></p>
 
       <details class="community-panel" id="networkCommunityPanel" open>
         <summary>Community analysis</summary>
@@ -287,13 +325,16 @@
   <footer class="page-footer">
     <span>Node YAML is optional in the editor; generated YAML can be reviewed and reused for publication.</span>
     <span aria-hidden="true">•</span>
-    <span>Display-name aliases and all directional edge rows are unified before filtering.</span>
+    <span>One edge per display-name pair; selected relationships are combined before the count threshold.</span>
     <span aria-hidden="true">•</span>
     <span>Dragging changes only the browser view; source files are never rewritten.</span>
   </footer>
 
-  <script src="./config.js?v=2"></script>
-  <script src="../shared/network-viewer.js?v=1.3.0"></script>
+  <script src="../../neighborhood-viewer/shared/neighborhood-viewer.js?v=3.6.0"></script>
+  <script src="../shared/neighborhood-network.js?v=1.4.1"></script>
+  <script src="./node-curation.js?v=1.4.1"></script>
+  <script src="./config.js?v=3"></script>
+  <script src="../shared/network-viewer.js?v=1.4.1"></script>
   <script>window.NetworkViewer.init();</script>
 </body>
 </html>

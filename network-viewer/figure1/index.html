@@ -6,7 +6,7 @@
   <meta name="description" content="Interactive undirected biological association network with annotation-driven coloring, edge-count filtering, and multiple layouts.">
   <meta name="theme-color" content="#172033">
   <title>Network Viewer</title>
-  <link rel="stylesheet" href="../shared/styles.css?v=1.3.0">
+  <link rel="stylesheet" href="../shared/styles.css?v=1.4.1">
 </head>
 <body>
   <header class="app-header">
@@ -80,9 +80,14 @@
             <option value="weighted-degree">Weighted degree</option>
             <option value="degree">Degree</option>
             <option value="constant">Constant</option>
+            <option value="frequency-blocks">Frequency: neighborhoods</option>
+            <option value="frequency-proteins">Frequency: proteins</option>
+            <option value="frequency-occurrences">Frequency: domain occurrences</option>
           </select>
         </label>
 
+        <label class="control-field compact-number" for="networkNodeMinSize"><span>Frequency min radius</span><input id="networkNodeMinSize" type="number" min="2" max="40" step="1" value="7"></label>
+        <label class="control-field compact-number" for="networkNodeMaxSize"><span>Frequency max radius</span><input id="networkNodeMaxSize" type="number" min="2" max="80" step="1" value="24"></label>
         <div class="action-field edge-thickness-control">
           <span>Edge thickness</span>
           <span class="action-group">
@@ -123,6 +128,25 @@
         </div>
       </div>
 
+
+      <details class="community-panel relation-panel" id="networkRelationPanel">
+        <summary>Relationship filters</summary>
+        <div class="community-controls">
+          <label class="control-field" for="networkRelationFilter"><span>Use relationships</span>
+            <select id="networkRelationFilter">
+              <option value="all">All relationships</option>
+              <option value="fusion">Fusion / same protein only</option>
+              <option value="neighborhood">Neighborhood only</option>
+              <option value="other">Other types only</option>
+            </select>
+          </label>
+          <button class="action-button" id="networkRelationReset" type="button">Reset relationship filters</button>
+          <div class="relation-type-options" id="networkRelationTypes" aria-label="Relationship subtypes"></div>
+        </div>
+        <p class="community-note">One undirected edge per pair. Selected relationship types are combined before the minimum count and community analysis. Hover shows contributing counts. N/C-terminal and upstream/downstream describe target relative to source.</p>
+      </details>
+
+      <p class="community-note" id="networkFrequencyNote"></p>
 
       <details class="community-panel" id="networkCommunityPanel" open>
         <summary>Community analysis</summary>
@@ -242,13 +266,13 @@
   <footer class="page-footer">
     <span>Use the YAML Include switch to compare the curated node set with all TSV-referenced nodes.</span>
     <span aria-hidden="true">•</span>
-    <span>Display-name aliases and all directional edge rows are unified before filtering.</span>
+    <span>One edge per display-name pair; selected relationships are combined before the count threshold.</span>
     <span aria-hidden="true">•</span>
     <span>Dragging changes only the browser view; source files are never rewritten.</span>
   </footer>
 
   <script src="./config.js?v=2"></script>
-  <script src="../shared/network-viewer.js?v=1.3.0"></script>
+  <script src="../shared/network-viewer.js?v=1.4.1"></script>
   <script>window.NetworkViewer.init();</script>
 </body>
 </html>
