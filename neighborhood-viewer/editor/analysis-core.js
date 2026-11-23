@@ -1,11 +1,12 @@
 /* EvoSupplement Neighborhood Analysis — local, editor-only computational core. */
 (function (root, factory) {
-  const api = factory();
+  const communities = typeof module === 'object' && module.exports ? require('./analysis-communities.js') : root.NeighborhoodCommunities;
+  const api = factory(communities);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.NeighborhoodAnalysisCore = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (communities) {
   'use strict';
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const MAX_PAIR_BUDGET = 25000000;
   const clean = value => String(value == null ? '' : value).trim();
   const compareText = (a, b) => String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
@@ -22,15 +23,18 @@
     const input = options || {};
     const pick = (key, fallback, allowed) => { const value = input[key] == null ? fallback : input[key]; if (!allowed.includes(value)) throw failure('INVALID_OPTIONS', `Unsupported ${key}: ${value}.`); return value; };
     return {
-      representation: pick('representation', 'raw', ['raw', 'display']), excludeQuery: input.excludeQuery !== false,
+      representation: pick('representation', 'raw', ['raw', 'display']), excludeQuery: input.excludeQuery === true,
       metric: pick('metric', 'jaccard', ['jaccard', 'weighted']), minDomains: numberOption(input.minDomains, 1, 0, 100000, true),
-      threshold: numberOption(input.threshold, 0.5, 0, 1, false), maxNeighbors: numberOption(input.maxNeighbors, 10, 1, 100, true),
-      grouping: pick('grouping', 'components', ['components', 'label-propagation']),
+      threshold: numberOption(input.threshold, 0.33, 0, 1, false), maxNeighbors: numberOption(input.maxNeighbors, 10, 1, 100, true),
+      grouping: pick('grouping', 'louvain', ['louvain', 'leiden', 'components', 'label-propagation']),
+      resolution: numberOption(input.resolution, 1, 0.05, 10, false),
+      seed: numberOption(input.seed, 42, 0, 2147483647, true),
+      iterations: numberOption(input.iterations, 20, 1, 250, true),
       overlapPolicy: pick('overlapPolicy', 'representative', ['representative', 'keep']),
       queryWindow: numberOption(input.queryWindow, 2, 0, 20, true),
       maxPairs: numberOption(input.maxPairs, 2000000, 1, MAX_PAIR_BUDGET, true),
       maxEdges: numberOption(input.maxEdges, 25000, 1, 250000, true),
-      alternatives: { enabled: true, minSupport: 5, minExpected: 1, maxBothRate: 0.2, maxQ: 1, stratumField: '', stratumValue: '', maxPairs: 250000, maxContextCandidates: 500, ...(input.alternatives || {}), excludeQuery: input.excludeQuery !== false }
+      alternatives: { enabled: false, minSupport: 5, minExpected: 1, maxBothRate: 0.2, maxQ: 1, stratumField: '', stratumValue: '', maxPairs: 250000, maxContextCandidates: 500, ...(input.alternatives || {}), excludeQuery: input.excludeQuery === true }
     };
   }
   function domainToken(gene) {
@@ -199,20 +203,45 @@
       candidates[i] = row.sort((a, b) => a - b);
       if (i % 100 === 0) { progress('candidates', i, n, 'Counting exact positive-similarity candidates.'); await yieldNow(); }
     }
+    const completeThresholdGraph = ['louvain', 'leiden'].includes(options.grouping);
+    const thresholdEdges = [];
     const top = Array.from({ length: n }, () => []); let evaluated = 0, qualified = 0;
     const edgeOrder = (a, b) => b.similarity - a.similarity || a.i - b.i || a.j - b.j;
     function retain(index, edge) { const list = top[index]; let at = list.length; while (at > 0 && edgeOrder(edge, list[at - 1]) < 0) at -= 1; if (at < options.maxNeighbors) { list.splice(at, 0, edge); if (list.length > options.maxNeighbors) list.pop(); } }
     for (let i = 0; i < n; i += 1) {
-      for (const j of candidates[i]) { const scores = compare(observations[i], observations[j], options.metric); evaluated += 1; if (scores.similarity >= options.threshold) { const edge = { i, j, ...scores }; qualified += 1; retain(i, edge); retain(j, edge); } if (evaluated % 5000 === 0) { progress('similarity', evaluated, candidatePairs, 'Comparing domain composition and annotated gene adjacency.'); await yieldNow(); } }
+      for (const j of candidates[i]) {
+        const scores = compare(observations[i], observations[j], options.metric);
+        evaluated += 1;
+        if (scores.similarity >= options.threshold) {
+          const edge = { i, j, ...scores };
+          qualified += 1;
+          if (completeThresholdGraph) {
+            if (thresholdEdges.length >= options.maxEdges) throw failure('EDGE_BUDGET', `The threshold graph exceeds the ${options.maxEdges.toLocaleString()} edge budget. No partial graph was returned. Raise the threshold, reduce the input, or raise the edge budget.`);
+            thresholdEdges.push(edge);
+          } else {
+            retain(i, edge); retain(j, edge);
+          }
+        }
+        if (evaluated % 5000 === 0) {
+          progress('similarity', evaluated, candidatePairs, 'Comparing neighborhood domain sets.');
+          await yieldNow();
+        }
+      }
       candidates[i] = null;
     }
     const edgeMap = new Map(); for (const list of top) for (const edge of list) edgeMap.set(`${edge.i}:${edge.j}`, edge);
     if (edgeMap.size > options.maxEdges) throw failure('EDGE_BUDGET', `The per-node neighbor limit produces ${edgeMap.size.toLocaleString()} edges, above the ${options.maxEdges.toLocaleString()} edge budget. No edges were silently discarded. Reduce the neighbor limit, raise the similarity threshold, or raise the edge budget.`);
-    const workingEdges = [...edgeMap.values()].sort((a, b) => a.i - b.i || a.j - b.j), adjacency = Array.from({ length: n }, () => []);
+    const workingEdges = (completeThresholdGraph ? thresholdEdges : [...edgeMap.values()]).sort((a, b) => a.i - b.i || a.j - b.j), adjacency = Array.from({ length: n }, () => []);
     for (const edge of workingEdges) { adjacency[edge.i].push({ node: edge.j, weight: edge.similarity }); adjacency[edge.j].push({ node: edge.i, weight: edge.similarity }); }
     progress('groups', 0, n, 'Grouping the retained similarity network.'); await yieldNow();
     let labels = Array.from({ length: n }, (_, i) => i), iterations = 0, converged = true;
-    if (options.grouping === 'components') { const uf = new UnionFind(n); for (const edge of workingEdges) uf.union(edge.i, edge.j); labels = labels.map((_, i) => uf.find(i)); }
+    if (completeThresholdGraph) {
+      if (!communities) throw failure('COMMUNITY_ENGINE', 'The community engine is unavailable. Reload the updated editor.');
+      const partition = communities.detectCommunities(options.grouping, observations.map(o => ({ id: o.id })),
+        workingEdges.map(edge => ({ source: observations[edge.i].id, target: observations[edge.j].id, totalCount: edge.similarity })),
+        { weighted: true, resolution: options.resolution, seed: options.seed, iterations: options.iterations });
+      labels = observations.map(o => partition.membership.get(o.id));
+    } else if (options.grouping === 'components') { const uf = new UnionFind(n); for (const edge of workingEdges) uf.union(edge.i, edge.j); labels = labels.map((_, i) => uf.find(i)); }
     else {
       converged = false;
       for (iterations = 1; iterations <= 50; iterations += 1) {
@@ -233,17 +262,19 @@
       const id = `group-${gi + 1}`, members = indices.map(i => observations[i].id), domainCounts = countMap(indices.flatMap(i => observations[i].domainIds));
       const representative = [...indices].sort((a, b) => adjacency[b].reduce((s, e) => s + e.weight, 0) - adjacency[a].reduce((s, e) => s + e.weight, 0) || compareText(observations[a].id, observations[b].id))[0];
       indices.forEach(i => { observations[i].groupId = id; });
-      return { id, label: `Group ${gi + 1}`, count: indices.length, members, sourceMembers: unique(indices.flatMap(i => observations[i].members)), representative: observations[representative].id,
+      return { id, label: `Community ${gi + 1}`, count: indices.length, members, sourceMembers: unique(indices.flatMap(i => observations[i].members)), representative: observations[representative].id,
         domains: Object.entries(domainCounts).map(([domain, count]) => ({ id: domain, count, frequency: count / indices.length })).sort((a, b) => b.count - a.count || compareText(a.id, b.id)) };
     });
     const nodes = observations.map((observation, i) => ({ id: observation.id, label: observation.label, groupId: observation.groupId, degree: adjacency[i].length, strength: adjacency[i].reduce((sum, e) => sum + e.weight, 0), domainCount: observation.domainIds.length, memberCount: observation.members.length, members: observation.members }));
     const edges = workingEdges.map(edge => ({ source: observations[edge.i].id, target: observations[edge.j].id, similarity: edge.similarity, compositionSimilarity: edge.compositionSimilarity, orderSimilarity: edge.orderSimilarity }));
+    communities.connectorSummaries(observations, edges, groups).forEach((group, i) => Object.assign(groups[i], group));
     const patterns = patternsFor(observations, options.queryWindow);
     const warnings = [...prepared.warnings]; if (qualified > edges.length) warnings.push(`${qualified - edges.length} threshold-qualified edge(s) were omitted by the explicit top-${options.maxNeighbors} neighbor sparsification. Groups use this retained network, not the complete threshold graph.`);
     if (!converged) warnings.push('Weighted label propagation reached its 50-iteration limit; the deterministic final partition is reported.');
     const summary = { ...prepared.summary, possiblePairs, candidatePairs, evaluatedPairs: evaluated, skippedZeroPairs: possiblePairs - candidatePairs, qualifiedEdges: qualified, retainedEdges: edges.length, omittedEdges: qualified - edges.length, groups: groups.length, isolates: nodes.filter(node => !node.degree).length,
-      topK: options.maxNeighbors, topKPolicy: 'Union of each node’s highest-scoring K neighbors; a node can receive more than K edges.', grouping: options.grouping, groupingIterations: iterations, groupingConverged: converged };
-    prepared.provenance.methods.network = 'Exact composition scores for all positive-overlap candidates (all pairs when threshold is zero); threshold followed by union of per-node top-K neighbors. Groups use the retained network.';
+      topK: completeThresholdGraph ? null : options.maxNeighbors, topKPolicy: completeThresholdGraph ? 'All pairs at or above the threshold; no top-K pruning.' : 'Union of each node’s highest-scoring K neighbors; a node can receive more than K edges.', grouping: options.grouping, groupingIterations: completeThresholdGraph ? null : iterations, groupingConverged: completeThresholdGraph ? null : converged, groupingIterationLimit: completeThresholdGraph ? options.iterations : 50 };
+    prepared.provenance.methods.network = completeThresholdGraph ? 'Undirected neighborhood graph with every pair at or above the Jaccard threshold, weighted by similarity. No top-K pruning. Connector domains are shared by at least one internal edge; private domains and cross-community edges do not contribute.' : 'Legacy threshold plus top-K graph.';
+    prepared.provenance.methods.communities = options.grouping === 'leiden' ? 'Leiden-style connectivity refinement with multilevel aggregation; not the full stochastic reference Leiden implementation.' : options.grouping === 'louvain' ? 'Multilevel Louvain modularity optimization using Jaccard edge weights.' : options.grouping;
     prepared.provenance.methods.order = 'Separate presence Jaccard of annotated adjacent gene signatures; genes preserve boundaries, arrows and query identity.';
     prepared.provenance.methods.patternCounts = 'Number of distinct representative observations containing a pattern; occurrences are also reported. Denominator is all included observations.';
     progress('patterns', n, n, 'Counting complete orders, adjacent pairs, triplets and query windows.');

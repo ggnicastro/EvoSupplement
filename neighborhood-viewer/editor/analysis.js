@@ -1,7 +1,7 @@
 /* EvoSupplement Neighborhood analysis workspace. Loaded only by the editor. */
 (() => {
   'use strict';
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const PAGE_SIZE = 20;
   const MAX_DRAW_NODES = 200;
   const MAX_DRAW_EDGES = 800;
@@ -55,9 +55,9 @@
   }
   function create(viewer, hooks = {}) {
     if (!viewer?.getAnalysisSnapshot) throw new Error('The Neighborhood analysis bridge is unavailable. Reload the updated editor.');
-    const ids = ['Card','Summary','Setup','Scope','Representation','Metric','Threshold','ExcludeQuery','MinDomains','TopK','Grouping','Overlap','Window','AlternativesEnabled','MinSupport','MinExpected','MaxBoth','MaxQ','MaxPairs','MaxEdges','AlternativePairs','ContextLimit','StratumField','StratumValue','MetadataFields','Run','Cancel','Progress','Status','Load','LoadInput','Stale','Results','ClearFocus','Save','Export','Selection','Tabs','Panel','Overview','Network','NetworkGroup','NetworkNote','Graph','TabDescription','Search','ViewField','View','Sort','RowCount','TableHead','TableBody','Empty','Prev','Next','PageInfo','Detail','Provenance'];
+    const ids = ['Card','Summary','Setup','Scope','Representation','Metric','Threshold','ExcludeQuery','MinDomains','TopK','Grouping','Resolution','Seed','Iterations','Overlap','Window','AlternativesEnabled','MinSupport','MinExpected','MaxBoth','MaxQ','MaxPairs','MaxEdges','AlternativePairs','ContextLimit','StratumField','StratumValue','MetadataFields','Run','Cancel','Progress','Status','Load','LoadInput','Stale','Results','ClearFocus','Save','Export','Selection','Tabs','Panel','Overview','Network','NetworkGroup','NetworkNote','Graph','TabDescription','Search','ViewField','View','Sort','RowCount','TableHead','TableBody','Empty','Prev','Next','PageInfo','Detail','Provenance','CommunitySummary','CommunitySearch','Communities','CommunityPrev','CommunityNext','CommunityPage'];
     const e = Object.fromEntries(ids.map(id => [id, document.getElementById('analysis' + id)]));
-    const state = { result: null, snapshot: null, settings: null, fingerprint: '', stale: false, running: false, worker: null, requestId: 0, tab: 'overview', page: 0, rows: [], view: '', selected: null, currentIds: new Map(), sourceKey: '', saved: true };
+    const state = { result: null, snapshot: null, settings: null, fingerprint: '', stale: false, running: false, worker: null, requestId: 0, tab: 'overview', page: 0, rows: [], view: '', selected: null, currentIds: new Map(), sourceKey: '', saved: true, communityPage: 0, selectedCommunity: null };
     function status(message, error = false) { e.Status.textContent = message; e.Status.classList.toggle('is-error', error); }
     function number(id, min, max, integer = false) {
       const input = e[id], value = Number(input.value);
@@ -69,15 +69,16 @@
       if ((stratumField && !stratumValue) || (!stratumField && stratumValue)) throw new Error('Enter both a metadata field and its exact value, or clear both.');
       return {
         scope: e.Scope.value === 'all' ? 'all' : 'visible', representation: e.Representation.value === 'display' ? 'display' : 'raw',
-        metric: e.Metric.value === 'weighted' ? 'weighted' : 'jaccard', threshold: number('Threshold', 0, 1), excludeQuery: e.ExcludeQuery.checked,
+        metric: ['louvain','leiden'].includes(e.Grouping.value) ? 'jaccard' : e.Metric.value === 'weighted' ? 'weighted' : 'jaccard', threshold: number('Threshold', 0, 1), excludeQuery: e.ExcludeQuery.checked,
         maxPairs: number('MaxPairs', 1, 25000000, true), maxEdges: number('MaxEdges', 1, 250000, true),
         minDomains: number('MinDomains', 1, 10000, true), maxNeighbors: number('TopK', 1, 100, true),
-        grouping: e.Grouping.value === 'label-propagation' ? 'label-propagation' : 'components', overlapPolicy: e.Overlap.value === 'keep' ? 'keep' : 'representative', queryWindow: number('Window', 1, 20, true),
+        grouping: ['louvain','leiden','components','label-propagation'].includes(e.Grouping.value) ? e.Grouping.value : 'louvain',
+        resolution: number('Resolution', 0.05, 10), seed: number('Seed', 0, 2147483647, true), iterations: number('Iterations', 1, 250, true), overlapPolicy: e.Overlap.value === 'keep' ? 'keep' : 'representative', queryWindow: number('Window', 1, 20, true),
         alternatives: { enabled: e.AlternativesEnabled.checked, maxPairs: number('AlternativePairs', 1, 1000000, true), maxContextCandidates: number('ContextLimit', 1, 5000, true), minSupport: number('MinSupport', 1, 1000000, true), minExpected: number('MinExpected', 0, 1000000), maxBothRate: number('MaxBoth', 0, 1), maxQ: number('MaxQ', 0, 1), stratumField, stratumValue }
       };
     }
     function writeSettings(s) {
-      const map = { Scope:'scope', Representation:'representation', Metric:'metric', Threshold:'threshold', MinDomains:'minDomains', TopK:'maxNeighbors', Grouping:'grouping', Overlap:'overlapPolicy', Window:'queryWindow', MaxPairs:'maxPairs', MaxEdges:'maxEdges' };
+      const map = { Scope:'scope', Representation:'representation', Metric:'metric', Threshold:'threshold', MinDomains:'minDomains', TopK:'maxNeighbors', Grouping:'grouping', Resolution:'resolution', Seed:'seed', Iterations:'iterations', Overlap:'overlapPolicy', Window:'queryWindow', MaxPairs:'maxPairs', MaxEdges:'maxEdges' };
       for (const [id, key] of Object.entries(map)) if (s[key] != null) e[id].value = String(s[key]);
       e.ExcludeQuery.checked = s.excludeQuery !== false;
       const a = s.alternatives || {};
@@ -86,10 +87,10 @@
     }
     function markStale(reason = '') {
       if (!state.result) return;
-      state.stale = true; e.Stale.hidden = false;
+      state.stale = true; state.selectedCommunity = null; e.Stale.hidden = false;
       e.Stale.textContent = reason || 'These results use earlier data or settings. Run the analysis again before selecting neighborhoods.';
       viewer.clearAnalysisFocus(); e.ClearFocus.disabled = true; e.Selection.textContent = '';
-      renderTable(); renderGraph();
+      renderTable(); renderGraph(); renderCommunities();
     }
     function refreshData(event) {
       let snapshot;
@@ -97,7 +98,7 @@
       catch (error) { status(error.message, true); return; }
       const count = array(snapshot.entries).length;
       e.Run.disabled = state.running || !count;
-      e.Summary.textContent = count ? `${fmt(count)} segments ready · similarity, order and alternative domains` : 'Load data to explore similarity, order and alternatives';
+      e.Summary.textContent = count ? `${fmt(count)} neighborhood segments ready · Jaccard communities` : 'Load data to find neighborhood communities';
       if (!state.result && !state.running) status(count ? `${fmt(count)} segments from ${snapshot.source?.name || 'loaded data'}. Choose settings, then run.` : 'Load neighborhood data above to begin.');
       const fields = new Set(['taxid', 'organism', 'lineage']);
       for (const entry of array(snapshot.entries)) for (const field of Object.keys(entry.metadata || {})) fields.add(field);
@@ -108,6 +109,7 @@
       state.running = value; e.Setup.disabled = value; e.Cancel.hidden = !value; e.Progress.hidden = !value; e.Run.disabled = value;
       e.Load.disabled = value; e.Run.textContent = value ? 'Analyzing…' : 'Run analysis';
       if (!value) refreshData();
+      if (state.result) renderCommunities();
     }
     async function run() {
       let settings, snapshot;
@@ -130,9 +132,9 @@
               try {
                 if (!data.result || !Array.isArray(data.result.observations)) throw new Error('The analysis returned an invalid result. Previous results were kept.');
                 state.result = data.result; state.snapshot = snapshot; state.settings = settings; state.sourceKey = contentKey(snapshot); state.fingerprint = fingerprint(state.sourceKey); state.currentIds = new Map(snapshot.entries.map(entry => [entry.id, entry.id])); state.saved = false; state.stale = false;
-                state.tab = 'overview'; state.page = 0; state.selected = null; e.Stale.hidden = true; e.Search.value = ''; e.NetworkGroup.value = ''; viewer.clearAnalysisFocus();
+                state.tab = 'overview'; state.page = 0; state.selected = null; state.communityPage = 0; state.selectedCommunity = null; e.CommunitySearch.value = ''; e.Stale.hidden = true; e.Search.value = ''; e.NetworkGroup.value = ''; viewer.clearAnalysisFocus();
                 const current = viewer.getAnalysisSnapshot({ scope: settings.scope });
-                if (contentKey(current) !== state.sourceKey) { state.stale = true; e.Stale.hidden = false; } else state.currentIds = new Map(snapshot.entries.map((entry, i) => [entry.id, current.entries[i].id]));
+                if (contentKey(current) !== state.sourceKey) { state.stale = true; state.selectedCommunity = null; e.Stale.hidden = false; } else state.currentIds = new Map(snapshot.entries.map((entry, i) => [entry.id, current.entries[i].id]));
                 render(true); finish(true, `Analysis complete: ${fmt(state.result.observations.length)} observations. Results stay in this tab until you save them.`);
               } catch (error) { finish(false, error.message, true); }
             }
@@ -193,7 +195,44 @@
         alternatives: state.settings.alternatives.enabled ? 'Candidate alternatives can coexist occasionally. Inspect both the adjusted p-value and matched context. These are exploratory associations, without an inferred direction of replacement.' : 'Alternative-domain analysis was disabled for this run. Enable it in Advanced settings and run again.'
       };
       e.TabDescription.textContent = descriptions[state.tab];
-      renderOverview(); renderTable(); renderProvenance(); renderGraph();
+      renderOverview(); renderTable(); renderProvenance(); renderGraph(); renderCommunities();
+    }
+    let connectorCacheResult = null, connectorCacheGroups = [];
+    function connectorGroups(result) {
+      if (connectorCacheResult !== result) {
+        connectorCacheGroups = window.NeighborhoodCommunities.connectorSummaries(array(result.observations), array(result.edges), array(result.groups));
+        connectorCacheResult = result;
+      }
+      return connectorCacheGroups;
+    }
+    function renderCommunities() {
+      if (!state.result) return;
+      const groups = connectorGroups(state.result);
+      const connected = groups.filter(group => group.connectors.length);
+      const query = e.CommunitySearch.value.trim().toLocaleLowerCase('en-US');
+      const matches = connected.filter(group => [group.label, ...group.connectors.map(c => c.id)].join(' ').toLocaleLowerCase('en-US').includes(query));
+      const pageCount = Math.max(1, Math.ceil(matches.length / PAGE_SIZE));
+      state.communityPage = Math.min(state.communityPage, pageCount - 1);
+      const settings = state.settings;
+      const algorithm = { louvain:'Louvain', leiden:'Leiden-style refinement', components:'connected components (legacy)', 'label-propagation':'label propagation (legacy)' }[settings.grouping];
+      e.CommunitySummary.textContent = `${fmt(connected.length)} communities with connector domains · ${fmt(state.result.observations.length)} neighborhoods · ${fmt(state.result.edges.length)} edges · ${settings.metric === 'weighted' ? 'count-weighted Jaccard (legacy)' : 'Jaccard'} ≥ ${settings.threshold} · ${algorithm}. ${fmt(state.result.summary?.isolates)} isolated neighborhoods remain saved without connector lists. ${['components','label-propagation'].includes(settings.grouping) ? 'Legacy session: its recorded top-neighbor pruning is preserved.' : 'All threshold-qualified edges are retained.'}`;
+      empty(e.Communities);
+      for (const group of matches.slice(state.communityPage * PAGE_SIZE, (state.communityPage + 1) * PAGE_SIZE)) {
+        const card = el('section', null, 'analysis-community' + (state.selectedCommunity === group.id ? ' is-selected' : ''));
+        card.appendChild(el('h3', group.label));
+        card.appendChild(el('p', group.connectors.map(c => c.id).join(', '), 'analysis-connector-list'));
+        card.appendChild(el('p', `${fmt(group.connectors.length)} connector domains · ${fmt(group.count)} neighborhoods · ${fmt(group.internalEdges)} internal edges`, 'analysis-note'));
+        card.appendChild(button('Show neighborhoods', () => {
+          state.selectedCommunity = group.id;
+          focus(group.members, group.label);
+          renderCommunities();
+        }, state.stale || state.running));
+        e.Communities.appendChild(card);
+      }
+      if (!matches.length) e.Communities.appendChild(el('p', query ? 'No communities match this search.' : 'No connector communities at this threshold. Try a lower threshold or review the input scope. Neighborhoods without qualifying internal edges remain in the saved analysis.', 'analysis-empty'));
+      e.CommunityPage.textContent = matches.length ? `${fmt(state.communityPage * PAGE_SIZE + 1)}–${fmt(Math.min(matches.length, (state.communityPage + 1) * PAGE_SIZE))} of ${fmt(matches.length)} communities` : '0 communities';
+      e.CommunityPrev.disabled = state.communityPage === 0;
+      e.CommunityNext.disabled = state.communityPage >= pageCount - 1;
     }
     function renderOverview() {
       if (!state.result) return;
@@ -331,7 +370,7 @@
       const r=input.result, settings=input.settings;
       if (!['visible','all'].includes(settings.scope) || input.snapshot.scope !== settings.scope) reject('invalid or inconsistent data scope.');
       if (!Array.isArray(r.observations)||!Array.isArray(r.groups)||!Array.isArray(r.nodes)||!Array.isArray(r.edges)||!object(r.patterns)||!object(r.options)) reject('missing result collections.');
-      for (const key of ['representation','metric','excludeQuery','threshold','minDomains','maxNeighbors','grouping','overlapPolicy','queryWindow','maxPairs','maxEdges']) if (r.options[key] !== settings[key]) reject('saved parameters disagree with result parameters.');
+      for (const key of ['representation','metric','excludeQuery','threshold','minDomains','maxNeighbors','grouping','resolution','seed','iterations','overlapPolicy','queryWindow','maxPairs','maxEdges']) if (r.options[key] !== settings[key]) reject('saved parameters disagree with result parameters.');
       if (!object(settings.alternatives)||!object(r.options.alternatives)) reject('missing alternative-domain parameters.');
       for (const [key,value] of Object.entries(settings.alternatives)) if (r.options.alternatives[key] !== value) reject('alternative-domain parameters disagree with the results.');
       const snapshotIds=new Set();
@@ -349,6 +388,11 @@
       const nodes=new Map();for(const node of r.nodes){if(!object(node)||!string(node.id)||nodes.has(node.id)||!observations.has(node.id)||!groups.has(node.groupId)||!groups.get(node.groupId).members.includes(node.id)||!whole(node.degree)||!uniqueStrings(node.members)||canonical(node.members)!==canonical(observations.get(node.id).members)||!whole(node.memberCount)||node.memberCount!==node.members.length||!whole(node.domainCount)||node.domainCount!==observations.get(node.id).domainIds.length||!Number.isFinite(node.strength)||node.strength<0)reject('invalid network node.');nodes.set(node.id,node);}
       if(nodes.size!==observations.size)reject('network node inventory differs from observations.');
       const edgeKeys=new Set(),degrees=new Map(),strengths=new Map();for(const edge of r.edges){if(!object(edge)||!nodes.has(edge.source)||!nodes.has(edge.target)||edge.source===edge.target||!unit(edge.similarity)||!unit(edge.compositionSimilarity)||!unit(edge.orderSimilarity)||!nearly(edge.similarity,edge.compositionSimilarity))reject('invalid similarity link or score.');const key=JSON.stringify([edge.source,edge.target].sort());if(edgeKeys.has(key))reject('duplicate similarity link.');edgeKeys.add(key);for(const id of [edge.source,edge.target]){degrees.set(id,(degrees.get(id)||0)+1);strengths.set(id,(strengths.get(id)||0)+edge.similarity);}}
+      for (const expected of window.NeighborhoodCommunities.connectorSummaries(r.observations, r.edges, r.groups)) {
+        const supplied = groups.get(expected.id);
+        if (supplied.connectors != null && canonical(supplied.connectors) !== canonical(expected.connectors)) reject('connector domains disagree with internal community edges.');
+        if (supplied.internalEdges != null && supplied.internalEdges !== expected.internalEdges) reject('internal community edge count disagrees with saved links.');
+      }
       for(const node of nodes.values())if(node.degree!==(degrees.get(node.id)||0)||!nearly(node.strength,strengths.get(node.id)||0))reject('node degree or strength differs from retained links.');
       for(const type of ['complete','adjacent','triplets','queryWindows']){if(!Array.isArray(r.patterns[type]))reject('missing order-pattern collection.');const patternIds=new Set();for(const pattern of r.patterns[type]){if(!object(pattern)||!string(pattern.id)||patternIds.has(pattern.id)||typeof pattern.pattern!=='string'||!uniqueStrings(pattern.members)||pattern.members.some(id=>!observations.has(id))||!whole(pattern.count)||pattern.count!==pattern.members.length||!unit(pattern.frequency)||!nearly(pattern.frequency,observations.size?pattern.count/observations.size:0)||!whole(pattern.occurrences)||pattern.occurrences<pattern.count)reject('invalid order pattern count or membership.');patternIds.add(pattern.id);}}
       if(!object(r.alternatives)||!Array.isArray(r.alternatives.candidates))reject('missing alternative-domain results.');
@@ -358,14 +402,21 @@
     }
     function importSession(input) {
       if (state.running) throw new Error('Cancel the running analysis before loading a session.');
-      const data=typeof input==='string'?JSON.parse(input):clone(input),sourceKey=validateSession(data);
+      const data=typeof input==='string'?JSON.parse(input):clone(input);
+      if (data && data.settings && data.result && data.result.options) {
+        for (const [key, value] of Object.entries({resolution:1,seed:42,iterations:20})) {
+          if (data.settings[key] == null) data.settings[key] = value;
+          if (data.result.options[key] == null) data.result.options[key] = value;
+        }
+      }
+      const sourceKey=validateSession(data);
       const controls=Array.from(e.Setup.querySelectorAll('input, select'));
       const originalControls=controls.map(control=>({control,value:control.value,checked:control.checked}));
       const previous={...state},previousSearch=e.Search.value;
       try {
         writeSettings(data.settings);const normalizedSettings=readSettings();if(canonical(normalizedSettings)!==canonical(data.settings))throw new Error('Invalid analysis session: parameter types or values are unsupported. The current results were kept.');
         const current=viewer.getAnalysisSnapshot({scope:data.settings.scope}),same=sourceKey===contentKey(current);
-        state.result=data.result;state.snapshot=data.snapshot;state.settings=data.settings;state.sourceKey=sourceKey;state.fingerprint=data.fingerprint;state.stale=!same;state.saved=true;state.page=0;state.tab='overview';state.selected=null;
+        state.result=data.result;state.snapshot=data.snapshot;state.settings=data.settings;state.sourceKey=sourceKey;state.fingerprint=data.fingerprint;state.stale=!same;state.saved=true;state.page=0;state.tab='overview';state.selected=null;state.communityPage=0;state.selectedCommunity=null;e.CommunitySearch.value='';
         state.currentIds=new Map(same?data.snapshot.entries.map((entry,i)=>[entry.id,current.entries[i].id]):[]);
         e.Search.value='';render(true);
         viewer.clearAnalysisFocus();e.ClearFocus.disabled=true;e.Selection.textContent='';e.Card.open=true;
@@ -381,21 +432,27 @@
         const zip=new window.JSZip(),r=state.result;
         zip.file('analysis-session.json',JSON.stringify(exportSession(),null,2));
         zip.file('neighborhoods.tsv',tsv(r.observations,[['observation_id','id'],['source_segments','members'],['source_blocks','sourceIds'],['domains','domainIds'],['counts','counts'],['query_indices','queryIndices'],['coordinate_source','coordinateSource']]));
-        zip.file('groups.tsv',tsv(array(r.groups),[['group_id','id'],['label','label'],['count','count'],['representative','representative'],['members','members'],['common_domains','domains']]));
+        const communityRows = connectorGroups(r).filter(group => group.connectors.length);
+        zip.file('communities.txt', communityRows.map(group => `${group.label}: ${group.connectors.map(c => c.id).join(', ')}`).join('\n') + '\n');
+        zip.file('communities.tsv',tsv(communityRows,[['community','label'],['connector_domains',group=>group.connectors.map(c=>c.id)],['neighborhood_count','count'],['internal_edges','internalEdges']]));
+        zip.file('groups.tsv',tsv(connectorGroups(r),[['group_id','id'],['label','label'],['count','count'],['representative','representative'],['members','members'],['all_domains','domains'],['connector_domains','connectors'],['internal_edges','internalEdges']]));
         zip.file('similarity-links.tsv',tsv(array(r.edges),[['source','source'],['target','target'],['composition_similarity','similarity'],['order_similarity','orderSimilarity']]));
         for(const[key,patterns]of Object.entries(r.patterns || {}))zip.file(`order-${key}.tsv`,tsv(array(patterns),[['pattern_id','id'],['pattern','pattern'],['count','count'],['frequency','frequency'],['occurrences','occurrences'],['members','members']]));
         zip.file('alternative-domains.tsv',tsv(array(r.alternatives?.candidates),[['domain_A','domainA'],['domain_B','domainB'],['A_only',x=>x.counts?.aOnly],['B_only',x=>x.counts?.bOnly],['both',x=>x.counts?.both],['neither',x=>x.counts?.neither],['support_A','supportA'],['support_B','supportB'],['expected_both','expectedBoth'],['observed_expected_ratio','observedExpected'],['odds_ratio','oddsRatio'],['corrected_odds_ratio','correctedOddsRatio'],['fisher_p','fisherP'],['adjusted_q','q'],['coexistence_fraction','bothRate'],['context_status','contextStatus'],['matched_contexts','contextMatches'],['context_support_A','contextSupportA'],['context_support_B','contextSupportB'],['shared_flank_contexts','sharedFlankMatches'],['carrier_gene_alternative_contexts','geneAlternativeMatches'],['within_protein_alternative_contexts','domainArchitectureMatches'],['example_observations','exampleObservationIds']]));
         zip.file('domain-mapping.tsv',tsv(array(r.provenance?.domainMapping),[['analysis_domain','id'],['original_IDs','rawIds'],['display_names','displayNames']]));
-        zip.file('README.txt',`EvoSupplement Neighborhood analysis ${VERSION}\n\nThe analysis-session.json contains the exact input snapshot, parameters, provenance and complete computed result. Load it in the Neighborhood editor to inspect or restore this analysis.\n\nTSV files contain computed sparse similarity links, all groups, order patterns and candidate alternative-domain pairs. Spreadsheet-sensitive strings are prefixed with an apostrophe; JSON retains exact values. Grouping uses the retained threshold/top-neighbor graph, not every possible pair.\n\nCandidate alternatives are exploratory associations, not evidence of direction of replacement or functional equivalence. Counts refer to analysis observations after overlap handling. Unknown annotations and related samples limit interpretation. Context counts can share observations.\n\n${state.stale?'These results were marked stale relative to the current editor. The saved snapshot describes their actual input.\n':''}`);
+        zip.file('README.txt',`EvoSupplement Neighborhood analysis ${VERSION}\n\nThe analysis-session.json contains the exact input snapshot, parameters, provenance and complete computed result. Load it in the Neighborhood editor to inspect or restore this analysis.\n\nTSV files contain the computed similarity links, all groups, order patterns and candidate alternative-domain pairs. Spreadsheet-sensitive strings are prefixed with an apostrophe; JSON retains exact values. New runs use every threshold-qualified edge, with no top-neighbor pruning. Connector domains support internal community edges; group inventories also retain private domains. Legacy sessions preserve their recorded graph policy.\n\nCandidate alternatives are exploratory associations, not evidence of direction of replacement or functional equivalence. Counts refer to analysis observations after overlap handling. Unknown annotations and related samples limit interpretation. Context counts can share observations.\n\n${state.stale?'These results were marked stale relative to the current editor. The saved snapshot describes their actual input.\n':''}`);
         const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});download('neighborhood-analysis-results.zip',blob);state.saved=true;status('Results ZIP exported with complete analysis state, parameters and tables.');
       }catch(error){status(error.message,true);}finally{e.Export.disabled=false;}
     }
     e.Run.addEventListener('click',run); e.Cancel.addEventListener('click',()=>cancel());
     e.Setup.addEventListener('change',()=>{ if(state.result)markStale('Analysis settings changed. Run again to calculate results for the new settings.'); refreshData(); });
     e.Setup.addEventListener('input',()=>{ if(state.result)markStale('Analysis settings changed. Run again to calculate results for the new settings.'); });
-    e.ClearFocus.addEventListener('click',()=>{viewer.clearAnalysisFocus();e.ClearFocus.disabled=true;e.Selection.textContent='Selection cleared. All rows allowed by the viewer filters are visible.';});
+    e.ClearFocus.addEventListener('click',()=>{viewer.clearAnalysisFocus();e.ClearFocus.disabled=true;state.selectedCommunity=null;renderCommunities();e.Selection.textContent='Selection cleared. All rows allowed by the viewer filters are visible.';});
     e.Search.addEventListener('input',()=>{state.page=0;renderTable();}); e.Sort.addEventListener('change',()=>{state.page=0;renderTable();});e.View.addEventListener('change',()=>{state.page=0;state.selected=null;e.Detail.hidden=true;renderTable();});
     e.Prev.addEventListener('click',()=>{if(state.page>0){state.page--;renderTable();}});e.Next.addEventListener('click',()=>{if((state.page+1)*PAGE_SIZE<state.rows.length){state.page++;renderTable();}});
+    e.CommunitySearch.addEventListener('input', () => { state.communityPage = 0; renderCommunities(); });
+    e.CommunityPrev.addEventListener('click', () => { state.communityPage--; renderCommunities(); });
+    e.CommunityNext.addEventListener('click', () => { state.communityPage++; renderCommunities(); });
     e.NetworkGroup.addEventListener('change',renderGraph);
     const tabs=Array.from(e.Tabs.querySelectorAll('[data-analysis-tab]'));
     tabs.forEach((tab,index)=>{tab.addEventListener('click',()=>setTab(tab.dataset.analysisTab));tab.addEventListener('keydown',event=>{let next=index;if(event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;event.preventDefault();setTab(tabs[next].dataset.analysisTab);tabs[next].focus();});});

@@ -1,6 +1,6 @@
 /* Editor-only worker. Cancelling a run terminates this worker in analysis.js. */
 'use strict';
-importScripts('analysis-core.js?v=1.0.0', 'analysis-alternatives.js?v=1.0.0');
+importScripts('analysis-communities.js?v=1.1.0', 'analysis-core.js?v=1.1.0', 'analysis-alternatives.js?v=1.0.0');
 self.onmessage = async function (event) {
   const message = event.data || {};
   if (message.type !== 'analyze') return;
