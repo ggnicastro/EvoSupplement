@@ -88,6 +88,9 @@ test('analysis JSON round trip restores selection and validates connector suppor
   const bad = JSON.parse(JSON.stringify(session));
   bad.result.groups[0].connectors[0].edgeCount = 999;
   assert.throws(()=>controller.importSession(bad),/connector domains disagree/);
+  const badSharedCount=JSON.parse(JSON.stringify(session));
+  badSharedCount.result.edges[0].sharedDomainCount=999;
+  assert.throws(()=>controller.importSession(badSharedCount),/shared-domain count disagrees/);
   assert.equal(elements.get('analysisCommunities').children.length,1);
 });
 
@@ -97,7 +100,7 @@ test('legacy sessions retain their grouping and derive connectors from saved edg
   const legacy = JSON.parse(JSON.stringify(controller.exportSession()));
   legacy.editorVersion = legacy.result.version = '1.0.0';
   legacy.settings.grouping = legacy.result.options.grouping = 'components';
-  for (const key of ['resolution','seed','iterations']) {
+  for (const key of ['resolution','seed','iterations','minSharedDomains']) {
     delete legacy.settings[key]; delete legacy.result.options[key];
   }
   for (const group of legacy.result.groups) { delete group.connectors; delete group.internalEdges; }
@@ -120,10 +123,11 @@ test('ZIP exports simple connector lists alongside complete membership and edge 
   assert.ok(zip.file('analysis-session.json'));
 });
 
-test('communities with only one connector stay out of the main list and simple export', async () => {
+test('pairs with only one shared domain create no community output or simple export', async () => {
   const {controller,elements,getDownloaded} = setup([['A','B'],['A','C']]);
   assert.equal(await controller.run(),true);
-  assert.equal(controller.getState().result.groups[0].connectors.length,1);
+  assert.equal(controller.getState().result.edges.length,0);
+  assert.equal(controller.getState().result.groups[0].connectors.length,0);
   assert.match(elements.get('analysisCommunities').textContent,/No communities with at least 2/);
   await controller.exportResults();
   const zip=await JSZip.loadAsync(await getDownloaded().arrayBuffer());
@@ -139,4 +143,27 @@ test('rerunning an older session enforces a minimum of two even if it saved one'
   assert.equal(await controller.run(),true);
   assert.equal(controller.getState().settings.minDomains,2);
   assert.equal(elements.get('analysisMinDomains').value,'2');
+});
+
+test('older single-shared-domain links remain inspectable but disappear on rerun', async () => {
+  const {controller,elements}=setup([['A','B'],['A','C']]);
+  assert.equal(await controller.run(),true);
+  const legacy=JSON.parse(JSON.stringify(controller.exportSession()));
+  legacy.result.version=legacy.editorVersion='1.1.1';
+  delete legacy.settings.minSharedDomains;
+  delete legacy.result.options.minSharedDomains;
+  const group=legacy.result.groups[0];
+  group.members=['v0','v1'];group.count=2;group.sourceMembers=['v0','v1'];group.internalEdges=1;
+  group.domains=[{id:'A',count:2,frequency:1},{id:'B',count:1,frequency:0.5},{id:'C',count:1,frequency:0.5}];
+  group.connectors=[{id:'A',edgeCount:1,neighborhoodCount:2,members:['v0','v1']}];
+  legacy.result.groups=[group];
+  for(const obs of legacy.result.observations)obs.groupId=group.id;
+  for(const node of legacy.result.nodes){node.groupId=group.id;node.degree=1;node.strength=1/3;}
+  legacy.result.edges=[{source:'v0',target:'v1',similarity:1/3,compositionSimilarity:1/3,orderSimilarity:0}];
+  assert.equal(controller.importSession(legacy).matched,true);
+  assert.equal(controller.getState().result.edges.length,1);
+  assert.match(elements.get('analysisCommunitySummary').textContent,/Archived result: single-domain links were allowed/);
+  assert.equal(await controller.run(),true);
+  assert.equal(controller.getState().settings.minSharedDomains,2);
+  assert.equal(controller.getState().result.edges.length,0);
 });

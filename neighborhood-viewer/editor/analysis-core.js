@@ -6,7 +6,7 @@
   else root.NeighborhoodAnalysisCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (communities) {
   'use strict';
-  const VERSION = '1.1.1';
+  const VERSION = '1.2.0';
   const MAX_PAIR_BUDGET = 25000000;
   const clean = value => String(value == null ? '' : value).trim();
   const compareText = (a, b) => String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
@@ -25,6 +25,7 @@
     return {
       representation: pick('representation', 'raw', ['raw', 'display']), excludeQuery: input.excludeQuery === true,
       metric: pick('metric', 'jaccard', ['jaccard', 'weighted']), minDomains: Math.max(2, numberOption(input.minDomains, 2, 0, 100000, true)),
+      minSharedDomains: Math.max(2, numberOption(input.minSharedDomains, 2, 0, 100000, true)),
       threshold: numberOption(input.threshold, 0.33, 0, 1, false), maxNeighbors: numberOption(input.maxNeighbors, 10, 1, 100, true),
       grouping: pick('grouping', 'louvain', ['louvain', 'leiden', 'components', 'label-propagation']),
       resolution: numberOption(input.resolution, 1, 0.05, 10, false),
@@ -166,10 +167,16 @@
   }
   function jaccard(a, b) { const A = a instanceof Set ? a : new Set(a), B = b instanceof Set ? b : new Set(b); let intersection = 0; for (const id of A) if (B.has(id)) intersection += 1; const union = A.size + B.size - intersection; return union ? intersection / union : 0; }
   function compare(a, b, metric) {
+    const leftDomains = new Set(a.domainIds), rightDomains = new Set(b.domainIds);
+    let sharedDomainCount = 0;
+    for (const id of leftDomains) if (rightDomains.has(id)) sharedDomainCount++;
     let compositionSimilarity;
     if (metric === 'weighted') { let numerator = 0, denominator = 0; const ids = new Set([...a.domainIds, ...b.domainIds]); for (const id of ids) { const left = a.counts[id] || 0, right = b.counts[id] || 0; numerator += Math.min(left, right); denominator += Math.max(left, right); } compositionSimilarity = denominator ? numerator / denominator : 0; }
-    else compositionSimilarity = jaccard(a.domainIds, b.domainIds);
-    return { similarity: compositionSimilarity, compositionSimilarity, orderSimilarity: jaccard(a.adjacencyKeys || [], b.adjacencyKeys || []) };
+    else {
+      const union = leftDomains.size + rightDomains.size - sharedDomainCount;
+      compositionSimilarity = union ? sharedDomainCount / union : 0;
+    }
+    return { similarity: compositionSimilarity, compositionSimilarity, sharedDomainCount, orderSimilarity: jaccard(a.adjacencyKeys || [], b.adjacencyKeys || []) };
   }
   function patternsFor(observations, windowSize) {
     const inventories = { complete: new Map(), adjacent: new Map(), triplets: new Map(), queryWindows: new Map() };
@@ -205,14 +212,15 @@
     }
     const completeThresholdGraph = ['louvain', 'leiden'].includes(options.grouping);
     const thresholdEdges = [];
-    const top = Array.from({ length: n }, () => []); let evaluated = 0, qualified = 0;
+    const top = Array.from({ length: n }, () => []); let evaluated = 0, qualified = 0, rejectedSharedDomains = 0;
     const edgeOrder = (a, b) => b.similarity - a.similarity || a.i - b.i || a.j - b.j;
     function retain(index, edge) { const list = top[index]; let at = list.length; while (at > 0 && edgeOrder(edge, list[at - 1]) < 0) at -= 1; if (at < options.maxNeighbors) { list.splice(at, 0, edge); if (list.length > options.maxNeighbors) list.pop(); } }
     for (let i = 0; i < n; i += 1) {
       for (const j of candidates[i]) {
         const scores = compare(observations[i], observations[j], options.metric);
         evaluated += 1;
-        if (scores.similarity >= options.threshold) {
+        if (scores.similarity >= options.threshold && scores.sharedDomainCount < options.minSharedDomains) rejectedSharedDomains++;
+        if (scores.similarity >= options.threshold && scores.sharedDomainCount >= options.minSharedDomains) {
           const edge = { i, j, ...scores };
           qualified += 1;
           if (completeThresholdGraph) {
@@ -266,14 +274,14 @@
         domains: Object.entries(domainCounts).map(([domain, count]) => ({ id: domain, count, frequency: count / indices.length })).sort((a, b) => b.count - a.count || compareText(a.id, b.id)) };
     });
     const nodes = observations.map((observation, i) => ({ id: observation.id, label: observation.label, groupId: observation.groupId, degree: adjacency[i].length, strength: adjacency[i].reduce((sum, e) => sum + e.weight, 0), domainCount: observation.domainIds.length, memberCount: observation.members.length, members: observation.members }));
-    const edges = workingEdges.map(edge => ({ source: observations[edge.i].id, target: observations[edge.j].id, similarity: edge.similarity, compositionSimilarity: edge.compositionSimilarity, orderSimilarity: edge.orderSimilarity }));
+    const edges = workingEdges.map(edge => ({ source: observations[edge.i].id, target: observations[edge.j].id, similarity: edge.similarity, compositionSimilarity: edge.compositionSimilarity, sharedDomainCount: edge.sharedDomainCount, orderSimilarity: edge.orderSimilarity }));
     communities.connectorSummaries(observations, edges, groups).forEach((group, i) => Object.assign(groups[i], group));
     const patterns = patternsFor(observations, options.queryWindow);
     const warnings = [...prepared.warnings]; if (qualified > edges.length) warnings.push(`${qualified - edges.length} threshold-qualified edge(s) were omitted by the explicit top-${options.maxNeighbors} neighbor sparsification. Groups use this retained network, not the complete threshold graph.`);
     if (!converged) warnings.push('Weighted label propagation reached its 50-iteration limit; the deterministic final partition is reported.');
-    const summary = { ...prepared.summary, possiblePairs, candidatePairs, evaluatedPairs: evaluated, skippedZeroPairs: possiblePairs - candidatePairs, qualifiedEdges: qualified, retainedEdges: edges.length, omittedEdges: qualified - edges.length, groups: groups.length, isolates: nodes.filter(node => !node.degree).length,
-      topK: completeThresholdGraph ? null : options.maxNeighbors, topKPolicy: completeThresholdGraph ? 'All pairs at or above the threshold; no top-K pruning.' : 'Union of each node’s highest-scoring K neighbors; a node can receive more than K edges.', grouping: options.grouping, groupingIterations: completeThresholdGraph ? null : iterations, groupingConverged: completeThresholdGraph ? null : converged, groupingIterationLimit: completeThresholdGraph ? options.iterations : 50 };
-    prepared.provenance.methods.network = completeThresholdGraph ? 'Undirected neighborhood graph with every pair at or above the Jaccard threshold, weighted by similarity. No top-K pruning. Connector domains are shared by at least one internal edge; private domains and cross-community edges do not contribute.' : 'Legacy threshold plus top-K graph.';
+    const summary = { ...prepared.summary, possiblePairs, candidatePairs, evaluatedPairs: evaluated, skippedZeroPairs: possiblePairs - candidatePairs, rejectedSharedDomains, qualifiedEdges: qualified, retainedEdges: edges.length, omittedEdges: qualified - edges.length, groups: groups.length, isolates: nodes.filter(node => !node.degree).length,
+      topK: completeThresholdGraph ? null : options.maxNeighbors, topKPolicy: completeThresholdGraph ? 'All pairs passing the Jaccard threshold and distinct shared-domain minimum; no top-K pruning.' : 'Union of each node’s highest-scoring K neighbors; a node can receive more than K edges.', grouping: options.grouping, groupingIterations: completeThresholdGraph ? null : iterations, groupingConverged: completeThresholdGraph ? null : converged, groupingIterationLimit: completeThresholdGraph ? options.iterations : 50 };
+    prepared.provenance.methods.network = completeThresholdGraph ? `Undirected neighborhood graph retaining every pair with Jaccard at or above the threshold and at least ${options.minSharedDomains} distinct shared composition domains, weighted by similarity. No top-K pruning. Connector domains are shared by at least one internal edge; private domains and cross-community edges do not contribute.` : `Threshold and minimum ${options.minSharedDomains} shared domains, followed by legacy top-K pruning.`;
     prepared.provenance.methods.communities = options.grouping === 'leiden' ? 'Leiden-style connectivity refinement with multilevel aggregation; not the full stochastic reference Leiden implementation.' : options.grouping === 'louvain' ? 'Multilevel Louvain modularity optimization using Jaccard edge weights.' : options.grouping;
     prepared.provenance.methods.order = 'Separate presence Jaccard of annotated adjacent gene signatures; genes preserve boundaries, arrows and query identity.';
     prepared.provenance.methods.patternCounts = 'Number of distinct representative observations containing a pattern; occurrences are also reported. Denominator is all included observations.';

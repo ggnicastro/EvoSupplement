@@ -28,7 +28,7 @@ test('defaults are binary Jaccard, 0.33, Louvain and complete threshold edges', 
 });
 
 test('threshold is inclusive, with no rounding before edge selection', async () => {
-  const data = snapshot([['A','B'], ['A','C']]);
+  const data = snapshot([['A','B','C','D'], ['A','B','E','F']]);
   assert.equal((await analyze(data, { threshold: 1/3 })).edges.length, 1);
   assert.equal((await analyze(data, { threshold: 0.34 })).edges.length, 0);
 });
@@ -98,7 +98,7 @@ test('production worker imports its dependencies and returns connector results',
   context.postMessage=message=>{if(message.type==='result'||message.type==='error')resolve(message);};
   context.importScripts=(...urls)=>{for(const url of urls)vm.runInContext(fs.readFileSync(path.join(directory,url.split('?')[0]),'utf8'),context);};
   vm.runInContext(fs.readFileSync(path.join(directory,'analysis-worker.js'),'utf8'),context);
-  await context.onmessage({data:{type:'analyze',requestId:1,snapshot:snapshot([['A','B'],['A','C']]),options:{}}});
+  await context.onmessage({data:{type:'analyze',requestId:1,snapshot:snapshot([['A','B'],['A','B','C']]),options:{}}});
   const response=await completed;
   assert.equal(response.type,'result',response.error?.message);
   assert.equal(response.result.options.threshold,0.33);
@@ -130,4 +130,43 @@ test('the minimum is evaluated after optional query exclusion and display-name m
   data.entries.forEach((entry,i)=>entry.genes.push({pid:`other${i}`,start:200,end:300,query:false,strand:'+',domains:[{rawName:'A',name:'X'},{rawName:'B',name:'X'}]}));
   assert.equal((await analyze(data,{excludeQuery:true,representation:'raw'})).observations.length,2);
   assert.equal((await analyze(data,{excludeQuery:true,representation:'display'})).observations.length,0);
+});
+
+test('two individually eligible neighborhoods cannot connect through nPUA alone', async () => {
+  const result=await analyze(snapshot([['nPUA','BpsA_C'],['nPUA','Mrr_cat']]),{threshold:0.33,minSharedDomains:1});
+  assert.equal(result.observations.length,2);
+  assert.equal(result.options.minSharedDomains,2);
+  assert.equal(result.edges.length,0);
+  assert.equal(result.summary.rejectedSharedDomains,1);
+  assert.equal(result.summary.omittedEdges,0);
+});
+
+test('both the Jaccard threshold and distinct shared-domain minimum must pass', async () => {
+  const accepted=await analyze(snapshot([['A','B'],['A','B','C']]),{threshold:0.33});
+  assert.equal(accepted.edges.length,1);
+  assert.equal(accepted.edges[0].sharedDomainCount,2);
+  assert.equal(accepted.edges[0].similarity,2/3);
+  const belowThreshold=await analyze(snapshot([['A','B','C','D','E'],['A','B','F','G','H']]),{threshold:0.33});
+  assert.equal(belowThreshold.edges.length,0);
+  const higherSharedMinimum=await analyze(snapshot([['A','B'],['A','B','C']]),{minSharedDomains:3});
+  assert.equal(higherSharedMinimum.edges.length,0);
+});
+
+test('copies, unknowns, markers, query exclusion and renaming cannot inflate shared domains', async () => {
+  const duplicate=await analyze(snapshot([['A','A','B','TM','?'],['A','A','C','SIG','?']]));
+  assert.equal(duplicate.edges.length,0);
+  const data=snapshot([['Q'],['Q']]);
+  data.entries.forEach((entry,i)=>entry.genes.push({pid:`n${i}`,start:200,end:300,query:false,strand:'+',domains:[{rawName:'A',name:'X'},{rawName:'B',name:'X'},{rawName:`Unique${i}`,name:`Unique${i}`}]}));
+  const raw=await analyze(data,{excludeQuery:true});
+  assert.equal(raw.edges[0].sharedDomainCount,2);
+  const merged=await analyze(data,{excludeQuery:true,representation:'display'});
+  assert.equal(merged.observations.length,2);
+  assert.equal(merged.edges.length,0);
+});
+
+test('the edge budget counts only pairs passing both edge criteria', async () => {
+  const result=await analyze(snapshot([['A','B'],['A','B'],['A','C']]),{maxEdges:1});
+  assert.equal(result.edges.length,1);
+  assert.equal(result.summary.rejectedSharedDomains,2);
+  assert.equal(result.summary.omittedEdges,0);
 });

@@ -283,12 +283,12 @@
     <details class="nbh-curation-card analysis-card" id="analysisCard">
       <summary><span>Analyze neighborhoods</span><span class="nbh-curation-summary" id="analysisSummary">Load data to find neighborhood communities</span></summary>
       <div class="analysis-content">
-        <p class="analysis-intro">Compare neighborhoods by their domain sets, build a Jaccard similarity network, and find the domains connecting each community. Gene order and strand do not affect Jaccard. Each neighborhood must retain at least 2 distinct domains after excluding TM, signal markers and unknown annotations (?).</p>
+        <p class="analysis-intro">Compare neighborhoods by their domain sets, build a Jaccard similarity network, and find the domains connecting each community. Gene order and strand do not affect Jaccard. Each neighborhood must retain at least 2 distinct domains after excluding TM, signal markers and unknown annotations (?). Each pair must also share at least 2 distinct domains before it can form an edge.</p>
         <fieldset class="analysis-setup" id="analysisSetup">
           <legend>1. Build neighborhood communities</legend>
           <div class="analysis-fields">
             <label class="nbh-editor-field"><span>Neighborhoods</span><select id="analysisScope"><option value="visible">Current filtered view</option><option value="all">All loaded neighborhoods</option></select><small>Both use the current direction and distance rules. “All” ignores Include / Exclude.</small></label>
-            <label class="nbh-editor-field"><span>Minimum Jaccard</span><input id="analysisThreshold" type="number" min="0" max="1" step="0.01" value="0.33"><small>Every pair at or above this value forms an edge. Nothing below it is connected.</small></label>
+            <label class="nbh-editor-field"><span>Minimum Jaccard</span><input id="analysisThreshold" type="number" min="0" max="1" step="0.01" value="0.33"><small>Pairs must reach this score and share at least 2 distinct domains to form an edge.</small></label>
             <label class="nbh-editor-field"><span>Community algorithm</span><select id="analysisGrouping"><option value="louvain">Louvain</option><option value="leiden">Leiden-style refinement</option><option value="components" hidden>Connected components (legacy)</option><option value="label-propagation" hidden>Label propagation (legacy)</option></select></label>
           </div>
           <details class="analysis-advanced"><summary>Advanced settings</summary>
@@ -299,8 +299,9 @@
             <label class="nbh-editor-field"><span>Domain identity</span><select id="analysisRepresentation"><option value="raw">Original domain IDs</option><option value="display">Renamed domain groups</option></select><small>Renamed groups merge identical display names. Original IDs remain in exports.</small></label>
             </div>
           <label class="analysis-check"><input id="analysisExcludeQuery" type="checkbox"> Exclude query genes from composition and alternative-domain tests</label>
-            <p class="analysis-note">All threshold-qualified pairs are retained and weighted by Jaccard. Leiden-style refinement uses connectivity refinement, rather than the full stochastic reference implementation.</p>
+            <p class="analysis-note">All pairs passing the Jaccard threshold and the shared-domain minimum are retained and weighted by Jaccard. Leiden-style refinement uses connectivity refinement, rather than the full stochastic reference implementation.</p>
             <div class="analysis-fields">
+              <label class="nbh-editor-field"><span>Minimum shared domains per edge</span><input id="analysisMinSharedDomains" type="number" min="2" max="10000" step="1" value="2"><small>Distinct domain identities shared by both neighborhoods, in addition to the Jaccard threshold. Copies and markers do not increase this count.</small></label>
               <label class="nbh-editor-field"><span>Minimum distinct domains</span><input id="analysisMinDomains" type="number" min="2" max="10000" step="1" value="2"></label>
             <label hidden><span>Similarity</span><select id="analysisMetric"><option value="jaccard">Jaccard · presence / absence</option><option value="weighted">Count-weighted Jaccard · domain occurrences</option></select><small>Order is measured separately from composition.</small></label>
               <input id="analysisTopK" type="hidden" value="10">
@@ -364,7 +365,7 @@
             <section id="analysisDetail" class="analysis-detail" hidden aria-label="Selected result details"></section>
           </section>
           </details>
-          <details class="analysis-methods"><summary>Methods, limits and provenance</summary><div id="analysisProvenance"></div><p>Communities describe shared domain composition. Connector domains support internal edges and can appear in more than one community; they need not occur in every member. Neighborhood identities, edge scores and connector support are retained in saved sessions and exports.</p><p>New runs use domain presence Jaccard (intersection / union). Every pair meeting the threshold forms an undirected edge weighted by Jaccard. Connector domains are shared by endpoints of internal community edges; they need not occur in every member. Private domains and cross-community edges do not contribute. Legacy sessions may use top-neighbor pruning or count-weighted similarity, as recorded in their settings. The circular drawing shows group membership; distance between nodes has no biological meaning. Order patterns preserve gene boundaries, strand relative to the query, and unknown genes. Compact inputs provide order, not measured genomic distance.</p><p>Alternative-domain tests use one-sided Fisher depletion and Benjamini–Hochberg adjustment across the eligible tested pairs. Context evidence compares query-relative positions and neighboring gene architectures separately from statistical association.</p></details>
+          <details class="analysis-methods"><summary>Methods, limits and provenance</summary><div id="analysisProvenance"></div><p>Communities describe shared domain composition. Connector domains support internal edges and can appear in more than one community; they need not occur in every member. Neighborhood identities, edge scores and connector support are retained in saved sessions and exports.</p><p>New runs use domain presence Jaccard (intersection / union). Each edge must meet the Jaccard threshold and the minimum number of distinct shared domains (default 2). Connector domains are shared by endpoints of internal community edges; they need not occur in every member. Private domains and cross-community edges do not contribute. Legacy sessions may use top-neighbor pruning or count-weighted similarity, as recorded in their settings. The circular drawing shows group membership; distance between nodes has no biological meaning. Order patterns preserve gene boundaries, strand relative to the query, and unknown genes. Compact inputs provide order, not measured genomic distance.</p><p>Alternative-domain tests use one-sided Fisher depletion and Benjamini–Hochberg adjustment across the eligible tested pairs. Context evidence compares query-relative positions and neighboring gene architectures separately from statistical association.</p></details>
         </section>
       </div>
     </details>
@@ -395,7 +396,7 @@
   <script src="../shared/neighborhood-viewer.js?v=3.7.0"></script>
   <script src="./domain-curation.js?v=1.3.1"></script>
   <script src="./analysis-communities.js?v=1.1.0"></script>
-  <script src="./analysis.js?v=1.1.1"></script>
+  <script src="./analysis.js?v=1.2.0"></script>
   <script>
     (async () => {
       await window.NeighborhoodViewer.init({
