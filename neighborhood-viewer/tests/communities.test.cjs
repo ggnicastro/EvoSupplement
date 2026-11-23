@@ -16,7 +16,7 @@ function snapshot(sets) {
 const analyze = (data, options = {}) => core.analyze(data, options, { yield: false });
 
 test('defaults are binary Jaccard, 0.33, Louvain and complete threshold edges', async () => {
-  const result = await analyze(snapshot([['A','B','G','X'], ['A','B','G','Y'], ['A','B','H','Z'], ['U']]));
+  const result = await analyze(snapshot([['A','B','G','X'], ['A','B','G','Y'], ['A','B','H','Z'], ['U','V']]));
   assert.equal(result.options.threshold, 0.33);
   assert.equal(result.options.grouping, 'louvain');
   assert.equal(result.edges.length, 3);
@@ -77,14 +77,14 @@ test('both community methods are deterministic for a fixed seed and separate dis
 });
 
 test('edge and comparison budgets fail explicitly instead of pruning', async () => {
-  const data = snapshot(Array.from({length: 5}, () => ['A']));
+  const data = snapshot(Array.from({length: 5}, () => ['A','B']));
   await assert.rejects(analyze(data,{maxEdges:2}), /No partial graph/);
   await assert.rejects(analyze(data,{maxPairs:2}), /No partial network/);
 });
 
 test('empty data and one isolated neighborhood produce no fabricated connectors', async () => {
   assert.deepEqual((await analyze(snapshot([]))).groups, []);
-  const result=await analyze(snapshot([['A']]));
+  const result=await analyze(snapshot([['A','B']]));
   assert.equal(result.summary.isolates,1);
   assert.deepEqual(result.groups[0].connectors,[]);
 });
@@ -104,4 +104,30 @@ test('production worker imports its dependencies and returns connector results',
   assert.equal(response.result.options.threshold,0.33);
   assert.equal(response.result.groups[0].connectors[0].id,'A');
   assert.equal(response.result.alternatives.disabled,true);
+});
+
+test('single-domain neighborhoods cannot enter after markers and unknowns are removed', async () => {
+  const data=snapshot([
+    ['nPUA','TM','TM','SIG','SIF','?'],
+    ['nPUA','nPUA','?'],
+    ['TM','SIG','?'],
+    ['nPUA','BpsA_C','TM','?'],
+    ['nPUA','BpsA_C','SIG']
+  ]);
+  // Explicit marker metadata also excludes user-configured marker identities.
+  data.entries[0].genes[0].domains.push({rawName:'CustomMarker',name:'CustomMarker',marker:{position:'ordered'}});
+  const result=await analyze(data,{minDomains:1});
+  assert.equal(result.options.minDomains,2);
+  assert.equal(result.summary.belowMinimum,3);
+  assert.deepEqual(result.observations.map(o=>o.id),['v3','v4']);
+  assert.deepEqual(result.observations[0].domainIds,['BpsA_C','nPUA']);
+  assert.equal(result.edges.length,1);
+  assert.deepEqual(result.groups[0].connectors.map(c=>c.id),['BpsA_C','nPUA']);
+});
+
+test('the minimum is evaluated after optional query exclusion and display-name merging', async () => {
+  const data=snapshot([['Query'],['Query']]);
+  data.entries.forEach((entry,i)=>entry.genes.push({pid:`other${i}`,start:200,end:300,query:false,strand:'+',domains:[{rawName:'A',name:'X'},{rawName:'B',name:'X'}]}));
+  assert.equal((await analyze(data,{excludeQuery:true,representation:'raw'})).observations.length,2);
+  assert.equal((await analyze(data,{excludeQuery:true,representation:'display'})).observations.length,0);
 });

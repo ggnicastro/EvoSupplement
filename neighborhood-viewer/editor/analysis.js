@@ -1,7 +1,7 @@
 /* EvoSupplement Neighborhood analysis workspace. Loaded only by the editor. */
 (() => {
   'use strict';
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
   const PAGE_SIZE = 20;
   const MAX_DRAW_NODES = 200;
   const MAX_DRAW_EDGES = 800;
@@ -113,7 +113,7 @@
     }
     async function run() {
       let settings, snapshot;
-      try { settings = readSettings(); snapshot = viewer.getAnalysisSnapshot({ scope: settings.scope }); if (!snapshot.entries?.length) throw new Error('No neighborhoods match this scope. Load data or adjust the viewer filters first.'); }
+      try { settings = readSettings(); settings.minDomains = Math.max(2, settings.minDomains); e.MinDomains.value = String(settings.minDomains); snapshot = viewer.getAnalysisSnapshot({ scope: settings.scope }); if (!snapshot.entries?.length) throw new Error('No neighborhoods match this scope. Load data or adjust the viewer filters first.'); }
       catch (error) { status(error.message, true); return false; }
       cancel(false);
       const requestId = ++state.requestId;
@@ -208,14 +208,14 @@
     function renderCommunities() {
       if (!state.result) return;
       const groups = connectorGroups(state.result);
-      const connected = groups.filter(group => group.connectors.length);
+      const connected = groups.filter(group => group.connectors.length >= 2);
       const query = e.CommunitySearch.value.trim().toLocaleLowerCase('en-US');
       const matches = connected.filter(group => [group.label, ...group.connectors.map(c => c.id)].join(' ').toLocaleLowerCase('en-US').includes(query));
       const pageCount = Math.max(1, Math.ceil(matches.length / PAGE_SIZE));
       state.communityPage = Math.min(state.communityPage, pageCount - 1);
       const settings = state.settings;
       const algorithm = { louvain:'Louvain', leiden:'Leiden-style refinement', components:'connected components (legacy)', 'label-propagation':'label propagation (legacy)' }[settings.grouping];
-      e.CommunitySummary.textContent = `${fmt(connected.length)} communities with connector domains · ${fmt(state.result.observations.length)} neighborhoods · ${fmt(state.result.edges.length)} edges · ${settings.metric === 'weighted' ? 'count-weighted Jaccard (legacy)' : 'Jaccard'} ≥ ${settings.threshold} · ${algorithm}. ${fmt(state.result.summary?.isolates)} isolated neighborhoods remain saved without connector lists. ${['components','label-propagation'].includes(settings.grouping) ? 'Legacy session: its recorded top-neighbor pruning is preserved.' : 'All threshold-qualified edges are retained.'}`;
+      e.CommunitySummary.textContent = `${fmt(connected.length)} communities with at least 2 connector domains · ${fmt(state.result.observations.length)} neighborhoods · ${fmt(state.result.edges.length)} edges · ${settings.metric === 'weighted' ? 'count-weighted Jaccard (legacy)' : 'Jaccard'} ≥ ${settings.threshold} · ${algorithm}. ${fmt(state.result.summary?.belowMinimum)} neighborhoods excluded for insufficient distinct domains. ${fmt(state.result.summary?.isolates)} isolated neighborhoods remain saved without connector lists. ${['components','label-propagation'].includes(settings.grouping) ? 'Legacy session: its recorded top-neighbor pruning is preserved.' : 'All threshold-qualified edges are retained.'}`;
       empty(e.Communities);
       for (const group of matches.slice(state.communityPage * PAGE_SIZE, (state.communityPage + 1) * PAGE_SIZE)) {
         const card = el('section', null, 'analysis-community' + (state.selectedCommunity === group.id ? ' is-selected' : ''));
@@ -229,7 +229,7 @@
         }, state.stale || state.running));
         e.Communities.appendChild(card);
       }
-      if (!matches.length) e.Communities.appendChild(el('p', query ? 'No communities match this search.' : 'No connector communities at this threshold. Try a lower threshold or review the input scope. Neighborhoods without qualifying internal edges remain in the saved analysis.', 'analysis-empty'));
+      if (!matches.length) e.Communities.appendChild(el('p', query ? 'No communities match this search.' : 'No communities with at least 2 connector domains at this threshold. Try a lower threshold or review the input scope. Neighborhoods without qualifying internal edges remain in the saved analysis.', 'analysis-empty'));
       e.CommunityPage.textContent = matches.length ? `${fmt(state.communityPage * PAGE_SIZE + 1)}–${fmt(Math.min(matches.length, (state.communityPage + 1) * PAGE_SIZE))} of ${fmt(matches.length)} communities` : '0 communities';
       e.CommunityPrev.disabled = state.communityPage === 0;
       e.CommunityNext.disabled = state.communityPage >= pageCount - 1;
@@ -432,7 +432,7 @@
         const zip=new window.JSZip(),r=state.result;
         zip.file('analysis-session.json',JSON.stringify(exportSession(),null,2));
         zip.file('neighborhoods.tsv',tsv(r.observations,[['observation_id','id'],['source_segments','members'],['source_blocks','sourceIds'],['domains','domainIds'],['counts','counts'],['query_indices','queryIndices'],['coordinate_source','coordinateSource']]));
-        const communityRows = connectorGroups(r).filter(group => group.connectors.length);
+        const communityRows = connectorGroups(r).filter(group => group.connectors.length >= 2);
         zip.file('communities.txt', communityRows.map(group => `${group.label}: ${group.connectors.map(c => c.id).join(', ')}`).join('\n') + '\n');
         zip.file('communities.tsv',tsv(communityRows,[['community','label'],['connector_domains',group=>group.connectors.map(c=>c.id)],['neighborhood_count','count'],['internal_edges','internalEdges']]));
         zip.file('groups.tsv',tsv(connectorGroups(r),[['group_id','id'],['label','label'],['count','count'],['representative','representative'],['members','members'],['all_domains','domains'],['connector_domains','connectors'],['internal_edges','internalEdges']]));

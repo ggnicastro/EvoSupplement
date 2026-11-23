@@ -6,13 +6,13 @@
   else root.NeighborhoodAnalysisCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (communities) {
   'use strict';
-  const VERSION = '1.1.0';
+  const VERSION = '1.1.1';
   const MAX_PAIR_BUDGET = 25000000;
   const clean = value => String(value == null ? '' : value).trim();
   const compareText = (a, b) => String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
   const unique = values => [...new Set(values)];
   const countMap = values => { const result = Object.create(null); for (const value of values) result[value] = (result[value] || 0) + 1; return result; };
-  const knownDomain = value => { const name = clean(value); return name && !['?', '-', 'unknown', 'unannotated'].includes(name.toLowerCase()); };
+  const knownDomain = value => { const name = clean(value); return name && !['?', '-', 'unknown', 'unannotated', 'tm', 'tms', 'sig', 'sif'].includes(name.toLowerCase()); };
   function failure(code, message) { const error = new Error(message); error.code = code; return error; }
   function numberOption(value, fallback, min, max, integer) {
     const n = value == null || value === '' ? fallback : Number(value);
@@ -24,7 +24,7 @@
     const pick = (key, fallback, allowed) => { const value = input[key] == null ? fallback : input[key]; if (!allowed.includes(value)) throw failure('INVALID_OPTIONS', `Unsupported ${key}: ${value}.`); return value; };
     return {
       representation: pick('representation', 'raw', ['raw', 'display']), excludeQuery: input.excludeQuery === true,
-      metric: pick('metric', 'jaccard', ['jaccard', 'weighted']), minDomains: numberOption(input.minDomains, 1, 0, 100000, true),
+      metric: pick('metric', 'jaccard', ['jaccard', 'weighted']), minDomains: Math.max(2, numberOption(input.minDomains, 2, 0, 100000, true)),
       threshold: numberOption(input.threshold, 0.33, 0, 1, false), maxNeighbors: numberOption(input.maxNeighbors, 10, 1, 100, true),
       grouping: pick('grouping', 'louvain', ['louvain', 'leiden', 'components', 'label-propagation']),
       resolution: numberOption(input.resolution, 1, 0.05, 10, false),
@@ -144,7 +144,7 @@
       });
     }
     const beforeMinimum = observations.length;
-    observations = observations.filter(observation => { if (observation.domainIds.length >= options.minDomains) return true; excluded.push({ id: observation.id, members: observation.members, reason: 'Below minimum annotated composition domains' }); return false; }).sort((a, b) => compareText(a.id, b.id));
+    observations = observations.filter(observation => { if (observation.domainIds.length >= options.minDomains) return true; excluded.push({ id: observation.id, members: observation.members, reason: `Fewer than ${options.minDomains} distinct composition domains after excluding markers, unknowns and optional query genes` }); return false; }).sort((a, b) => compareText(a.id, b.id));
     const divergent = observations.filter(o => o.anchor.divergentQueries).length;
     const synthetic = observations.filter(o => o.coordinateSource === 'synthetic').length, unknownGenes = observations.reduce((sum, o) => sum + o.genes.filter(g => !g.known).length, 0);
     if (duplicateAnnotations) warnings.push(`${duplicateAnnotations} duplicate locus row(s) differed in annotation or query designation. A deterministic representative was retained (meets the annotated-domain minimum first, then most queries, distinct domains, genes, and ID); merged support was not counted twice.`);

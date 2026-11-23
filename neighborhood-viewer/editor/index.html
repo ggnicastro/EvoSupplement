@@ -8,7 +8,7 @@
   <title>Gene Neighborhood Editor</title>
   <link rel="stylesheet" href="../shared/styles.css?v=3.7.0">
   <link rel="stylesheet" href="./editor.css?v=1.1.0">
-  <link rel="stylesheet" href="./analysis.css?v=1.1.0">
+  <link rel="stylesheet" href="./analysis.css?v=1.1.1">
 </head>
 <body>
   <header class="app-header">
@@ -283,7 +283,7 @@
     <details class="nbh-curation-card analysis-card" id="analysisCard">
       <summary><span>Analyze neighborhoods</span><span class="nbh-curation-summary" id="analysisSummary">Load data to find neighborhood communities</span></summary>
       <div class="analysis-content">
-        <p class="analysis-intro">Compare neighborhoods by their domain sets, build a Jaccard similarity network, and find the domains connecting each community. Gene order and strand do not affect Jaccard.</p>
+        <p class="analysis-intro">Compare neighborhoods by their domain sets, build a Jaccard similarity network, and find the domains connecting each community. Gene order and strand do not affect Jaccard. Each neighborhood must retain at least 2 distinct domains after excluding TM, signal markers and unknown annotations (?).</p>
         <fieldset class="analysis-setup" id="analysisSetup">
           <legend>1. Build neighborhood communities</legend>
           <div class="analysis-fields">
@@ -301,7 +301,7 @@
           <label class="analysis-check"><input id="analysisExcludeQuery" type="checkbox"> Exclude query genes from composition and alternative-domain tests</label>
             <p class="analysis-note">All threshold-qualified pairs are retained and weighted by Jaccard. Leiden-style refinement uses connectivity refinement, rather than the full stochastic reference implementation.</p>
             <div class="analysis-fields">
-              <label class="nbh-editor-field"><span>Minimum distinct domains</span><input id="analysisMinDomains" type="number" min="1" max="10000" step="1" value="1"></label>
+              <label class="nbh-editor-field"><span>Minimum distinct domains</span><input id="analysisMinDomains" type="number" min="2" max="10000" step="1" value="2"></label>
             <label hidden><span>Similarity</span><select id="analysisMetric"><option value="jaccard">Jaccard · presence / absence</option><option value="weighted">Count-weighted Jaccard · domain occurrences</option></select><small>Order is measured separately from composition.</small></label>
               <input id="analysisTopK" type="hidden" value="10">
               <label class="nbh-editor-field"><span>Overlapping regions</span><select id="analysisOverlap"><option value="representative">Use one representative per overlap group</option><option value="keep">Keep separate overlapping observations</option></select></label>
@@ -393,9 +393,9 @@
   <script src="./vendor/jszip.min.js"></script>
   <script src="./config.js?v=3.7.0"></script>
   <script src="../shared/neighborhood-viewer.js?v=3.7.0"></script>
-  <script src="./domain-curation.js?v=1.3.0"></script>
+  <script src="./domain-curation.js?v=1.3.1"></script>
   <script src="./analysis-communities.js?v=1.1.0"></script>
-  <script src="./analysis.js?v=1.1.0"></script>
+  <script src="./analysis.js?v=1.1.1"></script>
   <script>
     (async () => {
       await window.NeighborhoodViewer.init({

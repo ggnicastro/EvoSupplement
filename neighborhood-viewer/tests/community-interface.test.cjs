@@ -9,7 +9,7 @@ const JSZip = require('../editor/vendor/jszip.min.js');
 
 // Exercise controller behavior against the real HTML IDs/defaults. This small
 // DOM harness does not assert layout or substitute for a visual browser review.
-function setup() {
+function setup(domainSets = [['A','B','G','X'],['A','B','G','Y'],['A','B','H','Z'],['Private']]) {
   const html = fs.readFileSync(path.join(__dirname, '../editor/index.html'), 'utf8');
   const elements = new Map();
   class Element {
@@ -42,7 +42,7 @@ function setup() {
   const window = { NeighborhoodCommunities: communities, JSZip, addEventListener() {} };
   const URL = {createObjectURL(blob) { downloaded = blob; return 'blob:test'; }, revokeObjectURL() {}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../editor/analysis.js'), 'utf8'), { window, document, Blob, URL, setTimeout: fn=>fn(), clearTimeout, console });
-  const snapshot = { scope:'visible', datasetId:1, revision:1, source:{name:'fixture'}, entries:[['A','B','G','X'],['A','B','G','Y'],['A','B','H','Z'],['Private']].map((ids,i)=>({
+  const snapshot = { scope:'visible', datasetId:1, revision:1, source:{name:'fixture'}, entries:domainSets.map((ids,i)=>({
     id:`v${i}`, sourceId:`block${i}`, coordinateSource:'synthetic', genes:[{pid:`p${i}`,start:1,end:100,strand:'+',query:true,domains:ids.map(name=>({rawName:name,name}))}]
   })) };
   let selection = null, onChange;
@@ -118,4 +118,25 @@ test('ZIP exports simple connector lists alongside complete membership and edge 
   assert.match(await zip.file('groups.tsv').async('string'), /v0/);
   assert.ok(zip.file('similarity-links.tsv'));
   assert.ok(zip.file('analysis-session.json'));
+});
+
+test('communities with only one connector stay out of the main list and simple export', async () => {
+  const {controller,elements,getDownloaded} = setup([['A','B'],['A','C']]);
+  assert.equal(await controller.run(),true);
+  assert.equal(controller.getState().result.groups[0].connectors.length,1);
+  assert.match(elements.get('analysisCommunities').textContent,/No communities with at least 2/);
+  await controller.exportResults();
+  const zip=await JSZip.loadAsync(await getDownloaded().arrayBuffer());
+  assert.equal((await zip.file('communities.txt').async('string')).trim(),'');
+});
+
+test('rerunning an older session enforces a minimum of two even if it saved one', async () => {
+  const {controller,elements} = setup();
+  assert.equal(await controller.run(),true);
+  const session=JSON.parse(JSON.stringify(controller.exportSession()));
+  session.settings.minDomains=session.result.options.minDomains=1;
+  controller.importSession(session);
+  assert.equal(await controller.run(),true);
+  assert.equal(controller.getState().settings.minDomains,2);
+  assert.equal(elements.get('analysisMinDomains').value,'2');
 });
