@@ -17,6 +17,16 @@ The main result does not list individual neighborhoods. Their identities and edg
 
 The editor must be served over local HTTP or a hosted site for its worker to run reliably. Opening the HTML as a `file:` URL can block workers. No calculation silently falls back to an unresponsive main-thread run.
 
+## Select connector domains for color curation
+
+Each connector has a checkbox. **Select all connectors** selects every connector in that community. Selections are shared across communities: checking the same domain in one card checks its other occurrences, and each original domain ID is added only once. Pending selections remain available across community search and pagination.
+
+Click **Add selected to color list** to mark those domains as **Include this domain in color YAML** in the existing Domain curation panel. The panel opens so you can adjust the colors. Existing colors, renames, and other selected domains are preserved. Unchecking a connector or using **Clear connector selection** only clears the pending analysis selection; it never removes a previously selected color. A successful addition clears the pending checkboxes.
+
+In renamed-group analysis, selecting a connector adds its supporting original domain IDs from the analyzed observations. The checkbox tooltip lists those IDs. Only the current matching input can receive additions; stale or archived results for another input cannot update its color list. The complete selection is validated before any changes are applied. Curation's own search and frequency-scope filters can hide already-added domains; choose **All loaded data** or clear the domain search to inspect them. YAML color export retains the applied selections across the whole input.
+
+Changing colors alone does not change the Jaccard input or invalidate its communities. Data, renames, continuity/text filters and analysis parameters still require a new analysis. Older analysis fingerprints that included display colors remain readable. Connector checkboxes are temporary UI selections and are cleared on a new run or session import. Use the curation YAML/package downloads to save the applied colors. This workflow does not assign network Function groups or export a network-node YAML.
+
 ## Input, scope and observation units
 
 Both scopes apply the current query-centered direction and distance rules. **All loaded neighborhoods** bypasses Include / Exclude only. The analysis selection itself never changes either analysis scope. An all-data selection can therefore include representatives hidden by the viewer's Include / Exclude filters; the selection message reports the number actually visible.

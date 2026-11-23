@@ -78,3 +78,10 @@
 .analysis-community .nbh-editor-button { margin-top: 8px; }
 .analysis-setup > .analysis-fields { grid-template-columns: repeat(3,minmax(140px,1fr)); }
 @media(max-width:700px) { .analysis-setup > .analysis-fields { grid-template-columns: 1fr; } }
+
+.analysis-connector-choice { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid #cbdaf0; border-radius: 6px; background: #eef4ff; font-size: 12px; cursor: pointer; }
+.analysis-connector-choice span { overflow-wrap: anywhere; }
+.analysis-connector-choice input { flex-shrink: 0; }
+.analysis-connector-actions { margin: 12px 0; }
+.analysis-connector-actions .analysis-note { margin: 0; }
+.analysis-community .nbh-editor-button + .nbh-editor-button { margin-left: 8px; }

@@ -9,7 +9,7 @@ const JSZip = require('../editor/vendor/jszip.min.js');
 
 // Exercise controller behavior against the real HTML IDs/defaults. This small
 // DOM harness does not assert layout or substitute for a visual browser review.
-function setup(domainSets = [['A','B','G','X'],['A','B','G','Y'],['A','B','H','Z'],['Private']]) {
+function setup(domainSets = [['A','B','G','X'],['A','B','G','Y'],['A','B','H','Z'],['Private']], options = {}) {
   const html = fs.readFileSync(path.join(__dirname, '../editor/index.html'), 'utf8');
   const elements = new Map();
   class Element {
@@ -45,13 +45,14 @@ function setup(domainSets = [['A','B','G','X'],['A','B','G','Y'],['A','B','H','Z
   const snapshot = { scope:'visible', datasetId:1, revision:1, source:{name:'fixture'}, entries:domainSets.map((ids,i)=>({
     id:`v${i}`, sourceId:`block${i}`, coordinateSource:'synthetic', genes:[{pid:`p${i}`,start:1,end:100,strand:'+',query:true,domains:ids.map(name=>({rawName:name,name}))}]
   })) };
+  if (options.prepareSnapshot) options.prepareSnapshot(snapshot);
   let selection = null, onChange;
   const viewer = {
     getAnalysisSnapshot: () => snapshot, clearAnalysisFocus() { selection = null; },
     setAnalysisFocus(value) { selection = value; return { matchedRows:value.entryIds.length }; },
     onAnalysisChange(handler) { onChange = handler; }
   };
-  const controller = window.NeighborhoodAnalysisEditor.init(viewer, { workerFactory: () => ({
+  const controller = window.NeighborhoodAnalysisEditor.init(viewer, { addToColorList: options.addToColorList, workerFactory: () => ({
     terminate() {}, async postMessage(message) {
       try {
         const result = await core.analyze(message.snapshot, message.options, { yield:false });
@@ -60,7 +61,7 @@ function setup(domainSets = [['A','B','G','X'],['A','B','G','Y'],['A','B','H','Z
       } catch (error) { this.onmessage({data:{type:'error',requestId:message.requestId,error:{message:error.message}}}); }
     }
   }) });
-  return {controller,elements,getDownloaded:()=>downloaded,getSelection:()=>selection,changed:()=>onChange({type:'data'})};
+  return {controller,elements,snapshot,api:window.NeighborhoodAnalysisEditor,getDownloaded:()=>downloaded,getSelection:()=>selection,changed:reason=>onChange({type:'data',reason})};
 }
 
 test('community-first controls run, select member neighborhoods, clear, and invalidate results', async () => {
@@ -70,9 +71,9 @@ test('community-first controls run, select member neighborhoods, clear, and inva
   assert.equal(await controller.run(), true, elements.get('analysisStatus').textContent);
   const cards = elements.get('analysisCommunities').children;
   assert.equal(cards.length,1);
-  assert.match(cards[0].textContent,/A, B, G/);
+  assert.match(cards[0].textContent.replace(/\s+/g,' '),/A B G/);
   assert.doesNotMatch(cards[0].textContent,/Private|v0|v1|v2/);
-  cards[0].children.find(e=>e.tagName==='button').events.click();
+  cards[0].children.find(e=>e.tagName==='button'&&e.textContent==='Show neighborhoods').events.click();
   assert.deepEqual(Array.from(getSelection().entryIds),['v0','v1','v2']);
   elements.get('analysisClearFocus').events.click();
   assert.equal(getSelection(),null);
@@ -106,7 +107,7 @@ test('legacy sessions retain their grouping and derive connectors from saved edg
   for (const group of legacy.result.groups) { delete group.connectors; delete group.internalEdges; }
   assert.equal(controller.importSession(legacy).matched,true);
   assert.match(elements.get('analysisCommunitySummary').textContent,/legacy/);
-  assert.match(elements.get('analysisCommunities').textContent,/A, B, G/);
+  assert.match(elements.get('analysisCommunities').textContent.replace(/\s+/g,' '),/A B G/);
 });
 
 test('ZIP exports simple connector lists alongside complete membership and edge tables', async () => {
@@ -166,4 +167,109 @@ test('older single-shared-domain links remain inspectable but disappear on rerun
   assert.equal(await controller.run(),true);
   assert.equal(controller.getState().settings.minSharedDomains,2);
   assert.equal(controller.getState().result.edges.length,0);
+});
+
+function connectorBoxes(elements, id) {
+  const found=[];
+  function visit(node) {
+    if(node.tagName==='input'&&node['aria-label']===`Select connector ${id}`) found.push(node);
+    for(const child of node.children) visit(child);
+  }
+  visit(elements.get('analysisCommunities'));
+  return found;
+}
+
+test('connector selections synchronize across communities and add each original ID once', async () => {
+  const calls=[];
+  const {controller,elements}=setup([['nPUA','B','C'],['nPUA','B','C'],['nPUA','X','Y'],['nPUA','X','Y']],{
+    addToColorList(ids){calls.push(Array.from(ids));return{added:ids.length,alreadyIncluded:0};}
+  });
+  assert.equal(await controller.run(),true);
+  const boxes=connectorBoxes(elements,'nPUA');
+  assert.equal(boxes.length,2);
+  boxes[0].checked=true;boxes[0].events.change();
+  assert.equal(boxes[1].checked,true);
+  assert.match(elements.get('analysisConnectorSelectionCount').textContent,/1 connector/);
+  const result=controller.getState().result;
+  for(const card of elements.get('analysisCommunities').children) card.children.find(e=>e.textContent==='Select all connectors').events.click();
+  elements.get('analysisAddConnectorColors').events.click();
+  assert.deepEqual(calls[0].sort(),['B','C','X','Y','nPUA']);
+  assert.equal(controller.getState().result,result);
+  assert.equal(connectorBoxes(elements,'nPUA')[0].checked,false);
+  assert.equal(elements.get('analysisAddConnectorColors').disabled,true);
+});
+
+test('selections survive searches and clearing them does not change the color list', async () => {
+  const calls=[];
+  const {controller,elements}=setup([['A','B'],['A','B'],['X','Y'],['X','Y']],{
+    addToColorList(ids){calls.push(ids);return{added:ids.length,alreadyIncluded:0};}
+  });
+  await controller.run();
+  const box=connectorBoxes(elements,'A')[0];box.checked=true;box.events.change();
+  elements.get('analysisCommunitySearch').value='X';elements.get('analysisCommunitySearch').events.input();
+  assert.match(elements.get('analysisConnectorSelectionCount').textContent,/1 connector/);
+  elements.get('analysisClearConnectorSelection').events.click();
+  assert.equal(calls.length,0);
+  elements.get('analysisCommunitySearch').value='';elements.get('analysisCommunitySearch').events.input();
+  assert.equal(connectorBoxes(elements,'A')[0].checked,false);
+});
+
+test('renamed connector groups resolve to their original raw IDs', async () => {
+  const calls=[];
+  const {controller,elements}=setup([['A','B','C'],['A','B','C']],{
+    prepareSnapshot(snapshot){for(const entry of snapshot.entries)for(const d of entry.genes[0].domains)if(d.rawName==='A'||d.rawName==='B')d.name='Merged';},
+    addToColorList(ids){calls.push(Array.from(ids));return{added:ids.length,alreadyIncluded:0};}
+  });
+  elements.get('analysisRepresentation').value='display';
+  assert.equal(await controller.run(),true);
+  const box=connectorBoxes(elements,'Merged')[0];box.checked=true;box.events.change();
+  elements.get('analysisAddConnectorColors').events.click();
+  assert.deepEqual(calls[0].sort(),['A','B']);
+});
+
+test('color-only updates keep analysis and community focus valid; rename changes invalidate it', async () => {
+  let h;
+  h=setup(undefined,{
+    prepareSnapshot(snapshot){for(const entry of snapshot.entries){for(const domain of entry.genes[0].domains)domain.color='#111111';entry.queryGenes=entry.genes;}},
+    addToColorList(ids){
+      for(const entry of h.snapshot.entries)for(const domain of entry.genes[0].domains)if(ids.includes(domain.rawName))domain.color='#abcdef';
+      h.snapshot.revision++;
+      h.changed('dictionary-update');
+      return{added:ids.length,alreadyIncluded:0};
+    }
+  });
+  await h.controller.run();
+  h.elements.get('analysisCommunities').children[0].children.find(e=>e.textContent==='Show neighborhoods').events.click();
+  const box=connectorBoxes(h.elements,'A')[0];box.checked=true;box.events.change();
+  h.elements.get('analysisAddConnectorColors').events.click();
+  assert.equal(h.controller.getState().stale,false);
+  assert.deepEqual(Array.from(h.getSelection().entryIds),['v0','v1','v2']);
+  h.snapshot.dictionaries={renames:{A:'Changed'}};
+  h.changed('dictionary-update');
+  assert.equal(h.controller.getState().stale,true);
+  assert.equal(h.elements.get('analysisAddConnectorColors').disabled,true);
+});
+
+test('a changed scientific input blocks pending additions before the callback runs', async () => {
+  let calls=0;
+  const h=setup(undefined,{addToColorList(){calls++;return{added:1,alreadyIncluded:0};}});
+  await h.controller.run();
+  const box=connectorBoxes(h.elements,'A')[0];box.checked=true;box.events.change();
+  h.snapshot.filters={maxIntergenicDistance:999};
+  h.elements.get('analysisAddConnectorColors').events.click();
+  assert.equal(calls,0);
+  assert.equal(h.controller.getState().stale,true);
+});
+
+test('older color-sensitive fingerprints import and migrate to the scientific fingerprint', async () => {
+  const h=setup(undefined,{prepareSnapshot(snapshot){for(const entry of snapshot.entries)for(const d of entry.genes[0].domains)d.color='#111111';}});
+  await h.controller.run();
+  const session=JSON.parse(JSON.stringify(h.controller.exportSession()));
+  const oldWindow={};
+  const legacySource=fs.readFileSync(path.join(__dirname,'../editor/analysis.js'),'utf8').replace('legacyColors = false','legacyColors = true');
+  vm.runInNewContext(legacySource,{window:oldWindow});
+  session.fingerprint=oldWindow.NeighborhoodAnalysisEditor.contentFingerprint(session.snapshot);
+  assert.notEqual(session.fingerprint,h.api.contentFingerprint(session.snapshot));
+  assert.equal(h.controller.importSession(session).matched,true);
+  assert.equal(h.controller.exportSession().fingerprint,h.api.contentFingerprint(session.snapshot));
 });

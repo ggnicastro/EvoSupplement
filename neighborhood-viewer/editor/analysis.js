@@ -1,7 +1,7 @@
 /* EvoSupplement Neighborhood analysis workspace. Loaded only by the editor. */
 (() => {
   'use strict';
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   const PAGE_SIZE = 20;
   const MAX_DRAW_NODES = 200;
   const MAX_DRAW_EDGES = 800;
@@ -19,10 +19,26 @@
   }
   // Dataset IDs are local load counters. Scientific content, not those counters,
   // determines whether an imported session may select rows in the current data.
-  function contentKey(snapshot) {
+  function contentKey(snapshot, legacyColors = false) {
+    function scientificGene(gene) {
+      return { ...gene, domains: array(gene.domains).map(domain => {
+        const copy = { ...domain };
+        delete copy.color;
+        if (copy.marker && typeof copy.marker === 'object') {
+          copy.marker = { ...copy.marker };
+          delete copy.marker.color;
+        }
+        return copy;
+      }) };
+    }
     return canonical({ scope: snapshot.scope, format: snapshot.source?.format, filters: snapshot.filters,
       renames: snapshot.dictionaries?.renames || {}, entries: array(snapshot.entries).map(entry => {
-        const copy = { ...entry }; delete copy.id; delete copy.analysisId; return copy;
+        const copy = { ...entry }; delete copy.id; delete copy.analysisId;
+        if (!legacyColors) {
+          copy.genes = array(entry.genes).map(scientificGene);
+          if (Array.isArray(entry.queryGenes)) copy.queryGenes = entry.queryGenes.map(scientificGene);
+        }
+        return copy;
       }) });
   }
   function fingerprint(text) {
@@ -55,9 +71,11 @@
   }
   function create(viewer, hooks = {}) {
     if (!viewer?.getAnalysisSnapshot) throw new Error('The Neighborhood analysis bridge is unavailable. Reload the updated editor.');
-    const ids = ['Card','Summary','Setup','Scope','Representation','Metric','Threshold','ExcludeQuery','MinDomains','MinSharedDomains','TopK','Grouping','Resolution','Seed','Iterations','Overlap','Window','AlternativesEnabled','MinSupport','MinExpected','MaxBoth','MaxQ','MaxPairs','MaxEdges','AlternativePairs','ContextLimit','StratumField','StratumValue','MetadataFields','Run','Cancel','Progress','Status','Load','LoadInput','Stale','Results','ClearFocus','Save','Export','Selection','Tabs','Panel','Overview','Network','NetworkGroup','NetworkNote','Graph','TabDescription','Search','ViewField','View','Sort','RowCount','TableHead','TableBody','Empty','Prev','Next','PageInfo','Detail','Provenance','CommunitySummary','CommunitySearch','Communities','CommunityPrev','CommunityNext','CommunityPage'];
+    const ids = ['Card','Summary','Setup','Scope','Representation','Metric','Threshold','ExcludeQuery','MinDomains','MinSharedDomains','TopK','Grouping','Resolution','Seed','Iterations','Overlap','Window','AlternativesEnabled','MinSupport','MinExpected','MaxBoth','MaxQ','MaxPairs','MaxEdges','AlternativePairs','ContextLimit','StratumField','StratumValue','MetadataFields','Run','Cancel','Progress','Status','Load','LoadInput','Stale','Results','ClearFocus','Save','Export','Selection','Tabs','Panel','Overview','Network','NetworkGroup','NetworkNote','Graph','TabDescription','Search','ViewField','View','Sort','RowCount','TableHead','TableBody','Empty','Prev','Next','PageInfo','Detail','Provenance','CommunitySummary','CommunitySearch','Communities','CommunityPrev','CommunityNext','CommunityPage','AddConnectorColors','ClearConnectorSelection','ConnectorSelectionCount'];
     const e = Object.fromEntries(ids.map(id => [id, document.getElementById('analysis' + id)]));
     const state = { result: null, snapshot: null, settings: null, fingerprint: '', stale: false, running: false, worker: null, requestId: 0, tab: 'overview', page: 0, rows: [], view: '', selected: null, currentIds: new Map(), sourceKey: '', saved: true, communityPage: 0, selectedCommunity: null };
+    let selectedConnectors = new Set();
+    let connectorInputs = new Map();
     function status(message, error = false) { e.Status.textContent = message; e.Status.classList.toggle('is-error', error); }
     function number(id, min, max, integer = false) {
       const input = e[id], value = Number(input.value);
@@ -88,6 +106,7 @@
     function markStale(reason = '') {
       if (!state.result) return;
       state.stale = true; state.selectedCommunity = null; e.Stale.hidden = false;
+      selectedConnectors.clear();
       e.Stale.textContent = reason || 'These results use earlier data or settings. Run the analysis again before selecting neighborhoods.';
       viewer.clearAnalysisFocus(); e.ClearFocus.disabled = true; e.Selection.textContent = '';
       renderTable(); renderGraph(); renderCommunities();
@@ -103,7 +122,18 @@
       const fields = new Set(['taxid', 'organism', 'lineage']);
       for (const entry of array(snapshot.entries)) for (const field of Object.keys(entry.metadata || {})) fields.add(field);
       empty(e.MetadataFields); for (const field of [...fields].sort()) { const opt = el('option'); opt.value = field; e.MetadataFields.appendChild(opt); }
-      if (event && state.result) markStale('The loaded data, domain names or neighborhood filters changed. Run again to update these results.');
+      if (event && state.result) {
+        if (event.reason === 'dictionary-update' && !state.stale && contentKey(snapshot) === state.sourceKey) {
+          state.currentIds = new Map(state.snapshot.entries.map((entry, i) => [entry.id, snapshot.entries[i].id]));
+          if (state.selectedCommunity) {
+            const group = state.result.groups.find(item => item.id === state.selectedCommunity);
+            if (group) focus(group.members, group.label);
+          } else {
+            e.ClearFocus.disabled = true; e.Selection.textContent = '';
+          }
+          renderCommunities();
+        } else markStale('The loaded data, domain names or neighborhood filters changed. Run again to update these results.');
+      }
     }
     function busy(value) {
       state.running = value; e.Setup.disabled = value; e.Cancel.hidden = !value; e.Progress.hidden = !value; e.Run.disabled = value;
@@ -140,6 +170,7 @@
               try {
                 if (!data.result || !Array.isArray(data.result.observations)) throw new Error('The analysis returned an invalid result. Previous results were kept.');
                 state.result = data.result; state.snapshot = snapshot; state.settings = settings; state.sourceKey = contentKey(snapshot); state.fingerprint = fingerprint(state.sourceKey); state.currentIds = new Map(snapshot.entries.map(entry => [entry.id, entry.id])); state.saved = false; state.stale = false;
+                selectedConnectors.clear();
                 state.tab = 'overview'; state.page = 0; state.selected = null; state.communityPage = 0; state.selectedCommunity = null; e.CommunitySearch.value = ''; e.Stale.hidden = true; e.Search.value = ''; e.NetworkGroup.value = ''; viewer.clearAnalysisFocus();
                 const current = viewer.getAnalysisSnapshot({ scope: settings.scope });
                 if (contentKey(current) !== state.sourceKey) { state.stale = true; state.selectedCommunity = null; e.Stale.hidden = false; } else state.currentIds = new Map(snapshot.entries.map((entry, i) => [entry.id, current.entries[i].id]));
@@ -205,13 +236,49 @@
       e.TabDescription.textContent = descriptions[state.tab];
       renderOverview(); renderTable(); renderProvenance(); renderGraph(); renderCommunities();
     }
-    let connectorCacheResult = null, connectorCacheGroups = [];
+    let connectorCacheResult = null, connectorCacheGroups = [], connectorRawIds = new Map();
     function connectorGroups(result) {
       if (connectorCacheResult !== result) {
         connectorCacheGroups = window.NeighborhoodCommunities.connectorSummaries(array(result.observations), array(result.edges), array(result.groups));
+        const eligible = new Set(connectorCacheGroups.filter(group => group.connectors.length >= 2).flatMap(group => group.connectors.map(connector => connector.id)));
+        connectorRawIds = new Map();
+        for (const observation of array(result.observations)) for (const gene of array(observation.genes)) {
+          if (result.options.excludeQuery && gene.query) continue;
+          for (const domain of array(gene.domains)) {
+            if (!eligible.has(domain.id) || !domain.rawName) continue;
+            if (!connectorRawIds.has(domain.id)) connectorRawIds.set(domain.id, new Set());
+            connectorRawIds.get(domain.id).add(domain.rawName);
+          }
+        }
         connectorCacheResult = result;
       }
       return connectorCacheGroups;
+    }
+    function updateConnectorSelection() {
+      for (const [id, inputs] of connectorInputs) for (const input of inputs) input.checked = selectedConnectors.has(id);
+      e.ConnectorSelectionCount.textContent = `${fmt(selectedConnectors.size)} connector domains selected across all communities`;
+      e.AddConnectorColors.disabled = !selectedConnectors.size || state.stale || state.running || typeof hooks.addToColorList !== 'function';
+      e.ClearConnectorSelection.disabled = !selectedConnectors.size || state.running;
+    }
+    function addSelectedConnectorColors() {
+      if (!state.result || state.stale || state.running || !selectedConnectors.size) return;
+      try {
+        const current = viewer.getAnalysisSnapshot({ scope: state.settings.scope });
+        if (contentKey(current) !== state.sourceKey) { markStale(); return; }
+        if (typeof hooks.addToColorList !== 'function') throw new Error('The color editor is unavailable. Reload the updated editor.');
+        connectorGroups(state.result);
+        const rawIds = new Set();
+        for (const id of selectedConnectors) {
+          const originals = connectorRawIds.get(id);
+          if (!originals?.size) throw new Error(`Original domain IDs are unavailable for ${id}. Run the analysis again before adding colors.`);
+          for (const original of originals) rawIds.add(original);
+        }
+        const count = selectedConnectors.size;
+        const result = hooks.addToColorList([...rawIds]);
+        selectedConnectors.clear();
+        updateConnectorSelection();
+        status(`Added the selection of ${fmt(count)} connector domains to the color list: ${fmt(result.added)} new original IDs, ${fmt(result.alreadyIncluded)} already included. Existing colors were preserved. Adjust colors in Domain curation.`);
+      } catch (error) { status(error.message || 'Could not add selected connectors to the color list.', true); }
     }
     function renderCommunities() {
       if (!state.result) return;
@@ -225,11 +292,33 @@
       const algorithm = { louvain:'Louvain', leiden:'Leiden-style refinement', components:'connected components (legacy)', 'label-propagation':'label propagation (legacy)' }[settings.grouping];
       e.CommunitySummary.textContent = `${fmt(connected.length)} communities with at least 2 connector domains · ${fmt(state.result.observations.length)} neighborhoods · ${fmt(state.result.edges.length)} edges · ${settings.metric === 'weighted' ? 'count-weighted Jaccard (legacy)' : 'Jaccard'} ≥ ${settings.threshold} · at least ${settings.minSharedDomains} shared domains per edge · ${algorithm}. ${fmt(state.result.summary?.belowMinimum)} neighborhoods excluded for insufficient distinct domains. ${fmt(state.result.summary?.isolates)} isolated neighborhoods remain saved without connector lists. ${['components','label-propagation'].includes(settings.grouping) ? 'Legacy session: its recorded top-neighbor pruning is preserved.' : settings.minSharedDomains < 2 ? 'Archived result: single-domain links were allowed. Run analysis again to enforce the minimum of 2.' : 'All pairs passing both edge criteria are retained.'}`;
       empty(e.Communities);
+      connectorInputs = new Map();
       for (const group of matches.slice(state.communityPage * PAGE_SIZE, (state.communityPage + 1) * PAGE_SIZE)) {
         const card = el('section', null, 'analysis-community' + (state.selectedCommunity === group.id ? ' is-selected' : ''));
         card.appendChild(el('h3', group.label));
-        card.appendChild(el('p', group.connectors.map(c => c.id).join(', '), 'analysis-connector-list'));
+        const choices = el('div', null, 'analysis-connector-list');
+        for (const connector of group.connectors) {
+          const label = el('label', null, 'analysis-connector-choice');
+          const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = selectedConnectors.has(connector.id);
+          checkbox.disabled = state.stale || state.running;
+          checkbox.setAttribute('aria-label', `Select connector ${connector.id}`);
+          label.title = `${fmt(connector.edgeCount)} supporting internal edges. Original IDs: ${[...(connectorRawIds.get(connector.id) || [])].join(', ') || 'unavailable'}`;
+          if (!connectorInputs.has(connector.id)) connectorInputs.set(connector.id, []);
+          connectorInputs.get(connector.id).push(checkbox);
+          checkbox.addEventListener('change', () => {
+            if (state.stale || state.running) return;
+            if (checkbox.checked) selectedConnectors.add(connector.id); else selectedConnectors.delete(connector.id);
+            updateConnectorSelection();
+          });
+          label.appendChild(checkbox); label.appendChild(el('span', connector.id)); choices.appendChild(label);
+        }
+        card.appendChild(choices);
         card.appendChild(el('p', `${fmt(group.connectors.length)} connector domains · ${fmt(group.count)} neighborhoods · ${fmt(group.internalEdges)} internal edges`, 'analysis-note'));
+        card.appendChild(button('Select all connectors', () => {
+          if (state.stale || state.running) return;
+          for (const connector of group.connectors) selectedConnectors.add(connector.id);
+          updateConnectorSelection();
+        }, state.stale || state.running));
         card.appendChild(button('Show neighborhoods', () => {
           state.selectedCommunity = group.id;
           focus(group.members, group.label);
@@ -241,6 +330,7 @@
       e.CommunityPage.textContent = matches.length ? `${fmt(state.communityPage * PAGE_SIZE + 1)}–${fmt(Math.min(matches.length, (state.communityPage + 1) * PAGE_SIZE))} of ${fmt(matches.length)} communities` : '0 communities';
       e.CommunityPrev.disabled = state.communityPage === 0;
       e.CommunityNext.disabled = state.communityPage >= pageCount - 1;
+      updateConnectorSelection();
     }
     function renderOverview() {
       if (!state.result) return;
@@ -412,7 +502,7 @@
       for(const type of ['complete','adjacent','triplets','queryWindows']){if(!Array.isArray(r.patterns[type]))reject('missing order-pattern collection.');const patternIds=new Set();for(const pattern of r.patterns[type]){if(!object(pattern)||!string(pattern.id)||patternIds.has(pattern.id)||typeof pattern.pattern!=='string'||!uniqueStrings(pattern.members)||pattern.members.some(id=>!observations.has(id))||!whole(pattern.count)||pattern.count!==pattern.members.length||!unit(pattern.frequency)||!nearly(pattern.frequency,observations.size?pattern.count/observations.size:0)||!whole(pattern.occurrences)||pattern.occurrences<pattern.count)reject('invalid order pattern count or membership.');patternIds.add(pattern.id);}}
       if(!object(r.alternatives)||!Array.isArray(r.alternatives.candidates))reject('missing alternative-domain results.');
       const alt=r.alternatives;if(!alt.disabled){if(!uniqueStrings(alt.observationIds)||alt.observationIds.some(id=>!observations.has(id))||alt.observationCount!==alt.observationIds.length||!whole(alt.testedPairCount))reject('invalid alternative-domain cohort.');const cohort=alt.observationIds.map(id=>observations.get(id)),seenPairs=new Set(),postings=new Map();cohort.forEach((obs,index)=>{for(const domain of obs.domainIds){if(!postings.has(domain))postings.set(domain,new Set());postings.get(domain).add(index);}});for(const pair of alt.candidates){if(!object(pair)||!string(pair.domainA)||!string(pair.domainB)||pair.domainA===pair.domainB||!object(pair.counts)||!unit(pair.q)||!unit(pair.fisherP))reject('invalid candidate pair or p-value.');const key=JSON.stringify([pair.domainA,pair.domainB].sort());if(seenPairs.has(key))reject('duplicate candidate pair.');seenPairs.add(key);const aIds=postings.get(pair.domainA)||new Set(),bIds=postings.get(pair.domainB)||new Set(),smaller=aIds.size<=bIds.size?aIds:bIds,larger=aIds.size<=bIds.size?bIds:aIds;let both=0;for(const index of smaller)if(larger.has(index))both++;const counts={aOnly:aIds.size-both,bOnly:bIds.size-both,both,neither:cohort.length-aIds.size-bIds.size+both};if(Object.keys(counts).some(k=>pair.counts[k]!==counts[k])||pair.supportA!==counts.aOnly+counts.both||pair.supportB!==counts.bOnly+counts.both||!Number.isFinite(pair.expectedBoth)||!nearly(pair.expectedBoth,cohort.length?pair.supportA*pair.supportB/cohort.length:0))reject('candidate contingency counts disagree with the saved cohort.');for(const key of ['contextObservationIndicesA','contextObservationIndicesB'])if(pair[key]!=null&&(!Array.isArray(pair[key])||pair[key].some(i=>!whole(i)||i>=cohort.length)))reject('invalid context-support observation index.');}}
-      const key=contentKey(input.snapshot);if(input.fingerprint!==fingerprint(key))reject('the fingerprint does not match the saved input snapshot.');
+      const key=contentKey(input.snapshot);if(input.fingerprint!==fingerprint(key)&&input.fingerprint!==fingerprint(contentKey(input.snapshot,true)))reject('the fingerprint does not match the saved input snapshot.');
       return key;
     }
     function importSession(input) {
@@ -427,17 +517,17 @@
       const sourceKey=validateSession(data);
       const controls=Array.from(e.Setup.querySelectorAll('input, select'));
       const originalControls=controls.map(control=>({control,value:control.value,checked:control.checked}));
-      const previous={...state},previousSearch=e.Search.value;
+      const previous={...state},previousSearch=e.Search.value,previousConnectors=selectedConnectors;
       try {
         writeSettings(data.settings);const normalizedSettings=readSettings();if(canonical(normalizedSettings)!==canonical(data.settings))throw new Error('Invalid analysis session: parameter types or values are unsupported. The current results were kept.');
         const current=viewer.getAnalysisSnapshot({scope:data.settings.scope}),same=sourceKey===contentKey(current);
-        state.result=data.result;state.snapshot=data.snapshot;state.settings=data.settings;state.sourceKey=sourceKey;state.fingerprint=data.fingerprint;state.stale=!same;state.saved=true;state.page=0;state.tab='overview';state.selected=null;state.communityPage=0;state.selectedCommunity=null;e.CommunitySearch.value='';
+        state.result=data.result;state.snapshot=data.snapshot;state.settings=data.settings;state.sourceKey=sourceKey;state.fingerprint=fingerprint(sourceKey);state.stale=!same;state.saved=true;state.page=0;state.tab='overview';state.selected=null;state.communityPage=0;state.selectedCommunity=null;selectedConnectors=new Set();e.CommunitySearch.value='';
         state.currentIds=new Map(same?data.snapshot.entries.map((entry,i)=>[entry.id,current.entries[i].id]):[]);
         e.Search.value='';render(true);
         viewer.clearAnalysisFocus();e.ClearFocus.disabled=true;e.Selection.textContent='';e.Card.open=true;
         if(!same)e.Stale.textContent='Saved results loaded for inspection. The current data or filters differ from their snapshot. Load the matching input and filters, then reload this analysis JSON; or run a new analysis. Selection is disabled.';
         status(same?'Saved analysis loaded; its data and filters match this editor.':'Saved analysis loaded for inspection only. Its input does not match the current data.');return {matched:same,observations:data.result.observations.length};
-      } catch(error){Object.assign(state,previous);for(const {control,value,checked}of originalControls){control.value=value;control.checked=checked;}e.Search.value=previousSearch;render(true);throw error;}
+      } catch(error){Object.assign(state,previous);selectedConnectors=previousConnectors;for(const {control,value,checked}of originalControls){control.value=value;control.checked=checked;}e.Search.value=previousSearch;render(true);throw error;}
     }
     async function exportResults() {
       if(!state.result)return;
@@ -465,6 +555,8 @@
     e.ClearFocus.addEventListener('click',()=>{viewer.clearAnalysisFocus();e.ClearFocus.disabled=true;state.selectedCommunity=null;renderCommunities();e.Selection.textContent='Selection cleared. All rows allowed by the viewer filters are visible.';});
     e.Search.addEventListener('input',()=>{state.page=0;renderTable();}); e.Sort.addEventListener('change',()=>{state.page=0;renderTable();});e.View.addEventListener('change',()=>{state.page=0;state.selected=null;e.Detail.hidden=true;renderTable();});
     e.Prev.addEventListener('click',()=>{if(state.page>0){state.page--;renderTable();}});e.Next.addEventListener('click',()=>{if((state.page+1)*PAGE_SIZE<state.rows.length){state.page++;renderTable();}});
+    e.AddConnectorColors.addEventListener('click', addSelectedConnectorColors);
+    e.ClearConnectorSelection.addEventListener('click', () => { selectedConnectors.clear(); updateConnectorSelection(); });
     e.CommunitySearch.addEventListener('input', () => { state.communityPage = 0; renderCommunities(); });
     e.CommunityPrev.addEventListener('click', () => { state.communityPage--; renderCommunities(); });
     e.CommunityNext.addEventListener('click', () => { state.communityPage++; renderCommunities(); });

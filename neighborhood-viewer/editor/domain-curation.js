@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const EDITOR_VERSION = '1.2.0';
+  const EDITOR_VERSION = '1.4.0';
   const DEFAULT_COLOR = '#d7dce2';
   const PALETTE = [
     '#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F',
@@ -390,13 +390,13 @@
     }
 
     let applyTimer = 0;
-    function scheduleApply() {
+    function scheduleApply(successMessage = 'Preview updated. Download the YAML files when the curation is ready.') {
       window.clearTimeout(applyTimer);
       applyTimer = window.setTimeout(() => {
         const dictionaries = buildPreviewDictionaries();
         try {
           viewer.updateDictionaries(dictionaries);
-          showMessage('Preview updated. Download the YAML files when the curation is ready.');
+          showMessage(successMessage);
         } catch (error) {
           console.error(error);
           showMessage(error?.message || 'Could not update the preview.', true);
@@ -496,6 +496,35 @@
       renderSelectedEditor();
       scheduleApply();
       showMessage(`Suggested distinct colors for the top ${candidates.length} non-marker domains ranked by ${metric} in the ${scope === 'all' ? 'full dataset' : 'filtered view'}.`);
+    }
+
+    // Analysis passes original domain IDs, never renamed labels. Validate the
+    // complete request first so a stale or invalid mapping cannot partly apply.
+    function addToColorList(rawIds) {
+      if (!state.loaded) throw new Error('Load neighborhood data before adding connector domains to the color list.');
+      if (!Array.isArray(rawIds) || !rawIds.length || rawIds.some(id => typeof id !== 'string' || !id.trim())) {
+        throw new Error('Select at least one connector domain using its original domain ID.');
+      }
+      const requested = [...new Set(rawIds)];
+      const ineligible = new Set(['?', '-', 'unknown', 'unannotated', 'tm', 'tms', 'sig', 'sif']);
+      const records = requested.map(id => {
+        const record = state.records.get(id);
+        if (!record) throw new Error(`Connector domain ${JSON.stringify(id)} is not in the current input. Run the analysis again before applying its selection.`);
+        if (record.marker || ineligible.has(lower(record.rawName))) {
+          throw new Error(`Connector domain ${JSON.stringify(id)} is a marker or unknown annotation and cannot be added to the color list.`);
+        }
+        return record;
+      });
+      const added = records.filter(record => !record.colorIncluded).length;
+      for (const record of records) record.colorIncluded = true;
+      const result = { added, alreadyIncluded: requested.length - added, total: requested.length };
+      const message = `Added ${numberText(result.added)} connector domain${result.added === 1 ? '' : 's'} to the color YAML selection; ${numberText(result.alreadyIncluded)} already selected. Existing colors, names and other selections were preserved.`;
+      if (elements.card) elements.card.open = true;
+      renderTable();
+      renderSelectedEditor();
+      if (added) scheduleApply(message);
+      showMessage(message);
+      return result;
     }
 
     function exportRenameObject() {
@@ -674,6 +703,7 @@
     return {
       loadFiles,
       selectDomain,
+      addToColorList,
       getState: () => state
     };
   }

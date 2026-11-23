@@ -8,7 +8,7 @@
   <title>Gene Neighborhood Editor</title>
   <link rel="stylesheet" href="../shared/styles.css?v=3.7.0">
   <link rel="stylesheet" href="./editor.css?v=1.1.0">
-  <link rel="stylesheet" href="./analysis.css?v=1.1.1">
+  <link rel="stylesheet" href="./analysis.css?v=1.2.0">
 </head>
 <body>
   <header class="app-header">
@@ -341,6 +341,12 @@
           <p class="analysis-selection" id="analysisSelection" aria-live="polite"></p>
           <p class="analysis-note" id="analysisCommunitySummary"></p>
           <label class="nbh-editor-field analysis-community-search"><span>Find a community or connector domain</span><input id="analysisCommunitySearch" type="search" placeholder="Search connector domains…"></label>
+          <div class="analysis-actions analysis-connector-actions">
+            <button class="nbh-editor-button is-primary" id="analysisAddConnectorColors" type="button" disabled>Add selected to color list</button>
+            <button class="nbh-editor-button" id="analysisClearConnectorSelection" type="button" disabled>Clear connector selection</button>
+            <span class="analysis-note" id="analysisConnectorSelectionCount" aria-live="polite">0 connector domains selected</span>
+          </div>
+          <p class="analysis-note">Select connector domains below, then add them to Domain curation. Existing colors and other selections are preserved. Clearing these checkboxes does not remove domains from the color list.</p>
           <div id="analysisCommunities" class="analysis-communities" aria-label="Communities and connector domains"></div>
           <div class="analysis-pagination"><button class="nbh-editor-button" id="analysisCommunityPrev" type="button">Previous</button><span id="analysisCommunityPage" aria-live="polite"></span><button class="nbh-editor-button" id="analysisCommunityNext" type="button">Next</button></div>
           <details class="analysis-advanced" id="analysisDetailedResults"><summary>Detailed results: network, neighborhoods, order and alternatives</summary>
@@ -394,9 +400,9 @@
   <script src="./vendor/jszip.min.js"></script>
   <script src="./config.js?v=3.7.0"></script>
   <script src="../shared/neighborhood-viewer.js?v=3.7.0"></script>
-  <script src="./domain-curation.js?v=1.3.1"></script>
+  <script src="./domain-curation.js?v=1.4.0"></script>
   <script src="./analysis-communities.js?v=1.1.0"></script>
-  <script src="./analysis.js?v=1.2.0"></script>
+  <script src="./analysis.js?v=1.3.0"></script>
   <script>
     (async () => {
       await window.NeighborhoodViewer.init({
@@ -409,9 +415,11 @@
         spacer: 'nbhSpacer', rowLayer: 'nbhRowLayer', tooltipHost: 'nbhTooltipHost', errorBox: 'nbhError'
       });
 
-      window.neighborhoodAnalysisEditor = window.NeighborhoodAnalysisEditor.init(window.NeighborhoodViewer);
+      window.neighborhoodAnalysisEditor = window.NeighborhoodAnalysisEditor.init(window.NeighborhoodViewer, {
+        addToColorList: rawIds => window.neighborhoodDomainEditor.addToColorList(rawIds)
+      });
 
-      window.NeighborhoodDomainEditor.init({
+      window.neighborhoodDomainEditor = window.NeighborhoodDomainEditor.init({
         tsvChoose: 'chooseTsvButton', renameChoose: 'chooseRenameButton', colorChoose: 'chooseColorButton',
         tsvClear: 'clearTsvButton', renameClear: 'clearRenameButton', colorClear: 'clearColorButton',
         tsvInput: 'tsvFileInput', renameInput: 'renameFileInput', colorInput: 'colorFileInput',
