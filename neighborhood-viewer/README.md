@@ -464,6 +464,8 @@ Only names that differ from their original identifiers are included in the renam
 
 ## Analyze neighborhoods (editor only)
 
+The editor analysis workspace 1.1.0 presents a community-first Jaccard workflow: choose the neighborhood scope, a minimum similarity (default 0.33), and Louvain or Leiden-style refinement. All threshold-qualified edges are retained. The main output lists connector domains for each community; select **Show neighborhoods** to filter the viewer to its members. Neighborhood IDs and supporting edges remain in saved sessions and exports. Detailed network, order and alternative-domain views are collapsed. See [analysis methods and algorithm limits](editor/ANALYSIS.md).
+
 Version 3.6.0 adds a collapsed **Analyze neighborhoods** workspace in the editor. Load your input, adjust the continuity and text filters, open the panel and run the analysis. Choose the filtered cohort or all loaded query-connected segments. Results link back to the corresponding neighborhood rows without rewriting Include/Exclude filters.
 
 The workspace provides binary or abundance-weighted Jaccard similarity, a sparse similarity network with explicit grouping rules, complete and local order patterns, and exploratory candidate alternative-domain pairs with coexistence exceptions. Gene order is oriented relative to the query, while domain order within each protein is retained. Original domain IDs are the default; curated display-name grouping is an explicit option with its mapping recorded.

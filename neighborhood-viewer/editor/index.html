@@ -8,7 +8,7 @@
   <title>Gene Neighborhood Editor</title>
   <link rel="stylesheet" href="../shared/styles.css?v=3.7.0">
   <link rel="stylesheet" href="./editor.css?v=1.1.0">
-  <link rel="stylesheet" href="./analysis.css?v=1.0.0">
+  <link rel="stylesheet" href="./analysis.css?v=1.1.1">
 </head>
 <body>
   <header class="app-header">
@@ -281,28 +281,33 @@
     </section>
 
     <details class="nbh-curation-card analysis-card" id="analysisCard">
-      <summary><span>Analyze neighborhoods</span><span class="nbh-curation-summary" id="analysisSummary">Load data to explore similarity, order and alternatives</span></summary>
+      <summary><span>Analyze neighborhoods</span><span class="nbh-curation-summary" id="analysisSummary">Load data to find neighborhood communities</span></summary>
       <div class="analysis-content">
-        <p class="analysis-intro">Compare query-centered neighborhoods, inspect conserved gene order, and find candidate alternative domains. Analyses run locally when you choose <strong>Run analysis</strong>.</p>
+        <p class="analysis-intro">Compare neighborhoods by their domain sets, build a Jaccard similarity network, and find the domains connecting each community. Gene order and strand do not affect Jaccard. Each neighborhood must retain at least 2 distinct domains after excluding TM, signal markers and unknown annotations (?).</p>
         <fieldset class="analysis-setup" id="analysisSetup">
-          <legend>1. Choose what to compare</legend>
+          <legend>1. Build neighborhood communities</legend>
           <div class="analysis-fields">
             <label class="nbh-editor-field"><span>Neighborhoods</span><select id="analysisScope"><option value="visible">Current filtered view</option><option value="all">All loaded neighborhoods</option></select><small>Both use the current direction and distance rules. “All” ignores Include / Exclude.</small></label>
-            <label class="nbh-editor-field"><span>Domain identity</span><select id="analysisRepresentation"><option value="raw">Original domain IDs</option><option value="display">Renamed domain groups</option></select><small>Renamed groups merge identical display names. Original IDs remain in exports.</small></label>
-            <label class="nbh-editor-field"><span>Similarity</span><select id="analysisMetric"><option value="jaccard">Jaccard · presence / absence</option><option value="weighted">Count-weighted Jaccard · domain occurrences</option></select><small>Order is measured separately from composition.</small></label>
-            <label class="nbh-editor-field"><span>Minimum shared similarity</span><input id="analysisThreshold" type="number" min="0" max="1" step="0.05" value="0.5"><small>Keep links at or above this score, from 0 to 1.</small></label>
+            <label class="nbh-editor-field"><span>Minimum Jaccard</span><input id="analysisThreshold" type="number" min="0" max="1" step="0.01" value="0.33"><small>Every pair at or above this value forms an edge. Nothing below it is connected.</small></label>
+            <label class="nbh-editor-field"><span>Community algorithm</span><select id="analysisGrouping"><option value="louvain">Louvain</option><option value="leiden">Leiden-style refinement</option><option value="components" hidden>Connected components (legacy)</option><option value="label-propagation" hidden>Label propagation (legacy)</option></select></label>
           </div>
-          <label class="analysis-check"><input id="analysisExcludeQuery" type="checkbox" checked> Exclude query genes from composition and alternative-domain tests</label>
-          <p class="analysis-note">Query genes stay in order patterns. Every segment counts once even when it contains multiple queries; the first query after orienting the neighborhood anchors its positions. Opposing query directions are flagged.</p>
           <details class="analysis-advanced"><summary>Advanced settings</summary>
             <div class="analysis-fields">
-              <label class="nbh-editor-field"><span>Minimum distinct domains</span><input id="analysisMinDomains" type="number" min="1" max="10000" step="1" value="1"></label>
-              <label class="nbh-editor-field"><span>Maximum neighbors per node</span><input id="analysisTopK" type="number" min="1" max="100" step="1" value="10"><small>Union of each node’s strongest links; final degree can exceed this value.</small></label>
-              <label class="nbh-editor-field"><span>Group method</span><select id="analysisGrouping"><option value="components">Connected components</option><option value="label-propagation">Deterministic label propagation</option></select></label>
+              <label class="nbh-editor-field"><span>Resolution</span><input id="analysisResolution" type="number" min="0.05" max="10" step="0.05" value="1"><small>Adjust the scale of communities; higher values generally favor smaller communities.</small></label>
+              <label class="nbh-editor-field"><span>Seed</span><input id="analysisSeed" type="number" min="0" max="2147483647" step="1" value="42"></label>
+              <label class="nbh-editor-field"><span>Iterations</span><input id="analysisIterations" type="number" min="1" max="250" step="1" value="20"></label>
+            <label class="nbh-editor-field"><span>Domain identity</span><select id="analysisRepresentation"><option value="raw">Original domain IDs</option><option value="display">Renamed domain groups</option></select><small>Renamed groups merge identical display names. Original IDs remain in exports.</small></label>
+            </div>
+          <label class="analysis-check"><input id="analysisExcludeQuery" type="checkbox"> Exclude query genes from composition and alternative-domain tests</label>
+            <p class="analysis-note">All threshold-qualified pairs are retained and weighted by Jaccard. Leiden-style refinement uses connectivity refinement, rather than the full stochastic reference implementation.</p>
+            <div class="analysis-fields">
+              <label class="nbh-editor-field"><span>Minimum distinct domains</span><input id="analysisMinDomains" type="number" min="2" max="10000" step="1" value="2"></label>
+            <label hidden><span>Similarity</span><select id="analysisMetric"><option value="jaccard">Jaccard · presence / absence</option><option value="weighted">Count-weighted Jaccard · domain occurrences</option></select><small>Order is measured separately from composition.</small></label>
+              <input id="analysisTopK" type="hidden" value="10">
               <label class="nbh-editor-field"><span>Overlapping regions</span><select id="analysisOverlap"><option value="representative">Use one representative per overlap group</option><option value="keep">Keep separate overlapping observations</option></select></label>
               <label class="nbh-editor-field"><span>Genes on each side of query</span><input id="analysisWindow" type="number" min="1" max="20" step="1" value="2"><small>Window size for query-centered order patterns.</small></label>
             </div>
-            <label class="analysis-check"><input id="analysisAlternativesEnabled" type="checkbox" checked> Analyze candidate alternative domains</label>
+            <label class="analysis-check"><input id="analysisAlternativesEnabled" type="checkbox"> Analyze candidate alternative domains</label>
             <div class="analysis-fields">
               <label class="nbh-editor-field"><span>Minimum neighborhoods per domain</span><input id="analysisMinSupport" type="number" min="1" max="1000000" step="1" value="5"></label>
               <label class="nbh-editor-field"><span>Minimum expected coexistence</span><input id="analysisMinExpected" type="number" min="0" max="1000000" step="0.5" value="1"></label>
@@ -331,8 +336,13 @@
         </div>
         <p class="analysis-stale" id="analysisStale" role="status" hidden>These results use earlier data or settings. Run the analysis again before selecting neighborhoods.</p>
         <section id="analysisResults" hidden aria-label="Neighborhood analysis results">
-          <div class="analysis-result-head"><h2>2. Explore results</h2><div class="analysis-actions"><button class="nbh-editor-button" id="analysisClearFocus" type="button" disabled>Clear selection</button><button class="nbh-editor-button" id="analysisSave" type="button">Save analysis JSON</button><button class="nbh-editor-button" id="analysisExport" type="button">Export results ZIP</button></div></div>
+          <div class="analysis-result-head"><h2>2. Community connector domains</h2><div class="analysis-actions"><button class="nbh-editor-button" id="analysisClearFocus" type="button" disabled>Clear selection</button><button class="nbh-editor-button" id="analysisSave" type="button">Save analysis JSON</button><button class="nbh-editor-button" id="analysisExport" type="button">Export results ZIP</button></div></div>
           <p class="analysis-selection" id="analysisSelection" aria-live="polite"></p>
+          <p class="analysis-note" id="analysisCommunitySummary"></p>
+          <label class="nbh-editor-field analysis-community-search"><span>Find a community or connector domain</span><input id="analysisCommunitySearch" type="search" placeholder="Search connector domains…"></label>
+          <div id="analysisCommunities" class="analysis-communities" aria-label="Communities and connector domains"></div>
+          <div class="analysis-pagination"><button class="nbh-editor-button" id="analysisCommunityPrev" type="button">Previous</button><span id="analysisCommunityPage" aria-live="polite"></span><button class="nbh-editor-button" id="analysisCommunityNext" type="button">Next</button></div>
+          <details class="analysis-advanced" id="analysisDetailedResults"><summary>Detailed results: network, neighborhoods, order and alternatives</summary>
           <div class="analysis-tabs" id="analysisTabs" role="tablist" aria-label="Analysis views">
             <button type="button" id="analysisTabOverview" role="tab" aria-controls="analysisPanel" aria-selected="true" data-analysis-tab="overview">Overview</button>
             <button type="button" id="analysisTabNetwork" role="tab" aria-controls="analysisPanel" aria-selected="false" tabindex="-1" data-analysis-tab="network">Similarity network</button>
@@ -353,7 +363,8 @@
             <div class="analysis-pagination"><button class="nbh-editor-button" id="analysisPrev" type="button">Previous</button><span id="analysisPageInfo" aria-live="polite"></span><button class="nbh-editor-button" id="analysisNext" type="button">Next</button></div>
             <section id="analysisDetail" class="analysis-detail" hidden aria-label="Selected result details"></section>
           </section>
-          <details class="analysis-methods"><summary>Methods, limits and provenance</summary><div id="analysisProvenance"></div><p>These exploratory associations identify candidate alternatives, not a direction of evolutionary replacement or proof of functional equivalence. A missing annotation is not evidence of biological absence. Related strains and overlapping samples can inflate support; inspect metadata and independent lineages.</p><p>Network links use Jaccard intersection / union, or weighted Jaccard from domain occurrence counts. Grouping uses the retained sparse graph. The circular drawing shows group membership; distance between nodes has no biological meaning. Order patterns preserve gene boundaries, strand relative to the query, and unknown genes. Compact inputs provide order, not measured genomic distance.</p><p>Alternative-domain tests use one-sided Fisher depletion and Benjamini–Hochberg adjustment across the eligible tested pairs. Context evidence compares query-relative positions and neighboring gene architectures separately from statistical association.</p></details>
+          </details>
+          <details class="analysis-methods"><summary>Methods, limits and provenance</summary><div id="analysisProvenance"></div><p>Communities describe shared domain composition. Connector domains support internal edges and can appear in more than one community; they need not occur in every member. Neighborhood identities, edge scores and connector support are retained in saved sessions and exports.</p><p>New runs use domain presence Jaccard (intersection / union). Every pair meeting the threshold forms an undirected edge weighted by Jaccard. Connector domains are shared by endpoints of internal community edges; they need not occur in every member. Private domains and cross-community edges do not contribute. Legacy sessions may use top-neighbor pruning or count-weighted similarity, as recorded in their settings. The circular drawing shows group membership; distance between nodes has no biological meaning. Order patterns preserve gene boundaries, strand relative to the query, and unknown genes. Compact inputs provide order, not measured genomic distance.</p><p>Alternative-domain tests use one-sided Fisher depletion and Benjamini–Hochberg adjustment across the eligible tested pairs. Context evidence compares query-relative positions and neighboring gene architectures separately from statistical association.</p></details>
         </section>
       </div>
     </details>
@@ -382,8 +393,9 @@
   <script src="./vendor/jszip.min.js"></script>
   <script src="./config.js?v=3.7.0"></script>
   <script src="../shared/neighborhood-viewer.js?v=3.7.0"></script>
-  <script src="./domain-curation.js?v=1.3.0"></script>
-  <script src="./analysis.js?v=1.0.0"></script>
+  <script src="./domain-curation.js?v=1.3.1"></script>
+  <script src="./analysis-communities.js?v=1.1.0"></script>
+  <script src="./analysis.js?v=1.1.1"></script>
   <script>
     (async () => {
       await window.NeighborhoodViewer.init({

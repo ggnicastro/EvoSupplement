@@ -66,3 +66,15 @@
 .analysis-provenance-grid pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 @media(max-width:1000px) { .analysis-fields { grid-template-columns: repeat(2,minmax(140px,1fr)); } }
 @media(max-width:600px) { .analysis-content { padding: 0 10px 12px; } .analysis-fields { grid-template-columns: 1fr; } .analysis-metrics { grid-template-columns: repeat(2,1fr); } .analysis-result-head { align-items: start; } .analysis-network-tools { display: block; } .analysis-graph { height: 300px; } .analysis-provenance-grid { grid-template-columns: 1fr; } }
+
+/* Community-first results: member identities stay in the saved analysis. */
+.analysis-community-search { max-width: 540px; margin: 12px 0; }
+.analysis-communities { display: grid; gap: 10px; margin-top: 12px; }
+.analysis-community { border: 1px solid #dce3ed; border-radius: 9px; background: #fafbfd; padding: 14px; }
+.analysis-community.is-selected { border-color: #3672c5; background: #f0f6ff; }
+.analysis-community h3 { margin: 0 0 8px; font-size: 13px; }
+.analysis-connector-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.analysis-connector { border-radius: 5px; background: #e8effa; color: #243b60; padding: 4px 7px; font-size: 12px; overflow-wrap: anywhere; }
+.analysis-community .nbh-editor-button { margin-top: 8px; }
+.analysis-setup > .analysis-fields { grid-template-columns: repeat(3,minmax(140px,1fr)); }
+@media(max-width:700px) { .analysis-setup > .analysis-fields { grid-template-columns: 1fr; } }

@@ -5,13 +5,17 @@ Analysis is available only in the Neighborhood **editor**. Published figure page
 ## Quick start
 
 1. Load a standard neighborhood TSV or compact architecture input, with optional rename and color YAML files.
-2. Set the viewer's direction, intergenic-distance, Include, and Exclude filters.
-3. Expand **Analyze neighborhoods**. Choose **Current filtered view** or **All loaded neighborhoods**, original domain IDs or renamed groups, and a similarity method.
-4. Choose **Run analysis**. Results are calculated explicitly, in a worker, with progress and Cancel. Cancelling or encountering a calculation error retains earlier results.
-5. Explore **Overview**, **Similarity network**, **Order patterns**, and **Alternative domains**. Tables show 20 results per page and have search and sorting. Select a result to inspect its representative neighborhoods in the viewer below; **Clear selection** restores the viewer's original filtered rows.
-6. Use **Save analysis JSON** for a reopenable session, or **Export results ZIP** for the complete session and tabular outputs. The existing **Download package ZIP** also includes `analysis-session.json` when an analysis is available.
+2. Set the viewer's continuity and text filters, then open **Analyze neighborhoods**.
+3. Choose **Neighborhoods** (filtered or all loaded), **Minimum Jaccard** (default **0.33**), and **Community algorithm** (Louvain or Leiden-style refinement).
+4. Click **Run analysis**. Computation runs locally in a cancellable worker. Earlier results remain available if a run fails.
+5. Read the community cards: **Community 1: A, B, G**, for example. These are connector domain IDs, not neighborhood IDs. **Show neighborhoods** filters the viewer to the analyzed members of that community. **Clear selection** restores the previous viewer filters.
+6. **Save analysis JSON** preserves the input snapshot, settings, memberships, scores and results. **Export results ZIP** includes a simple community list as well as complete tables. The existing package ZIP also includes the analysis session.
 
-The editor must be served over local HTTP or a hosted site for its worker to run reliably. Opening the editor HTML directly as a `file:` URL can block workers; the interface explains this instead of falling back to an unresponsive computation on the page.
+The main result does not list individual neighborhoods. Their identities and edge scores remain in the saved analysis and exports for filtering and reproducibility. Isolated neighborhoods remain saved but do not generate connector lists. Search and pagination apply to the community cards. Network drawings, individual neighborhoods, order patterns and alternative-domain tables are available under the collapsed **Detailed results** section.
+
+**Advanced settings** contains resolution (default 1), random seed (42), iteration limit (20), domain identity, query exclusion, overlap handling and work limits. Every new run requires at least **two distinct composition domains** per neighborhood after marker/unknown removal and any query exclusion. The minimum can be increased but not lowered below two. Repeated copies of one domain do not qualify. TM/TMS and SIG/SIF identifiers, configured marker features and unknown annotations such as `?` never count toward this minimum. The rule is enforced in the computational core, including reruns of older sessions. Query domains are included by default; query exclusion is explicit. Optional alternative-domain tests are off by default. Existing continuity filters still determine which genes enter an analysis observation, but gene strand and order do not affect presence Jaccard.
+
+The editor must be served over local HTTP or a hosted site for its worker to run reliably. Opening the HTML as a `file:` URL can block workers. No calculation silently falls back to an unresponsive main-thread run.
 
 ## Input, scope and observation units
 
@@ -25,16 +29,26 @@ Compact input preserves ordered genes. Synthetic compact coordinates are not tre
 
 **Exclude query genes** removes every query gene from composition and alternative-domain presence tests, while retaining query genes in order patterns and context. It does not globally remove a domain merely because another query protein contains that domain.
 
-## Similarity and groups
+## Similarity, communities and connectors
 
-- **Jaccard** uses domain presence: intersection size divided by union size.
-- **Count-weighted Jaccard** uses domain occurrence counts: the sum of per-domain minimum counts divided by the sum of per-domain maximum counts. Repeated copies within one protein count separately.
-- Renamed-group mode merges identical display labels before calculation. Exported domain mappings retain the original IDs.
-- Composition similarity and order similarity are separate results. Order similarity compares sets of annotated adjacent-gene signatures, preserving gene boundaries and orientations.
-- Links must pass the threshold and the per-node strongest-neighbor rule. The retained graph is the **union** of each node's strongest links, so incoming selections can make a node's final degree larger than the configured neighbor count.
-- Groups are either connected components or deterministic label-propagation groups of the retained sparse graph. They depend on the similarity threshold and sparsification settings; a connected component need not contain only mutually high-scoring pairs.
+New runs use **binary presence Jaccard**: the number of shared domain identities divided by the number of distinct identities across both neighborhoods. Repeated copies, gene order and strand do not change this score. Original domain IDs are the default; advanced renamed-group mode merges identical display labels before comparison and retains the original-ID mapping.
 
-The network drawing shows up to 200 nodes and 800 links and reports the displayed counts. Choose a group to inspect a smaller part. Its circular position has no biological meaning. All computed nodes, groups and retained links are available in tables and exports. Nodes are keyboard-focusable and Enter/Space selects them.
+Each analyzed neighborhood is a network node. Every pair with Jaccard **greater than or equal to** the threshold forms one undirected edge, weighted by its Jaccard score. Scores are not rounded before thresholding. **All qualifying edges are retained**, without top-neighbor pruning. Comparison and edge budgets stop the run with an explanation rather than returning a partial graph.
+
+The selectable algorithms are:
+
+- **Louvain:** multilevel weighted modularity optimization.
+- **Leiden-style refinement:** local moving, connected refinement and multilevel aggregation, using the existing Network Viewer implementation. This is a connectivity-refined variant, **not the full stochastic reference Leiden implementation**; the interface and provenance identify it accordingly.
+
+Both expose resolution, seed and iteration limit. Community membership is reproducible for the same normalized data, parameters and implementation. Members of one community need not all exceed the threshold with every other member: the threshold controls individual edges, while community detection partitions the whole weighted graph.
+
+A **connector domain** is shared by both endpoints of at least one edge internal to a community. The saved result records its number of supporting internal edges, number of distinct supporting neighborhoods, and those neighborhood identities. A domain found only in one neighborhood is not a connector. Shared domains supporting only cross-community edges do not enter either community's connector list on that basis. The same domain may connect more than one community. Connectors do not need to occur in every community member, and the list is distinct from the inventory of all domains in that community.
+
+Communities with fewer than two connector domains are omitted from the simple list; all neighborhoods, including isolates and any singleton communities, remain in the saved results. Selecting a card shows its analyzed representative neighborhoods. Overlap-linked source rows remain available in detailed results and exports.
+
+Legacy sessions retain their recorded count-weighted or presence similarity, connected-components/label-propagation grouping, and top-K pruning. The simple connector list is reconstructed from their saved internal edges and labelled as a legacy result. Loading a session does not reinterpret it as a new complete-threshold analysis.
+
+The optional network drawing shows at most 200 nodes and 800 links and reports that display limit. It does not change the computed graph or community memberships. Circular positions carry no biological meaning.
 
 ## Gene order
 
@@ -64,7 +78,8 @@ The results ZIP includes:
 
 - `analysis-session.json`: snapshot, settings, provenance and complete computed results.
 - `neighborhoods.tsv`: analysis observations, composition counts and source links.
-- `groups.tsv` and `similarity-links.tsv`: all computed groups and retained links.
+- `communities.txt` and `communities.tsv`: simple community-to-connector lists, with no neighborhood ID lists.
+- `groups.tsv` and `similarity-links.tsv`: complete community membership, all-domain inventories, connector support and retained links.
 - `order-*.tsv`: complete and local order patterns with membership, counts and occurrences.
 - `alternative-domains.tsv`: contingency counts, support, p/q values, effect measures and context-assessment status.
 - `domain-mapping.tsv`: analysis features mapped to original IDs and display labels.

@@ -194,7 +194,7 @@
     }
 
     function scopedRecords() {
-      const records = Array.from(state.records.values());
+      const records = Array.from(state.records.values()).filter(record => clean(record.rawName) !== '?');
       return currentScope() === 'visible'
         ? records.filter(record => (state.visibleStats.get(record.rawName)?.occurrences || 0) > 0)
         : records;
@@ -483,7 +483,7 @@
       const scope = currentScope();
       const requested = Math.max(1, Math.min(250, Number(elements.topCount?.value) || 10));
       const candidates = Array.from(state.records.values())
-        .filter(record => !record.marker && metricValue(record, metric, scope) > 0)
+        .filter(record => clean(record.rawName) !== '?' && !record.marker && metricValue(record, metric, scope) > 0)
         .sort((a, b) => metricValue(b, metric, scope) - metricValue(a, metric, scope) || a.rawName.localeCompare(b.rawName))
         .slice(0, requested);
       const preserve = elements.preserveExisting?.checked !== false;
