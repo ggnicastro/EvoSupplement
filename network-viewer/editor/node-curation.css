@@ -13,6 +13,9 @@
 }
 .nnc-summary-count { color: var(--muted); font-size: 12px; font-weight: 500; }
 .nnc-body { padding: 0 18px 16px; }
+.nnc-frequency { margin-bottom: 16px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.nnc-frequency input[type="number"] { width: 110px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel); color: var(--ink); }
+.nnc-frequency .nnc-description:last-child { margin-bottom: 0; }
 .nnc-description { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .nnc-toolbar, .nnc-bulk, .nnc-actions, .nnc-pagination {
   display: flex;

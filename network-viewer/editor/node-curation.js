@@ -32,6 +32,40 @@
     if (!host) return { reload() {} };
     host.replaceChildren();
 
+    const frequencyPanel = element('section', 'nnc-frequency');
+    frequencyPanel.setAttribute('aria-label', 'Include by input frequency');
+    frequencyPanel.append(element('strong', '', 'Include by input frequency'));
+    const frequencyControls = element('div', 'nnc-toolbar');
+    const unitLabel = element('label', 'control-field');
+    unitLabel.append(element('span', '', 'Count by'));
+    const frequencyUnit = element('select');
+    frequencyUnit.id = 'networkIncludeFrequencyUnit';
+    [['blocks', 'Neighborhoods'], ['proteins', 'Proteins']].forEach(([value, text]) => {
+      const option = element('option', '', text);
+      option.value = value;
+      frequencyUnit.append(option);
+    });
+    unitLabel.append(frequencyUnit);
+    const minimumLabel = element('label', 'control-field');
+    minimumLabel.append(element('span', '', 'Minimum frequency'));
+    const frequencyMinimum = element('input');
+    frequencyMinimum.id = 'networkIncludeFrequencyMinimum';
+    frequencyMinimum.type = 'number';
+    frequencyMinimum.min = '1';
+    frequencyMinimum.step = '1';
+    frequencyMinimum.value = '5';
+    minimumLabel.append(frequencyMinimum);
+    const frequencyApply = element('button', 'action-button', 'Apply frequency threshold');
+    frequencyApply.id = 'networkApplyIncludeFrequency';
+    frequencyApply.type = 'button';
+    frequencyControls.append(unitLabel, minimumLabel, frequencyApply);
+    frequencyPanel.append(frequencyControls);
+    const frequencyNote = element('p', 'nnc-description');
+    frequencyNote.setAttribute('aria-live', 'polite');
+    frequencyPanel.append(frequencyNote);
+    frequencyPanel.append(element('p', 'nnc-description', 'On load, this rule sets Include only where the supplied YAML has no Include value. YAML Include values always take priority. Changing these controls affects the next load; it does not change the current network. Apply frequency threshold replaces Include in the draft for all names with known frequency, including YAML and manual choices. Review the Node editor, then click Apply changes. Names without frequency evidence keep their current Include.'));
+    host.append(frequencyPanel);
+
     const panel = element('details', 'network-node-curation');
     const summary = element('summary', '', 'Node editor');
     const summaryCount = element('span', 'nnc-summary-count');
@@ -147,6 +181,14 @@
       include.textContent = `Include matching (${number(matches)})`;
       exclude.textContent = `Exclude matching (${number(matches)})`;
       search.disabled = sort.disabled = busy || !entries.length;
+      const available = entries.some(entry => entry[frequencyUnit.value] != null);
+      frequencyApply.disabled = busy || !available;
+      frequencyUnit.disabled = frequencyMinimum.disabled = busy;
+      frequencyNote.textContent = !entries.length
+        ? 'Default: at least 5 distinct neighborhoods. Load neighborhood input or node YAML with frequency evidence.'
+        : available
+          ? 'Counts use the complete loaded input and the union of evidence for merged display names. Relationship and edge-count filters do not rewrite Include.'
+          : 'This input has no frequency evidence for the selected unit. The threshold is unavailable; edge counts cannot substitute for neighborhood or protein frequency.';
     }
 
     function syncColor(entry) {
@@ -273,6 +315,24 @@
     }
     include.addEventListener('click', () => bulkInclude(true));
     exclude.addEventListener('click', () => bulkInclude(false));
+    function getFrequencyRule() {
+      return { unit: frequencyUnit.value, minimum: Number(frequencyMinimum.value) };
+    }
+    frequencyUnit.addEventListener('change', updateActions);
+    frequencyApply.addEventListener('click', () => {
+      try {
+        const result = adapter.thresholdEntries(entries, getFrequencyRule());
+        entries = result.entries;
+        entries.forEach(mark);
+        panel.open = true;
+        page = 0;
+        renderRows();
+        messageText(`Frequency threshold evaluated ${number(result.evaluated)} names across the complete input. Review the draft and click Apply changes to update the network.`);
+      } catch (error) {
+        messageText(error.message || 'Could not apply the frequency threshold.', true);
+        panel.open = true;
+      }
+    });
     reset.addEventListener('click', () => {
       reload();
       messageText('Draft reset to the applied node settings.');
@@ -303,7 +363,7 @@
     });
 
     reload();
-    return { reload };
+    return { reload, getFrequencyRule };
   }
 
   global.NetworkNodeCuration = { init };
