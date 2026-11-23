@@ -1,7 +1,7 @@
 (function (global) {
   'use strict';
 
-  const VERSION = '1.4.1';
+  const VERSION = '1.5.0';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_CONFIG = {
     title: 'Network Viewer',
@@ -560,9 +560,10 @@
     function appendEvidence(item) {
       if (!item || !cleanText(item.id)) return;
       const key = normalizeToken(item.id);
-      if (!rawEvidence.has(key)) rawEvidence.set(key, { id: item.id, blocks: new Set(), proteins: new Set(), occurrences: new Set() });
+      if (!rawEvidence.has(key)) rawEvidence.set(key, { id: item.id, blocks: new Set(), proteins: new Set(), occurrences: new Set(), fields: new Set() });
       const evidence = rawEvidence.get(key);
       ['blocks', 'proteins', 'occurrences'].forEach((field) => {
+        if (item[field] != null) evidence.fields.add(field);
         (item[field] || []).forEach((value) => evidence[field].add(String(value)));
       });
     }
@@ -586,13 +587,15 @@
       const node = allCanonicalNodes.get(resolveEndpoint(item.id));
       node.referencedInData = true;
       node.hasFrequency = true;
+      if (!node.frequencyFields) node.frequencyFields = new Set(item.fields);
+      else node.frequencyFields.forEach((field) => { if (!item.fields.has(field)) node.frequencyFields.delete(field); });
       ['blocks', 'proteins', 'occurrences'].forEach((field) => item[field].forEach((value) => node.evidence[field].add(value)));
     });
     allCanonicalNodes.forEach((node) => {
       if (node.hasFrequency) {
-        node.blockFrequency = node.evidence.blocks.size;
-        node.proteinFrequency = node.evidence.proteins.size;
-        node.occurrenceFrequency = node.evidence.occurrences.size;
+        node.blockFrequency = node.frequencyFields.has('blocks') ? node.evidence.blocks.size : null;
+        node.proteinFrequency = node.frequencyFields.has('proteins') ? node.evidence.proteins.size : null;
+        node.occurrenceFrequency = node.frequencyFields.has('occurrences') ? node.evidence.occurrences.size : null;
       }
     });
 
@@ -628,8 +631,9 @@
       const evidence = rawEvidence.get(normalized);
       return { id, label: node ? node.label : id, included: entry ? entry.included : (yamlEntries.length ? Boolean(node && node.yamlIncluded) : true),
         color: raw && /^#[0-9a-f]{6}$/i.test(raw.Color || '') ? raw.Color : '',
-        blocks: evidence ? evidence.blocks.size : null, proteins: evidence ? evidence.proteins.size : null,
-        occurrences: evidence ? evidence.occurrences.size : null };
+        blocks: evidence && evidence.fields.has('blocks') ? evidence.blocks.size : null,
+        proteins: evidence && evidence.fields.has('proteins') ? evidence.proteins.size : null,
+        occurrences: evidence && evidence.fields.has('occurrences') ? evidence.occurrences.size : null };
     }).sort((a, b) => a.id.localeCompare(b.id));
 
     const totalAdjacency = new Map(relevantNodes.map((node) => [node.id, new Set()]));
@@ -680,6 +684,25 @@
     };
   }
 
+
+  function frequencyNodeEdits(graph, rule, inputNodeText, config, preserveYaml = false) {
+    const field = rule.unit === 'proteins' ? 'proteinFrequency' : 'blockFrequency';
+    const minimum = Number(rule.minimum);
+    if (!Number.isSafeInteger(minimum) || minimum < 1) throw new Error('Minimum frequency must be a positive whole number.');
+    const supplied = preserveYaml && cleanText(inputNodeText) ? parseFlatYaml(inputNodeText) : {};
+    const protectedNames = new Set(Object.entries(supplied)
+      .filter(([, raw]) => raw && typeof raw === 'object' && Object.prototype.hasOwnProperty.call(raw, config.nodeFields.include))
+      .map(([id]) => normalizeToken(id)));
+    const byLabel = new Map(graph.nodes.map(node => [normalizeToken(node.label), node]));
+    let evaluated = 0;
+    const entries = graph.metadata.curationEntries.map(entry => {
+      const node = byLabel.get(normalizeToken(entry.label));
+      if (protectedNames.has(normalizeToken(entry.id)) || !node || node[field] == null) return { ...entry };
+      evaluated += 1;
+      return { ...entry, included: node[field] >= minimum };
+    });
+    return { entries, evaluated };
+  }
 
   function makeCommunityGraph(nodeCount, edgeTuples) {
     const adjacency = Array.from({ length: nodeCount }, () => new Map());
@@ -1154,6 +1177,7 @@
       lines.push(`  Notes: ${yamlQuoted(entry.notes)}`);
       if (entry.color) lines.push(`  Color: ${yamlQuoted(entry.color)}`);
       if (entry.evidence) ['blocks', 'proteins', 'occurrences'].forEach((field) => {
+        if (!entry.evidence.fields.has(field)) return;
         lines.push(`  Evidence_${field}: ${yamlQuoted(JSON.stringify(Array.from(entry.evidence[field])))}`);
       });
     });
@@ -2396,7 +2420,16 @@
     showOverlay('Building network', 'Unifying display names and summing undirected relationships…', true);
     await new Promise((resolve) => setTimeout(resolve, 20));
     if (generation !== state.loadGeneration) return;
-    const graph = buildGraph(edgeText, nodeText, colorText, Object.assign({}, state.config, { nodeEvidence: options.nodeEvidence || [] }));
+    const graphConfig = Object.assign({}, state.config, { nodeEvidence: options.nodeEvidence || [] });
+    let graph = buildGraph(edgeText, nodeText, colorText, graphConfig);
+    let frequencyApplied = false;
+    if (state.curation) {
+      const result = frequencyNodeEdits(graph, state.curation.getFrequencyRule(), nodeText, state.config, true);
+      if (result.evaluated) {
+        graph = buildGraph(edgeText, nodeText, colorText, Object.assign({}, graphConfig, { nodeEdits: result.entries }));
+        frequencyApplied = true;
+      }
+    }
     state.sourceUrls = options.sourceUrls;
     state.localNames = options.localNames;
     state.graph = graph;
@@ -2414,7 +2447,7 @@
     if (state.conversion) state.threshold = 1;
     state.showLabels = Boolean(state.config.defaultShowLabels);
     state.showIsolates = Boolean(state.config.defaultShowIsolates);
-    state.onlyIncluded = graph.metadata.hasNodeYaml && state.config.defaultOnlyIncluded !== false;
+    state.onlyIncluded = graph.metadata.hasNodeYaml && (frequencyApplied || state.config.defaultOnlyIncluded !== false);
     state.exportIncludeIsolates = false;
     state.communityMethod = ['none', 'louvain', 'leiden'].includes(state.config.defaultCommunityMethod) ? state.config.defaultCommunityMethod : 'none';
     state.communityResolution = Math.max(0.0001, Number(state.config.defaultCommunityResolution) || 1);
@@ -2626,7 +2659,9 @@
       raw[fields.include] = entry.included ? 1 : 0;
       raw.Color = entry.color || '';
       const evidence = graph.metadata.rawEvidence.get(normalizeToken(entry.id));
-      if (evidence) ['blocks', 'proteins', 'occurrences'].forEach((field) => { raw[`Evidence_${field}`] = JSON.stringify(Array.from(evidence[field])); });
+      if (evidence) ['blocks', 'proteins', 'occurrences'].forEach((field) => {
+        if (evidence.fields.has(field)) raw[`Evidence_${field}`] = JSON.stringify(Array.from(evidence[field]));
+      });
       lines.push(`${yamlQuoted(entry.id)}:`);
       Object.entries(raw).forEach(([key, value]) => {
         if (value && typeof value === 'object') return;
@@ -2672,6 +2707,13 @@
   function setupEditorExtensions() {
     if (global.NetworkNodeCuration) state.curation = global.NetworkNodeCuration.init({
       getEntries: () => state.graph ? state.graph.metadata.curationEntries : [],
+      thresholdEntries: (entries, rule) => {
+        if (!state.graph || !state.lastInputTexts) throw new Error('Load data before applying a frequency threshold.');
+        const input = state.lastInputTexts;
+        const graph = buildGraph(input.edgeText, input.nodeText, input.colorText,
+          Object.assign({}, state.config, { nodeEvidence: state.nodeEvidence, nodeEdits: entries }));
+        return frequencyNodeEdits(graph, rule, '', state.config);
+      },
       apply: applyNodeEdits,
       download: () => downloadTextFile('nodes.curated.yaml', curatedNodeYaml(), 'text/yaml')
     });
@@ -3009,6 +3051,7 @@
     parseFlatYaml,
     parseTsv,
     buildGraph,
+    frequencyNodeEdits,
     detectCommunities,
     createCommunityGraph,
     modularityForMembership,
